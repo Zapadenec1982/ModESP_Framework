@@ -1,0 +1,10 @@
+{
+  "module": "noversion",
+  "state": {
+    "noversion.value": {
+      "type": "float",
+      "access": "read",
+      "description": "No manifest_version"
+    }
+  }
+}

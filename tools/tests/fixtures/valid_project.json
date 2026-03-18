@@ -1,0 +1,13 @@
+{
+  "project": "test_project",
+  "version": "1.0.0",
+  "modules": ["thermostat"],
+  "system": {
+    "device_name": "TestESP",
+    "pages": {
+      "dashboard": true,
+      "network": true,
+      "system": true
+    }
+  }
+}

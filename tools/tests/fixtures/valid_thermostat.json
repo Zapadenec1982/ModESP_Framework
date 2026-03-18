@@ -1,0 +1,98 @@
+{
+  "manifest_version": 1,
+  "module": "thermostat",
+  "description": "On/off thermostat with hysteresis",
+
+  "requires": [
+    {"role": "chamber_temp", "type": "sensor", "driver": "ds18b20"},
+    {"role": "compressor", "type": "actuator", "driver": "relay"}
+  ],
+
+  "state": {
+    "thermostat.temperature": {
+      "type": "float",
+      "unit": "°C",
+      "access": "read",
+      "description": "Поточна температура"
+    },
+    "thermostat.setpoint": {
+      "type": "float",
+      "unit": "°C",
+      "access": "readwrite",
+      "min": -35.0,
+      "max": 0.0,
+      "step": 0.5,
+      "default": -18.0,
+      "persist": true,
+      "description": "Уставка"
+    },
+    "thermostat.hysteresis": {
+      "type": "float",
+      "unit": "°C",
+      "access": "readwrite",
+      "min": 0.5,
+      "max": 5.0,
+      "step": 0.5,
+      "default": 1.5,
+      "persist": true,
+      "description": "Гістерезис"
+    },
+    "thermostat.compressor": {
+      "type": "bool",
+      "access": "read",
+      "description": "Стан компресора"
+    },
+    "thermostat.state": {
+      "type": "string",
+      "access": "read",
+      "enum": ["idle", "cooling", "safe_mode"],
+      "description": "Стан модуля"
+    }
+  },
+
+  "ui": {
+    "page": "Холодильна камера",
+    "icon": "snowflake",
+    "order": 1,
+    "cards": [
+      {
+        "title": "Температура",
+        "widgets": [
+          {"key": "thermostat.temperature", "widget": "gauge", "size": "large",
+           "color_zones": [{"to": -22, "color": "#3b82f6"}, {"to": -15, "color": "#22c55e"}]},
+          {"key": "thermostat.setpoint", "widget": "slider"}
+        ]
+      },
+      {
+        "title": "Стан",
+        "widgets": [
+          {"key": "thermostat.compressor", "widget": "indicator",
+           "on_label": "Працює", "off_label": "Вимкнено"},
+          {"key": "thermostat.state", "widget": "status_text"}
+        ]
+      },
+      {
+        "title": "Налаштування",
+        "group": "settings",
+        "collapsible": true,
+        "widgets": [
+          {"key": "thermostat.setpoint", "widget": "number_input"},
+          {"key": "thermostat.hysteresis", "widget": "number_input"}
+        ]
+      }
+    ]
+  },
+
+  "mqtt": {
+    "publish": ["thermostat.temperature", "thermostat.compressor", "thermostat.state"],
+    "subscribe": ["thermostat.setpoint", "thermostat.hysteresis"]
+  },
+
+  "display": {
+    "main_value": {"key": "thermostat.temperature", "format": "%.1f°C"},
+    "menu_items": [
+      {"label": "Уставка", "key": "thermostat.setpoint"},
+      {"label": "Гістерезис", "key": "thermostat.hysteresis"}
+    ]
+  }
+}

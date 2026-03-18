@@ -1,0 +1,11 @@
+{
+  "manifest_version": 1,
+  "driver": "pcf8574_relay",
+  "description": "Relay via I2C expander PCF8574",
+  "category": "actuator",
+  "hardware_type": "i2c_expander_output",
+  "requires_address": false,
+  "multiple_per_bus": true,
+  "provides": {"type": "bool"},
+  "settings": []
+}

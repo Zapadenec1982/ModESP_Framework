@@ -1,0 +1,39 @@
+{
+  "manifest_version": 1,
+  "board": "kc868_a6",
+  "version": "1.0.0",
+  "description": "Kincony KC868-A6 — 6 реле (PCF8574), 6 входів (PCF8574), I2C",
+  "i2c_buses": [
+    {"id": "i2c_0", "sda": 4, "scl": 15, "freq_hz": 100000, "label": "I2C шина"}
+  ],
+  "i2c_expanders": [
+    {"id": "relay_exp",  "bus": "i2c_0", "chip": "pcf8574", "address": "0x24", "pins": 8, "label": "Реле PCF8574"},
+    {"id": "input_exp",  "bus": "i2c_0", "chip": "pcf8574", "address": "0x22", "pins": 8, "label": "Входи PCF8574"}
+  ],
+  "expander_outputs": [
+    {"id": "relay_1", "expander": "relay_exp", "pin": 0, "active_high": false, "label": "Реле 1"},
+    {"id": "relay_2", "expander": "relay_exp", "pin": 1, "active_high": false, "label": "Реле 2"},
+    {"id": "relay_3", "expander": "relay_exp", "pin": 2, "active_high": false, "label": "Реле 3"},
+    {"id": "relay_4", "expander": "relay_exp", "pin": 3, "active_high": false, "label": "Реле 4"},
+    {"id": "relay_5", "expander": "relay_exp", "pin": 4, "active_high": false, "label": "Реле 5"},
+    {"id": "relay_6", "expander": "relay_exp", "pin": 5, "active_high": false, "label": "Реле 6"}
+  ],
+  "expander_inputs": [
+    {"id": "din_1", "expander": "input_exp", "pin": 0, "invert": true, "label": "Вхід 1"},
+    {"id": "din_2", "expander": "input_exp", "pin": 1, "invert": true, "label": "Вхід 2"},
+    {"id": "din_3", "expander": "input_exp", "pin": 2, "invert": true, "label": "Вхід 3"},
+    {"id": "din_4", "expander": "input_exp", "pin": 3, "invert": true, "label": "Вхід 4"},
+    {"id": "din_5", "expander": "input_exp", "pin": 4, "invert": true, "label": "Вхід 5"},
+    {"id": "din_6", "expander": "input_exp", "pin": 5, "invert": true, "label": "Вхід 6"}
+  ],
+  "onewire_buses": [
+    {"id": "ow_1", "gpio": 32, "label": "OneWire шина 1"},
+    {"id": "ow_2", "gpio": 33, "label": "OneWire шина 2"}
+  ],
+  "adc_channels": [
+    {"id": "adc_1", "gpio": 36, "atten": 3, "label": "ADC 1 (0-3.3V)"},
+    {"id": "adc_2", "gpio": 39, "atten": 3, "label": "ADC 2 (0-3.3V)"},
+    {"id": "adc_3", "gpio": 34, "atten": 3, "label": "ADC 3 (0-3.3V)"},
+    {"id": "adc_4", "gpio": 35, "atten": 3, "label": "ADC 4 (0-3.3V)"}
+  ]
+}

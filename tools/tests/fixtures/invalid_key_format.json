@@ -1,0 +1,11 @@
+{
+  "manifest_version": 1,
+  "module": "test",
+  "state": {
+    "temperature": {
+      "type": "float",
+      "access": "read",
+      "description": "Key without module prefix"
+    }
+  }
+}

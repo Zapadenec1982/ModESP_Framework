@@ -1,0 +1,9 @@
+# Name,    Type, SubType,  Offset,   Size,    Flags
+# 4MB flash layout for OTA with rollback
+# nvs 32K + otadata 8K + phy 4K + ota_0 1472K + ota_1 1472K + spiffs 960K = ~4MB
+nvs,       data, nvs,      0x9000,   0x8000,
+otadata,   data, ota,      0x11000,  0x2000,
+phy_init,  data, phy,      0x13000,  0x1000,
+ota_0,     app,  ota_0,    0x20000,  0x170000,
+ota_1,     app,  ota_1,    0x190000, 0x170000,
+data,      data, spiffs,   0x300000, 0xF0000,

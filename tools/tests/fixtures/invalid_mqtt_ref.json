@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "module": "test",
+  "state": {
+    "test.value": {
+      "type": "float",
+      "access": "read",
+      "description": "A valid key"
+    }
+  },
+  "mqtt": {
+    "publish": ["test.nonexistent"],
+    "subscribe": ["test.also_nonexistent"]
+  }
+}

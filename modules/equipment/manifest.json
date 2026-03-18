@@ -1,0 +1,83 @@
+{
+  "manifest_version": 1,
+  "module": "equipment",
+  "description": "Equipment Manager — HAL abstraction layer with arbitration",
+
+  "requires": [
+    {"role": "air_temp",       "type": "sensor",   "driver": ["ds18b20", "ntc"], "label": "Темп. камери"},
+    {"role": "compressor",     "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Компресор"},
+    {"role": "evap_temp",      "type": "sensor",   "driver": ["ds18b20", "ntc"], "label": "Темп. випарника",      "optional": true},
+    {"role": "condenser_temp", "type": "sensor",   "driver": ["ds18b20", "ntc"], "label": "Темп. конденсатора",   "optional": true},
+    {"role": "defrost_relay",  "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Реле відтайки",        "optional": true},
+    {"role": "evap_fan",       "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Вент. випарника",      "optional": true},
+    {"role": "cond_fan",       "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Вент. конденсатора",   "optional": true},
+    {"role": "door_contact",   "type": "sensor",   "driver": ["digital_input", "pcf8574_input"], "label": "Контакт дверей",       "optional": true},
+    {"role": "night_input",    "type": "sensor",   "driver": ["digital_input", "pcf8574_input"], "label": "Вхід нічного режиму",  "optional": true}
+  ],
+
+  "state": {
+    "equipment.air_temp":    {"type": "float", "access": "read", "unit": "°C", "description": "Температура камери"},
+    "equipment.evap_temp":   {"type": "float", "access": "read", "unit": "°C", "description": "Температура випарника"},
+    "equipment.sensor1_ok":  {"type": "bool",  "access": "read", "description": "Датчик камери справний"},
+    "equipment.sensor2_ok":  {"type": "bool",  "access": "read", "description": "Датчик випарника справний"},
+    "equipment.compressor":  {"type": "bool",  "access": "read", "description": "Фактичний стан компресора"},
+    "equipment.defrost_relay": {"type": "bool", "access": "read", "description": "Фактичний стан реле відтайки"},
+    "equipment.evap_fan":    {"type": "bool",  "access": "read", "description": "Фактичний стан вент. випарника"},
+    "equipment.cond_fan":    {"type": "bool",  "access": "read", "description": "Фактичний стан вент. конденсатора"},
+    "equipment.cond_temp":   {"type": "float", "access": "read", "unit": "°C", "description": "Температура конденсатора"},
+    "equipment.door_open":        {"type": "bool",  "access": "read", "description": "Стан дверей"},
+    "equipment.night_input":      {"type": "bool",  "access": "read", "description": "Дискретний вхід нічного режиму"},
+    "equipment.has_defrost_relay": {"type": "bool", "access": "read", "description": "Реле відтайки доступне"},
+    "equipment.has_cond_fan":     {"type": "bool",  "access": "read", "description": "Вент. конденсатора доступний"},
+    "equipment.has_door_contact": {"type": "bool",  "access": "read", "description": "Контакт дверей доступний"},
+    "equipment.has_evap_temp":    {"type": "bool",  "access": "read", "description": "Датчик випарника доступний"},
+    "equipment.has_cond_temp":    {"type": "bool",  "access": "read", "description": "Датчик конденсатора доступний"},
+    "equipment.has_night_input":  {"type": "bool",  "access": "read", "description": "Вхід нічного режиму доступний"},
+    "equipment.has_ntc_driver":   {"type": "bool",  "access": "read", "description": "Використовується NTC драйвер"},
+    "equipment.has_ds18b20_driver": {"type": "bool", "access": "read", "description": "Використовується DS18B20 драйвер"},
+
+    "equipment.filter_coeff":    {"type": "int", "access": "readwrite", "persist": true,
+                                  "min": 0, "max": 10, "step": 1, "default": 4,
+                                  "description": "Цифровий фільтр"},
+
+    "equipment.ntc_beta":        {"type": "int",   "access": "readwrite", "persist": true,
+                                  "min": 2000, "max": 5000, "step": 1, "default": 3950,
+                                  "description": "B-коефіцієнт NTC"},
+    "equipment.ntc_r_series":    {"type": "int",   "access": "readwrite", "persist": true,
+                                  "min": 1000, "max": 100000, "step": 100, "default": 10000,
+                                  "unit": "Ом", "description": "Послідовний резистор NTC"},
+    "equipment.ntc_r_nominal":   {"type": "int",   "access": "readwrite", "persist": true,
+                                  "min": 1000, "max": 100000, "step": 100, "default": 10000,
+                                  "unit": "Ом", "description": "Номінальний опір NTC (25°C)"},
+
+    "equipment.ds18b20_offset":   {"type": "float", "access": "readwrite", "persist": true,
+                                   "min": -5.0, "max": 5.0, "step": 0.1, "default": 0.0,
+                                   "unit": "°C", "description": "Корекція показань DS18B20"}
+  },
+
+
+  "mqtt": {
+    "publish": [
+      "equipment.air_temp",
+      "equipment.evap_temp",
+      "equipment.cond_temp",
+      "equipment.compressor",
+      "equipment.defrost_relay",
+      "equipment.sensor1_ok"
+    ],
+    "subscribe": [
+      "equipment.ntc_beta",
+      "equipment.ntc_r_series",
+      "equipment.ntc_r_nominal",
+      "equipment.ds18b20_offset",
+      "equipment.filter_coeff"
+    ]
+  },
+
+  "display": {
+    "main_value": {
+      "key": "equipment.air_temp",
+      "format": "%.1f°C"
+    }
+  }
+}

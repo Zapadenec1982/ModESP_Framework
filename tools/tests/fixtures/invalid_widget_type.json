@@ -1,0 +1,22 @@
+{
+  "manifest_version": 1,
+  "module": "broken",
+  "state": {
+    "broken.flag": {
+      "type": "bool",
+      "access": "read",
+      "description": "A bool flag"
+    }
+  },
+  "ui": {
+    "page": "Broken",
+    "cards": [
+      {
+        "title": "Bad",
+        "widgets": [
+          {"key": "broken.flag", "widget": "gauge"}
+        ]
+      }
+    ]
+  }
+}

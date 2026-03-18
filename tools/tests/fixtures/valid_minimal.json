@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "module": "minimal",
+  "description": "Minimal valid manifest",
+
+  "state": {
+    "minimal.value": {
+      "type": "float",
+      "access": "read",
+      "description": "Just a value"
+    }
+  }
+}

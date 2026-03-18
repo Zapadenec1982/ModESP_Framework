@@ -1,0 +1,22 @@
+{
+  "state.datalogger.enabled.description": "Aufzeichnung aktiviert",
+  "state.datalogger.retention_hours.description": "Aufbewahrung (Stunden)",
+  "state.datalogger.sample_interval.description": "Abtastintervall (s)",
+  "state.datalogger.records_count.description": "Temperaturdatensätze",
+  "state.datalogger.events_count.description": "Ereignisse",
+  "state.datalogger.flash_used.description": "Flash (KB)",
+  "state.datalogger.log_evap.description": "Verdampfertemp. aufzeichnen",
+  "state.datalogger.log_cond.description": "Verflüssigertemp. aufzeichnen",
+  "state.datalogger.log_setpoint.description": "Sollwert aufzeichnen",
+  "state.datalogger.log_humidity.description": "Feuchte aufzeichnen",
+  "page.datalogger.title": "Protokolle",
+  "card.datalogger.card0.title": "Temperatur",
+  "widget.datalogger.chart.label": "Temperaturdiagramm",
+  "card.datalogger.card1.title": "Statistik",
+  "card.datalogger.card1.subtitle": "Datensätze, Ereignisse, Flash",
+  "widget.datalogger.records_count.label": "Datensätze",
+  "widget.datalogger.events_count.label": "Ereignisse",
+  "widget.datalogger.flash_used.label": "Flash (KB)",
+  "card.datalogger.card2.title": "Einstellungen",
+  "card.datalogger.card2.subtitle": "Aktivieren, Kanäle, Intervall"
+}

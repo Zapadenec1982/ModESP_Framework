@@ -1,0 +1,212 @@
+/**
+ * ModESP v4 — Design Tokens
+ * Single source of truth for all design values.
+ *
+ * Principles (Industrial HMI):
+ * - Touch targets >= 44px (WCAG 2.1 AA)
+ * - High contrast for readability
+ * - Semantic colors from industrial standards
+ * - Consistent spacing scale (4px base)
+ */
+
+:root {
+  /* ── Spacing scale (4px base) ────────────────────── */
+  --sp-1: 4px;
+  --sp-1-5: 6px;
+  --sp-2: 8px;
+  --sp-2-5: 10px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* ── Typography scale ────────────────────────────── */
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --text-3xl: 24px;
+  --text-4xl: 48px;
+  --text-hero: 56px;
+  --text-hero-lg: 80px;
+
+  /* ── Font weights ────────────────────────────────── */
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* ── Typography Family ───────────────────────────── */
+  --font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace;
+
+  /* ── Border radius ───────────────────────────────── */
+  --radius-xs: 7px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius: 14px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-pill: 20px;
+  --radius-full: 50%;
+
+  /* ── Concept Semantic colors (Dark Mode Default) ─── */
+  --bg: #08090e;
+  --surface: #111318;
+  --surface-2: #16181f;
+  --surface-3: #1b1e27;
+  --surface-hover: #1e2130;
+  --glass: rgba(17,19,24,0.85);
+  --glass-heavy: rgba(8,9,14,0.92);
+
+  --border: rgba(255,255,255,0.04);
+  --border-accent: rgba(255,255,255,0.07);
+  --border-glow: rgba(120,160,255,0.08);
+
+  --text-1: #f0f0f3;
+  --text-2: #a0a3b1;
+  --text-3: #6b6f7e;
+  --text-4: #5a5f6e;
+
+  --accent: #5b9cf5;
+  --accent-bright: #7cb4ff;
+  --accent-dim: rgba(91,156,245,0.06);
+  --accent-glow: rgba(91,156,245,0.12);
+  --accent-glow-s: rgba(91,156,245,0.25);
+
+  --frost: #56d4e8;
+  --frost-dim: rgba(86,212,232,0.06);
+  --frost-glow: rgba(86,212,232,0.15);
+  --frost-border: rgba(86,212,232,0.10);
+
+  --blue: var(--accent);
+  --blue-dim: var(--accent-dim);
+  --blue-glow: var(--accent-glow);
+  --blue-glow-s: var(--accent-glow-s);
+
+  --ok: #34d399;
+  --ok-dim: rgba(52,211,153,0.06);
+  --ok-glow: rgba(52,211,153,0.15);
+  --ok-border: rgba(52,211,153,0.12);
+
+  --green: var(--ok);
+  --green-dim: var(--ok-dim);
+  --green-glow: var(--ok-glow);
+
+  --danger: #f87171;
+  --danger-dim: rgba(248,113,113,0.05);
+  --danger-glow: rgba(248,113,113,0.12);
+  --danger-border: rgba(248,113,113,0.15);
+
+  --red: var(--danger);
+  --red-dim: var(--danger-dim);
+  --red-glow: var(--danger-glow);
+  --red-border: var(--danger-border);
+
+  --warn: #fbbf24;
+  --warn-dim: rgba(251,191,36,0.06);
+  --warn-glow: rgba(251,191,36,0.12);
+
+  --info: #67e8f9;
+  --info-dim: rgba(103,232,249,0.05);
+  --info-glow: rgba(103,232,249,0.12);
+
+  /* ── Legacy Mappings (Overrides) ─────────────────── */
+  --fg: var(--text-1);
+  --fg-muted: var(--text-3);
+  --card: var(--surface);
+  --bg2: var(--surface-2);
+  --success: var(--green);
+  --warning: var(--warn);
+  --error: var(--red);
+  --status-ok: var(--ok);
+
+  /* ── Touch & interactive targets ─────────────────── */
+  --touch-min: 44px;
+
+  /* ── Layout sizes ────────────────────────────────── */
+  --sidebar-width: 220px;
+  --header-height: 56px;
+  --content-max: 960px;
+  --toast-width: 360px;
+
+  /* ── Transitions ─────────────────────────────────── */
+  --transition-fast: 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] {
+  --bg: #edf2f9;
+  --surface: #f8fafe;
+  --surface-2: #f0f4fb;
+  --surface-3: #e6ecf5;
+  --surface-hover: #dfe7f3;
+  --glass: rgba(248,250,254,0.9);
+  --glass-heavy: rgba(237,242,249,0.95);
+  
+  --border: rgba(50,80,140,0.09);
+  --border-accent: rgba(50,80,140,0.11);
+  --border-glow: rgba(58,127,224,0.10);
+  
+  --text-1: #1a2438;
+  --text-2: #4a5570;
+  --text-3: #7a8599;
+  --text-4: #8a96a8;
+  
+  --accent: #3a7fe0;
+  --accent-bright: #2968c4;
+  --accent-dim: rgba(58,127,224,0.06);
+  --accent-glow: rgba(58,127,224,0.08);
+  --accent-glow-s: rgba(58,127,224,0.15);
+  
+  --ok: #10b981;
+  --ok-dim: rgba(16,185,129,0.06);
+  --ok-glow: rgba(16,185,129,0.10);
+  --ok-border: rgba(16,185,129,0.14);
+  
+  --danger: #dc2626;
+  --danger-dim: rgba(220,38,38,0.05);
+  --danger-glow: rgba(220,38,38,0.08);
+  --danger-border: rgba(220,38,38,0.16);
+  
+  --warn: #b45309;
+  --warn-dim: rgba(180,83,9,0.05);
+  --warn-glow: rgba(180,83,9,0.08);
+  
+  --info: #0891b2;
+  --info-dim: rgba(8,145,178,0.05);
+  --info-glow: rgba(8,145,178,0.08);
+  
+  --frost: #0aa4c2;
+  --frost-dim: rgba(10,164,194,0.06);
+  --frost-glow: rgba(10,164,194,0.10);
+  --frost-border: rgba(10,164,194,0.12);
+  
+  --blue: var(--accent);
+  --blue-dim: var(--accent-dim);
+  --blue-glow: var(--accent-glow);
+  --blue-glow-s: var(--accent-glow-s);
+  
+  --green: var(--ok);
+  --green-dim: var(--ok-dim);
+  --green-glow: var(--ok-glow);
+  
+  --red: var(--danger);
+  --red-dim: var(--danger-dim);
+  --red-glow: var(--danger-glow);
+  --red-border: var(--danger-border);
+
+}
+
+/* Reduced motion: disable all animations and transitions */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "manifest_version": 1,
+  "state": {
+    "x.value": {"type": "float", "access": "read"}
+  }
+}

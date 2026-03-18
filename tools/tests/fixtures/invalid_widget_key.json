@@ -1,0 +1,22 @@
+{
+  "manifest_version": 1,
+  "module": "broken",
+  "state": {
+    "broken.value": {
+      "type": "float",
+      "access": "read",
+      "description": "Exists"
+    }
+  },
+  "ui": {
+    "page": "Broken",
+    "cards": [
+      {
+        "title": "Bad",
+        "widgets": [
+          {"key": "broken.nonexistent", "widget": "gauge"}
+        ]
+      }
+    ]
+  }
+}

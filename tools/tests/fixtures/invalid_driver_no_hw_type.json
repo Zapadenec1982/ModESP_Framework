@@ -1,0 +1,7 @@
+{
+  "manifest_version": 1,
+  "driver": "bad_driver",
+  "description": "Driver without hardware_type",
+  "category": "sensor",
+  "provides": {"type": "float", "unit": "°C", "range": [-40, 80]}
+}

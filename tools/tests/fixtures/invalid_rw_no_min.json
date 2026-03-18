@@ -1,0 +1,11 @@
+{
+  "manifest_version": 1,
+  "module": "broken",
+  "state": {
+    "broken.setpoint": {
+      "type": "float",
+      "access": "readwrite",
+      "description": "Missing min/max/step"
+    }
+  }
+}

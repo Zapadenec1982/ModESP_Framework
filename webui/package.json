@@ -1,0 +1,24 @@
+{
+  "name": "modesp-webui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "node dev-server.js",
+    "dev:watch": "rollup -c -w",
+    "deploy": "npm run build && node scripts/deploy.js"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "rollup": "^3.29.4",
+    "rollup-plugin-css-only": "^4.5.2",
+    "rollup-plugin-livereload": "^2.0.5",
+    "rollup-plugin-serve": "^3.0.0",
+    "rollup-plugin-svelte": "^7.1.6",
+    "svelte": "^4.2.18",
+    "ws": "^8.19.0"
+  }
+}

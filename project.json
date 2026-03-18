@@ -1,0 +1,18 @@
+{
+  "project": "template",
+  "version": "1.0.0",
+  "description": "ModESP Framework — template project",
+  "modules": [
+    "equipment",
+    "datalogger"
+  ],
+  "system": {
+    "device_name": "ModESP",
+    "pages": {
+      "dashboard": true,
+      "network": true,
+      "firmware": true,
+      "system": true
+    }
+  }
+}

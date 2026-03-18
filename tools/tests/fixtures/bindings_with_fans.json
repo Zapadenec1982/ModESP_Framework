@@ -1,0 +1,10 @@
+{
+  "manifest_version": 1,
+  "bindings": [
+    {"hardware": "relay_1", "driver": "relay", "role": "compressor", "module": "equipment"},
+    {"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp", "module": "equipment", "address": "28:FF:AA:BB:CC:DD:EE:01"},
+    {"hardware": "ow_1", "driver": "ds18b20", "role": "evap_temp", "module": "equipment", "address": "28:FF:AA:BB:CC:DD:EE:02"},
+    {"hardware": "relay_2", "driver": "relay", "role": "evap_fan", "module": "equipment"},
+    {"hardware": "relay_3", "driver": "relay", "role": "cond_fan", "module": "equipment"}
+  ]
+}

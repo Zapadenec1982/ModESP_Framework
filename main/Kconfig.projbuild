@@ -1,0 +1,36 @@
+menu "ModESP Configuration"
+    choice MODESP_BOARD
+        prompt "Target board"
+        default MODESP_BOARD_DEV
+        help
+            Select the target hardware board.
+            This determines which board.json and bindings.json
+            are copied to data/ during build.
+
+        config MODESP_BOARD_DEV
+            bool "Dev Board (GPIO relays)"
+
+        config MODESP_BOARD_KC868A6
+            bool "KC868-A6 (I2C PCF8574)"
+    endchoice
+
+    config MODESP_BOARD_DIR
+        string
+        default "dev"       if MODESP_BOARD_DEV
+        default "kc868a6"   if MODESP_BOARD_KC868A6
+
+    choice MODESP_CLOUD_BACKEND
+        prompt "Cloud backend"
+        default MODESP_CLOUD_MQTT
+        help
+            Select the cloud communication backend.
+            MQTT: self-hosted Mosquitto broker (default).
+            AWS: AWS IoT Core with mTLS, Device Shadow, IoT Jobs.
+
+        config MODESP_CLOUD_MQTT
+            bool "Mosquitto (self-hosted MQTT)"
+
+        config MODESP_CLOUD_AWS
+            bool "AWS IoT Core"
+    endchoice
+endmenu

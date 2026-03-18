@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "driver": "ds18b20",
+  "description": "Dallas DS18B20 цифровий датчик температури",
+  "category": "sensor",
+  "hardware_type": "onewire_bus",
+  "requires_address": true,
+  "multiple_per_bus": true,
+  "provides": {"type": "float", "unit": "°C", "range": [-55, 125]},
+  "settings": [
+    {"key": "read_interval_ms", "type": "int",   "default": 1000, "min": 500, "max": 60000, "step": 100, "unit": "мс", "description": "Інтервал опитування"},
+    {"key": "offset",           "type": "float", "default": 0.0,  "min": -5.0, "max": 5.0, "step": 0.1, "unit": "°C", "description": "Корекція показань"},
+    {"key": "resolution",       "type": "int",   "default": 12,   "min": 9,    "max": 12,  "step": 1,   "unit": "біт", "description": "Роздільна здатність"}
+  ]
+}

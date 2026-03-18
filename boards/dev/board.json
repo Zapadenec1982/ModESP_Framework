@@ -1,0 +1,22 @@
+{
+  "manifest_version": 1,
+  "board": "cold_room_dev_v1",
+  "version": "1.0.0",
+  "description": "Dev board — холодильна камера, ESP32-WROOM",
+  "gpio_outputs": [
+    {"id": "relay_1", "gpio": 14, "active_high": true, "label": "Реле 1"},
+    {"id": "relay_2", "gpio": 16, "active_high": true, "label": "Реле 2"},
+    {"id": "relay_3", "gpio": 17, "active_high": true, "label": "Реле 3"},
+    {"id": "relay_4", "gpio": 18, "active_high": true, "label": "Реле 4"}
+  ],
+  "onewire_buses": [
+    {"id": "ow_1", "gpio": 15, "label": "OneWire шина 1"}
+  ],
+  "gpio_inputs": [
+    {"id": "din_1", "gpio": 34, "pull": "up", "label": "Цифровий вхід 1"}
+  ],
+  "adc_channels": [
+    {"id": "adc_1", "gpio": 36, "atten": 11, "label": "ADC 1"},
+    {"id": "adc_2", "gpio": 39, "atten": 11, "label": "ADC 2"}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "manifest_version": 1,
+  "driver": "bad_driver",
+  "description": "Driver without category",
+  "hardware_type": "gpio_output",
+  "provides": {"type": "bool"}
+}

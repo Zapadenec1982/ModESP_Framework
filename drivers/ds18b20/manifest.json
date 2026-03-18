@@ -1,0 +1,47 @@
+{
+  "manifest_version": 1,
+  "driver": "ds18b20",
+  "description": "Dallas DS18B20 цифровий датчик температури",
+  "category": "sensor",
+  "hardware_type": "onewire_bus",
+  "requires_address": true,
+  "multiple_per_bus": true,
+  "provides": {"type": "float", "unit": "°C", "range": [-55, 125]},
+  "settings": [
+    {"key": "read_interval_ms", "type": "int",   "default": 1000, "min": 500, "max": 60000, "step": 100, "unit": "мс", "description": "Інтервал опитування", "persist": true},
+    {"key": "offset",           "type": "float", "default": 0.0,  "min": -5.0, "max": 5.0, "step": 0.1, "unit": "°C", "description": "Корекція показань", "persist": true},
+    {"key": "resolution",       "type": "int",   "default": 12,   "min": 9,    "max": 12,  "step": 1,   "unit": "біт", "description": "Роздільна здатність", "persist": true}
+  ],
+  "ui": {
+    "page": "Налаштування датчиків",
+    "page_id": "driver_settings",
+    "access_level": "service",
+    "cards": [
+      {
+        "title": "DS18B20: {{hardware_id}}",
+        "instance_per_binding": true,
+        "widgets": [
+          {"setting": "read_interval_ms", "widget": "number_input"},
+          {"setting": "offset",           "widget": "slider"},
+          {"setting": "resolution",       "widget": "select"}
+        ]
+      }
+    ]
+  },
+  "discovery": {
+    "supported": true,
+    "scan_endpoint": "/api/drivers/ds18b20/scan",
+    "returns": [
+      {"field": "address",     "type": "string", "description": "ROM адреса (64-bit)"},
+      {"field": "temperature", "type": "float",  "description": "Поточне показання (для ідентифікації)"},
+      {"field": "parasitic",   "type": "bool",   "description": "Паразитне живлення"}
+    ],
+    "ui": {
+      "title": "Сканер OneWire шини",
+      "description": "Натисніть 'Сканувати' для пошуку датчиків. По температурі можна визначити де фізично стоїть датчик.",
+      "scan_button": "Сканувати",
+      "result_table": true,
+      "assign_action": true
+    }
+  }
+}

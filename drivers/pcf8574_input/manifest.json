@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "driver": "pcf8574_input",
+  "description": "Digital input via I2C expander PCF8574",
+  "category": "sensor",
+  "hardware_type": "i2c_expander_input",
+  "requires_address": false,
+  "multiple_per_bus": true,
+  "provides": {"type": "bool"},
+  "settings": [
+    {"key": "invert", "type": "bool", "default": false, "description": "Invert logic"}
+  ]
+}

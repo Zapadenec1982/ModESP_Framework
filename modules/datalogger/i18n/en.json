@@ -1,0 +1,22 @@
+{
+  "state.datalogger.enabled.description": "Logging enabled",
+  "state.datalogger.retention_hours.description": "Retention (hours)",
+  "state.datalogger.sample_interval.description": "Sample interval (s)",
+  "state.datalogger.records_count.description": "Temperature records",
+  "state.datalogger.events_count.description": "Events",
+  "state.datalogger.flash_used.description": "Flash (KB)",
+  "state.datalogger.log_evap.description": "Log evaporator temp",
+  "state.datalogger.log_cond.description": "Log condenser temp",
+  "state.datalogger.log_setpoint.description": "Log setpoint",
+  "state.datalogger.log_humidity.description": "Log humidity",
+  "page.datalogger.title": "Logs",
+  "card.datalogger.card0.title": "Temperature",
+  "widget.datalogger.chart.label": "Temperature chart",
+  "card.datalogger.card1.title": "Statistics",
+  "card.datalogger.card1.subtitle": "Records, events, flash",
+  "widget.datalogger.records_count.label": "Records",
+  "widget.datalogger.events_count.label": "Events",
+  "widget.datalogger.flash_used.label": "Flash (KB)",
+  "card.datalogger.card2.title": "Settings",
+  "card.datalogger.card2.subtitle": "Enable, channels, interval"
+}

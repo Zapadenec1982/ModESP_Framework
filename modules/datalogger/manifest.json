@@ -1,0 +1,123 @@
+{
+  "manifest_version": 1,
+  "module": "datalogger",
+  "description": "Temperature and event logger with LittleFS storage",
+
+  "state": {
+    "datalogger.enabled": {
+      "type": "bool", "access": "readwrite", "default": true,
+      "persist": true, "description": "Логування увімкнено"
+    },
+    "datalogger.retention_hours": {
+      "type": "int", "access": "readwrite", "persist": true,
+      "min": 12, "max": 168, "step": 12, "default": 48,
+      "description": "Глибина зберігання (год)"
+    },
+    "datalogger.sample_interval": {
+      "type": "int", "access": "readwrite", "persist": true,
+      "min": 30, "max": 300, "step": 30, "default": 60,
+      "description": "Інтервал семплювання (с)"
+    },
+    "datalogger.records_count": {
+      "type": "int", "access": "read",
+      "description": "Записів температури"
+    },
+    "datalogger.events_count": {
+      "type": "int", "access": "read",
+      "description": "Подій"
+    },
+    "datalogger.flash_used": {
+      "type": "int", "access": "read",
+      "description": "Flash (KB)"
+    },
+    "datalogger.log_evap": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "persist": true, "description": "Логувати T випарника"
+    },
+    "datalogger.log_cond": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "persist": true, "description": "Логувати T конденсатора"
+    },
+    "datalogger.log_setpoint": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "persist": true, "description": "Логувати уставку"
+    },
+    "datalogger.log_humidity": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "persist": true, "description": "Логувати вологість"
+    }
+  },
+
+  "ui": {
+    "page": "Логи",
+    "page_id": "chart",
+    "icon": "activity",
+    "order": 4,
+    "cards": [
+      {
+        "title": "Температура",
+        "icon": "trending-up",
+        "icon_color": "blue",
+        "widgets": [
+          {
+            "key": "datalogger.chart",
+            "widget": "chart",
+            "label": "Графік температури",
+            "data_source": "/api/log",
+            "default_hours": 24
+          }
+        ]
+      },
+      {
+        "title": "Статистика",
+        "icon": "info",
+        "icon_color": "cyan",
+        "subtitle": "Записів, подій, flash",
+        "summary_keys": ["datalogger.records_count", "datalogger.events_count"],
+        "widgets": [
+          {"key": "datalogger.records_count", "widget": "value", "label": "Записів"},
+          {"key": "datalogger.events_count",  "widget": "value", "label": "Подій"},
+          {"key": "datalogger.flash_used",    "widget": "value", "label": "Flash (KB)"}
+        ]
+      },
+      {
+        "title": "Налаштування",
+        "icon": "settings",
+        "icon_color": "orange",
+        "subtitle": "Увімкнення, канали, інтервал",
+        "summary_keys": ["datalogger.enabled", "datalogger.sample_interval"],
+        "collapsible": true,
+        "wide": true,
+        "widgets": [
+          {"key": "datalogger.sample_interval",  "widget": "number_input"},
+          {"key": "datalogger.retention_hours",  "widget": "number_input"},
+          {"key": "datalogger.enabled",         "widget": "toggle"},
+          {"key": "datalogger.log_evap",     "widget": "toggle",
+           "visible_when": {"key": "equipment.has_evap_temp", "eq": true}},
+          {"key": "datalogger.log_cond",     "widget": "toggle",
+           "visible_when": {"key": "equipment.has_cond_temp", "eq": true}},
+          {"key": "datalogger.log_setpoint", "widget": "toggle"},
+          {"key": "datalogger.log_humidity", "widget": "toggle",
+           "visible_when": {"key": "equipment.has_humidity", "eq": true}}
+        ]
+      }
+    ]
+  },
+
+  "mqtt": {
+    "publish": [
+      "datalogger.records_count",
+      "datalogger.events_count",
+      "datalogger.flash_used"
+    ],
+    "subscribe": [
+      "datalogger.enabled",
+      "datalogger.retention_hours",
+      "datalogger.sample_interval",
+      "datalogger.log_evap",
+      "datalogger.log_cond",
+      "datalogger.log_setpoint",
+      "datalogger.log_humidity"
+    ]
+  }
+}

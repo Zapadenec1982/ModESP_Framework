@@ -1,0 +1,43 @@
+# ModESP v4 — sdkconfig defaults
+# Board selection (idf.py menuconfig → ModESP Configuration)
+CONFIG_MODESP_BOARD_DEV=y
+
+# OTA rollback support
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_APP_ROLLBACK_ENABLE=y
+
+# Main task stack: default 3584 too small for config JSON parsing (~4KB on stack)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Custom partition table (NVS 16K + otadata 8K + phy 4K + ota_0 1.5MB + ota_1 1.5MB + SPIFFS 960K)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Flash size — ESP32-WROOM-32 has 4MB
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# WebSocket support in esp_http_server
+CONFIG_HTTPD_WS_SUPPORT=y
+
+# ── Heap optimization for MQTT over TLS ──────────────────────────
+# Tier 1: Disable peer certificate storage after TLS handshake (~3.7KB)
+# esp-mqtt does not access peer cert after verification
+CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=n
+
+# Tier 1: TLS client only — ESP32 HTTP server is plain HTTP, no TLS server needed
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
+
+# Tier 2: Reduce TLS output buffer (MQTT payloads < 600B, 2KB sufficient)
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
+
+# Tier 2: Common CA bundle (~42 CAs) instead of Full (~200 CAs)
+# Covers HiveMQ Cloud, AWS IoT, Let's Encrypt, DigiCert, GlobalSign
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+
+# Tier 3: Dynamic TLS buffers — allocate 16KB RX + 4KB TX only during send/receive
+# Saves ~18-20KB steady-state. Freed between MQTT messages (99.9% of time).
+# NOT compatible with DTLS or TLS 1.3 (both disabled in this project)
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Do NOT enable FREE_CONFIG_DATA — breaks MQTT TLS reconnection
+# CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA is not set

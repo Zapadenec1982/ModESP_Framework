@@ -1,0 +1,12 @@
+{
+  "manifest_version": 1,
+  "bindings": [
+    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "compressor", "module": "equipment"},
+    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "evap_fan",   "module": "equipment"},
+    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "cond_fan",   "module": "equipment"},
+    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "defrost_relay", "module": "equipment"},
+    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",   "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
+    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "evap_temp",  "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
+    {"hardware": "din_1",   "driver": "pcf8574_input",  "role": "door_contact", "module": "equipment"}
+  ]
+}

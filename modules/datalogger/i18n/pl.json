@@ -1,0 +1,22 @@
+{
+  "state.datalogger.enabled.description": "Rejestracja włączona",
+  "state.datalogger.retention_hours.description": "Przechowywanie (godziny)",
+  "state.datalogger.sample_interval.description": "Interwał próbkowania (s)",
+  "state.datalogger.records_count.description": "Rekordy temperatury",
+  "state.datalogger.events_count.description": "Zdarzenia",
+  "state.datalogger.flash_used.description": "Flash (KB)",
+  "state.datalogger.log_evap.description": "Rejestruj temp. parownika",
+  "state.datalogger.log_cond.description": "Rejestruj temp. skraplacza",
+  "state.datalogger.log_setpoint.description": "Rejestruj nastawę",
+  "state.datalogger.log_humidity.description": "Rejestruj wilgotność",
+  "page.datalogger.title": "Dzienniki",
+  "card.datalogger.card0.title": "Temperatura",
+  "widget.datalogger.chart.label": "Wykres temperatury",
+  "card.datalogger.card1.title": "Statystyki",
+  "card.datalogger.card1.subtitle": "Rekordy, zdarzenia, flash",
+  "widget.datalogger.records_count.label": "Rekordy",
+  "widget.datalogger.events_count.label": "Zdarzenia",
+  "widget.datalogger.flash_used.label": "Flash (KB)",
+  "card.datalogger.card2.title": "Ustawienia",
+  "card.datalogger.card2.subtitle": "Włączanie, kanały, interwał"
+}
