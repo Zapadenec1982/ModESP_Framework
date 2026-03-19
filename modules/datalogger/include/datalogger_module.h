@@ -17,8 +17,8 @@
 static constexpr int16_t TEMP_NO_DATA = INT16_MIN;  // -32768
 
 /// Channel + event definitions — auto-generated from module manifests
-#include "generated/datalogger_channels.h"
-#include "generated/datalogger_events.h"
+#include "datalogger_channels.h"
+#include "datalogger_events.h"
 
 /// Fixed for binary compatibility (TempRecord size must not change)
 static constexpr int MAX_CHANNELS = static_cast<int>(modesp::gen::MAX_LOG_CHANNELS);
