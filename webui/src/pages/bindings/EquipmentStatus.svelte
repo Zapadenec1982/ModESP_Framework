@@ -6,16 +6,9 @@
   export let sensors = [];
   export let actuators = [];
 
-  const ROLE_STATE_KEY = {
-    air_temp: 'equipment.air_temp', evap_temp: 'equipment.evap_temp',
-    condenser_temp: 'equipment.cond_temp',
-    compressor: 'equipment.compressor', defrost_relay: 'equipment.defrost_relay',
-    evap_fan: 'equipment.evap_fan', cond_fan: 'equipment.cond_fan',
-    door_contact: 'equipment.door_open',
-  };
-  const ROLE_OK_KEY = {
-    air_temp: 'equipment.sensor1_ok', evap_temp: 'equipment.sensor2_ok',
-  };
+  // Generic: state key = "equipment.{role}" for all roles
+  function stateKey(role) { return `equipment.${role}`; }
+  function okKey(role) { return `equipment.${role}_ok`; }
 
   function formatValue(role, val) {
     if (val === undefined || val === null) return '--';
@@ -27,10 +20,9 @@
 <Card title={$t['bind.status']}>
   <div class="status-grid">
     {#each [...sensors, ...actuators] as roleDef}
-      {@const stKey = ROLE_STATE_KEY[roleDef.role]}
-      {@const val = stKey ? $state[stKey] : undefined}
-      {@const okKey = ROLE_OK_KEY[roleDef.role]}
-      {@const ok = okKey ? $state[okKey] : undefined}
+      {@const stKey = stateKey(roleDef.role)}
+      {@const val = $state[stKey]}
+      {@const ok = $state[okKey(roleDef.role)]}
       <div class="status-item">
         <span class="status-label">{roleDef.label}</span>
         <span class="status-value" class:on={val === true} class:off={val === false}

@@ -20,12 +20,9 @@
   const LIVE_THROTTLE = 10;
   let showEvents = false;
 
-  // Channel name → state key (дзеркалює CHANNEL_DEFS з бекенду)
-  const CH_STATE_KEYS = {
-    air: 'equipment.air_temp', evap: 'equipment.evap_temp',
-    cond: 'equipment.cond_temp', setpoint: 'thermostat.setpoint',
-    humidity: 'equipment.humidity'
-  };
+  // Channel names discovered dynamically from API response
+  // (no hardcoded refrigeration channels)
+  let CH_STATE_KEYS = {};
 
   // SVG dimensions
   const W = 720;
@@ -36,20 +33,16 @@
 
   const MAX_POINTS = 720;
 
-  // Event type constants (match C++ EventType enum)
-  const COMP_ON = 1, COMP_OFF = 2;
-  const DEF_START = 3, DEF_END = 4;
-  const ALARM_HIGH = 5, ALARM_LOW = 6, ALARM_CLEAR = 7;
-  const DOOR_OPEN = 8, DOOR_CLOSE = 9;
+  // Event type constants (from generated datalogger_events.h)
+  // Generic — event labels come from i18n, not hardcoded here
+  const ALARM_CLEAR = 7;
   const POWER_ON = 10;
 
   // Палітра кольорів для каналів
   const PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899'];
-  // i18n ключі для відомих каналів
-  const CH_TKEYS = {
-    air: 'chart.ch_air', evap: 'chart.ch_evap', cond: 'chart.ch_cond',
-    setpoint: 'chart.ch_setpoint', humidity: 'chart.ch_humidity'
-  };
+  // i18n keys — dynamic, built from channel names
+  // Channel "air_temp" → i18n key "chart.ch_air_temp"
+  function chTKey(name) { return `chart.ch_${name}`; }
 
   async function loadData() {
     loading = true;
@@ -112,7 +105,7 @@
       name,
       idx: i + 1,
       color: PALETTE[i % PALETTE.length],
-      tkey: CH_TKEYS[name] || name,
+      tkey: chTKey(name),
     };
   });
 
@@ -179,13 +172,24 @@
       ts => xScale(ts, tMin, tMax), v => yScale(v, vMin, vMax))
   }));
 
-  // Zones
-  $: compZones = buildZones(events, COMP_ON, COMP_OFF);
-  $: defrostZones = buildZones(events, DEF_START, DEF_END);
+  // Zones — generic: even event IDs = ON, odd = OFF (from manifest BOTH edge convention)
+  // Build zones for any event pair where id is even (ON) and id+1 is OFF
+  $: allZones = (() => {
+    const zones = [];
+    const onIds = new Set();
+    for (const e of events) {
+      if (e[1] % 2 === 1 && e[1] !== ALARM_CLEAR && e[1] !== POWER_ON) onIds.add(e[1]);
+    }
+    for (const onId of onIds) {
+      const z = buildZones(events, onId, onId + 1);
+      if (z.length) zones.push({ id: onId, zones: z });
+    }
+    return zones;
+  })();
 
-  // Alarm markers
+  // Alarm markers — any event with type >= ALARM_CLEAR treated as alarm
   $: alarmMarkers = events
-    .filter(e => e[1] === ALARM_HIGH || e[1] === ALARM_LOW)
+    .filter(e => e[1] >= 5 && e[1] !== ALARM_CLEAR && e[1] !== POWER_ON && e[1] % 2 === 1)
     .map(e => PAD.left + xScale(e[0], tMin, tMax));
 
   // Power-on markers
@@ -327,16 +331,12 @@
         <line x1={PAD.left} y1={gy} x2={W - PAD.right} y2={gy} class="grid" />
       {/each}
 
-      <!-- Compressor zones -->
-      {#each compZones as z}
-        <rect x={PAD.left + z.x1} y={PAD.top} width={z.x2 - z.x1} height={CH}
-              class="zone-comp" />
-      {/each}
-
-      <!-- Defrost zones -->
-      {#each defrostZones as z}
-        <rect x={PAD.left + z.x1} y={PAD.top} width={z.x2 - z.x1} height={CH}
-              class="zone-defrost" />
+      <!-- Event zones (generic — from any BOTH-edge event pair) -->
+      {#each allZones as { id, zones }, zi}
+        {#each zones as z}
+          <rect x={PAD.left + z.x1} y={PAD.top} width={z.x2 - z.x1} height={CH}
+                class="zone-generic" style="opacity: {0.08 + zi * 0.03}" />
+        {/each}
       {/each}
 
       <!-- Alarm markers -->
@@ -415,8 +415,8 @@
       </summary>
       <div class="events-list">
         {#each eventList as ev}
-          <div class="event-row" class:event-alarm={ev.type === ALARM_HIGH || ev.type === ALARM_LOW}
-               class:event-defrost={ev.type === DEF_START || ev.type === DEF_END}
+          <div class="event-row"
+               class:event-alarm={ev.type >= 5 && ev.type !== ALARM_CLEAR && ev.type !== POWER_ON}
                class:event-power={ev.type === POWER_ON}>
             <span class="event-time">{ev.time}</span>
             <span class="event-label">{ev.label}</span>
