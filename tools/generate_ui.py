@@ -1259,7 +1259,9 @@ class StateMetaGenerator:
     def generate(self, manifests):
         # Підрахунок ВСІХ state keys з маніфестів для auto-capacity
         total_manifest_keys = sum(len(m.get("state", {})) for m in manifests)
-        capacity = total_manifest_keys + 32  # +32 для runtime ключів (_ota.*, wifi.*, mqtt.*, system.*)
+        # +48 for runtime keys: _ota.* (7), wifi.* (5), mqtt.* (3), system.* (5),
+        # equipment.has_* (up to 12 dynamic roles), equipment.* actuator states
+        capacity = total_manifest_keys + 48
 
         lines = [
             "#pragma once",
