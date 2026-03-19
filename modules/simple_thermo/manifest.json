@@ -1,0 +1,108 @@
+{
+  "manifest_version": 1,
+  "module": "simple_thermo",
+  "version": "1.0.0",
+  "description": "Simple ON/OFF thermostat — demo module",
+  "priority": 2,
+
+  "state": {
+    "simple_thermo.temperature": {
+      "type": "float",
+      "access": "read",
+      "unit": "°C",
+      "description": "Поточна температура"
+    },
+    "simple_thermo.setpoint": {
+      "type": "float",
+      "access": "readwrite",
+      "default": 22.0,
+      "min": 5,
+      "max": 40,
+      "step": 0.5,
+      "unit": "°C",
+      "persist": true,
+      "mqtt_subscribe": true,
+      "description": "Уставка температури"
+    },
+    "simple_thermo.differential": {
+      "type": "float",
+      "access": "readwrite",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 5.0,
+      "step": 0.5,
+      "unit": "°C",
+      "persist": true,
+      "mqtt_subscribe": true,
+      "description": "Диференціал (гістерезис)"
+    },
+    "simple_thermo.state": {
+      "type": "string",
+      "access": "read",
+      "description": "Стан модуля"
+    },
+    "simple_thermo.output": {
+      "type": "bool",
+      "access": "read",
+      "description": "Запит на реле",
+      "on_label": "ON",
+      "off_label": "OFF"
+    }
+  },
+
+  "mqtt": {
+    "publish": [
+      "simple_thermo.temperature",
+      "simple_thermo.state",
+      "simple_thermo.output"
+    ],
+    "subscribe": [
+      "simple_thermo.setpoint",
+      "simple_thermo.differential"
+    ]
+  },
+
+  "loggable": {
+    "channels": {
+      "simple_thermo.temperature": {
+        "type": "temperature",
+        "label": "Температура",
+        "default": true
+      }
+    },
+    "events": {
+      "simple_thermo.output": {
+        "id": 30,
+        "edge": "both",
+        "label_on": "Нагрів ON",
+        "label_off": "Нагрів OFF"
+      }
+    }
+  },
+
+  "ui": {
+    "page": "Термостат",
+    "icon": "thermometer",
+    "cards": [
+      {
+        "title": "Стан",
+        "subtitle": "Температура, режим",
+        "layout": "single",
+        "widgets": [
+          {"key": "simple_thermo.temperature", "widget": "value"},
+          {"key": "simple_thermo.state", "widget": "value"},
+          {"key": "simple_thermo.output", "widget": "indicator"}
+        ]
+      },
+      {
+        "title": "Налаштування",
+        "subtitle": "Уставка, диференціал",
+        "layout": "single",
+        "widgets": [
+          {"key": "simple_thermo.setpoint", "widget": "slider"},
+          {"key": "simple_thermo.differential", "widget": "number_input"}
+        ]
+      }
+    ]
+  }
+}

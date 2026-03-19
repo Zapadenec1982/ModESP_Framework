@@ -1,0 +1,20 @@
+{
+  "state.simple_thermo.temperature.description": "Current temperature",
+  "state.simple_thermo.temperature.unit": "°C",
+  "state.simple_thermo.setpoint.description": "Temperature setpoint",
+  "state.simple_thermo.setpoint.unit": "°C",
+  "state.simple_thermo.differential.description": "Differential (hysteresis)",
+  "state.simple_thermo.differential.unit": "°C",
+  "state.simple_thermo.state.description": "Module state",
+  "state.simple_thermo.state.options.off": "Off",
+  "state.simple_thermo.state.options.heating": "Heating",
+  "state.simple_thermo.state.options.idle": "Idle",
+  "state.simple_thermo.output.description": "Relay request",
+  "state.simple_thermo.output.on_label": "ON",
+  "state.simple_thermo.output.off_label": "OFF",
+  "page.simple_thermo.title": "Thermostat",
+  "card.simple_thermo.card0.title": "Status",
+  "card.simple_thermo.card0.subtitle": "Temperature, mode",
+  "card.simple_thermo.card1.title": "Settings",
+  "card.simple_thermo.card1.subtitle": "Setpoint, differential"
+}

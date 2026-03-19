@@ -1,0 +1,20 @@
+{
+  "state.simple_thermo.temperature.description": "Aktuelle Temperatur",
+  "state.simple_thermo.temperature.unit": "°C",
+  "state.simple_thermo.setpoint.description": "Sollwert",
+  "state.simple_thermo.setpoint.unit": "°C",
+  "state.simple_thermo.differential.description": "Differenzial (Hysterese)",
+  "state.simple_thermo.differential.unit": "°C",
+  "state.simple_thermo.state.description": "Modulstatus",
+  "state.simple_thermo.state.options.off": "Aus",
+  "state.simple_thermo.state.options.heating": "Heizen",
+  "state.simple_thermo.state.options.idle": "Standby",
+  "state.simple_thermo.output.description": "Relaisanforderung",
+  "state.simple_thermo.output.on_label": "EIN",
+  "state.simple_thermo.output.off_label": "AUS",
+  "page.simple_thermo.title": "Thermostat",
+  "card.simple_thermo.card0.title": "Status",
+  "card.simple_thermo.card0.subtitle": "Temperatur, Modus",
+  "card.simple_thermo.card1.title": "Einstellungen",
+  "card.simple_thermo.card1.subtitle": "Sollwert, Differenzial"
+}

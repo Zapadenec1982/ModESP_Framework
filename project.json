@@ -4,7 +4,8 @@
   "description": "ModESP Framework — template project",
   "modules": [
     "equipment",
-    "datalogger"
+    "datalogger",
+    "simple_thermo"
   ],
   "system": {
     "device_name": "ModESP",

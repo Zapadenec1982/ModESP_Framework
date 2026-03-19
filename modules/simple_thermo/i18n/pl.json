@@ -1,0 +1,20 @@
+{
+  "state.simple_thermo.temperature.description": "Aktualna temperatura",
+  "state.simple_thermo.temperature.unit": "°C",
+  "state.simple_thermo.setpoint.description": "Nastawa temperatury",
+  "state.simple_thermo.setpoint.unit": "°C",
+  "state.simple_thermo.differential.description": "Różnica (histereza)",
+  "state.simple_thermo.differential.unit": "°C",
+  "state.simple_thermo.state.description": "Stan modułu",
+  "state.simple_thermo.state.options.off": "Wyłączony",
+  "state.simple_thermo.state.options.heating": "Grzanie",
+  "state.simple_thermo.state.options.idle": "Oczekiwanie",
+  "state.simple_thermo.output.description": "Żądanie przekaźnika",
+  "state.simple_thermo.output.on_label": "WŁ",
+  "state.simple_thermo.output.off_label": "WYŁ",
+  "page.simple_thermo.title": "Termostat",
+  "card.simple_thermo.card0.title": "Status",
+  "card.simple_thermo.card0.subtitle": "Temperatura, tryb",
+  "card.simple_thermo.card1.title": "Ustawienia",
+  "card.simple_thermo.card1.subtitle": "Nastawa, różnica"
+}
