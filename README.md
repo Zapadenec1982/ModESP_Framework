@@ -193,6 +193,15 @@ Generator maps module name → C++ class automatically:
 
 For non-standard names, add `"class_name": "MyClass"` to manifest.json.
 
+### Module Naming Rules
+
+- Only `a-z`, `0-9`, `_` (valid C++ identifier)
+- Must start with a letter: `my_module`, not `2module`
+- No hyphens: `heat_pump`, not `heat-pump`
+- Lowercase only: `thermostat`, not `Thermostat`
+- Must match folder name: `modules/thermostat/` → `"thermostat"`
+- State keys prefixed with module name: `thermostat.setpoint`
+
 ### Adding / Removing Modules
 
 ```bash
@@ -200,6 +209,25 @@ For non-standard names, add `"class_name": "MyClass"` to manifest.json.
 # Remove: delete from project.json + delete modules/xxx/ → idf.py build
 # That's it — main.cpp and CMakeLists.txt are untouched
 ```
+
+### Adding a New Driver
+
+Drivers are auto-discovered from `drivers/` directory. No project.json changes needed.
+
+```
+1. Create drivers/my_sensor/
+   ├── CMakeLists.txt
+   ├── manifest.json          # category, settings, hw_type
+   ├── include/my_sensor_driver.h
+   └── src/my_sensor_driver.cpp
+
+2. Use in bindings.json:
+   {"hardware": "adc_1", "driver": "my_sensor", "role": "pressure", "module": "equipment"}
+
+3. idf.py build
+```
+
+Drivers are a **library** — all available drivers are compiled, `bindings.json` selects which ones are active. This avoids duplication between project.json and bindings.json.
 
 ---
 
