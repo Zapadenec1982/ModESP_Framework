@@ -162,16 +162,7 @@ public:
 };
 ```
 
-### 3. Register in main.cpp
-
-```cpp
-#include "your_module.h"
-static YourModule your_module;
-// ...
-app.modules().register_module(your_module);
-```
-
-### 4. Add to project.json
+### 3. Add to project.json
 
 ```json
 {
@@ -179,14 +170,36 @@ app.modules().register_module(your_module);
 }
 ```
 
-### 5. Build
+That's it. The generator auto-creates includes, instances, and registration code.
+No changes to `main.cpp` or `CMakeLists.txt` needed.
+
+### 4. Build
 
 ```bash
-idf.py build    # Generator runs automatically
+idf.py build    # Generator runs automatically → includes, instances, registration
 idf.py -p COM9 flash monitor
 ```
 
 Your module's parameters appear in WebUI, MQTT, state engine, and NVS persistence — automatically.
+
+### Naming Convention
+
+Generator maps module name → C++ class automatically:
+
+| Module name | Header | Class | Instance |
+|-------------|--------|-------|----------|
+| `thermostat` | `thermostat_module.h` | `ThermostatModule` | `thermostat` |
+| `your_module` | `your_module_module.h` | `YourModuleModule` | `your_module` |
+
+For non-standard names, add `"class_name": "MyClass"` to manifest.json.
+
+### Adding / Removing Modules
+
+```bash
+# Add: insert module name in project.json → idf.py build
+# Remove: delete from project.json + delete modules/xxx/ → idf.py build
+# That's it — main.cpp and CMakeLists.txt are untouched
+```
 
 ---
 

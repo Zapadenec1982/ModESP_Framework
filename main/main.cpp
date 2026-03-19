@@ -46,17 +46,9 @@
   #include "modesp/net/mqtt_service.h"
 #endif
 
-// Equipment Layer + Modules
-#include "equipment_module.h"
-#include "datalogger_module.h"
-
-// ┌──────────────────────────────────────────────────────────────┐
-// │ PRODUCT MODULES — add your business logic includes here     │
-// │ Example (refrigeration):                                     │
-// │   #include "protection_module.h"                             │
-// │   #include "thermostat_module.h"                             │
-// │   #include "defrost_module.h"                                │
-// └──────────────────────────────────────────────────────────────┘
+// Module includes + instances + registration (auto-generated from project.json)
+#include "generated/module_includes.h"
+#include "generated/module_register.h"
 
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -97,19 +89,8 @@ static modesp::AwsIotService   cloud_service;
 static modesp::MqttService     cloud_service;
 #endif
 
-// Equipment Layer (CRITICAL priority — owns all HAL drivers)
-static EquipmentModule         equipment;
-
-// DataLogger (LOW priority — logging, runs after business logic)
-static DataLoggerModule        datalogger;
-
-// ┌──────────────────────────────────────────────────────────────┐
-// │ PRODUCT MODULES — add your business module instances here   │
-// │ Example (refrigeration):                                     │
-// │   static ProtectionModule  protection;                       │
-// │   static ThermostatModule  thermostat;                       │
-// │   static DefrostModule     defrost;                          │
-// └──────────────────────────────────────────────────────────────┘
+// Module instances (auto-generated from project.json)
+#include "generated/module_instances.h"
 
 // ═══════════════════════════════════════════════════════════════
 // Entry point
@@ -216,21 +197,9 @@ extern "C" void app_main(void)
              (int)driver_manager.sensor_count(),
              (int)driver_manager.actuator_count());
 
-    // ── Step 7: Register Equipment Manager + business modules ──
-    // EM — єдиний модуль з доступом до HAL (CRITICAL priority)
+    // ── Step 7: Register all modules (auto-generated from project.json) ──
     equipment.bind_drivers(driver_manager);
-    app.modules().register_module(equipment);
-
-    // DataLogger — логування температури та подій (LOW priority)
-    app.modules().register_module(datalogger);
-
-    // ┌──────────────────────────────────────────────────────────┐
-    // │ PRODUCT MODULES — register your modules here            │
-    // │ Example (refrigeration):                                 │
-    // │   app.modules().register_module(protection);  // prio=1 │
-    // │   app.modules().register_module(thermostat);  // prio=2 │
-    // │   app.modules().register_module(defrost);     // prio=2 │
-    // └──────────────────────────────────────────────────────────┘
+    modesp_register_modules(app);
 
     ESP_LOGI(TAG, "Phase 2: Initializing WiFi + business modules...");
     app.modules().init_all(app.state());

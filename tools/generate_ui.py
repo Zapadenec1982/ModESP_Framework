@@ -1718,6 +1718,101 @@ def main():
         print(f"  + {feat_path} (fallback — no bindings)")
         files_written += 1
 
+    # ── 6. Module registry (auto-registration) ─────────────
+    # Convention: module "thermostat" → ThermostatModule in thermostat_module.h
+    module_names = project.get("modules", [])
+
+    # Class name overrides for modules that don't follow simple convention
+    # (e.g. "datalogger" → "DataLoggerModule", not "DataloggerModule")
+    _class_overrides = {}
+    for m in manifests:
+        mod = m.get("module", "")
+        if "class_name" in m:
+            _class_overrides[mod] = m["class_name"]
+
+    def _to_class_name(mod_name):
+        """thermostat → ThermostatModule, datalogger → DataLoggerModule"""
+        if mod_name in _class_overrides:
+            return _class_overrides[mod_name]
+        return ''.join(w.capitalize() for w in mod_name.split('_')) + 'Module'
+
+    def _to_header(mod_name):
+        """thermostat → thermostat_module.h"""
+        return f"{mod_name}_module.h"
+
+    # 6a. module_includes.h
+    inc_lines = [
+        "#pragma once",
+        "// Auto-generated from project.json — DO NOT EDIT",
+        f"// Modules: {', '.join(module_names)}",
+        "",
+    ]
+    for mod in module_names:
+        inc_lines.append(f'#include "{_to_header(mod)}"')
+
+    inc_path = gen_dir / "module_includes.h"
+    with open(inc_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(inc_lines) + '\n')
+    print(f"  + {inc_path}")
+    files_written += 1
+
+    # 6b. module_instances.h
+    inst_lines = [
+        "#pragma once",
+        "// Auto-generated from project.json — DO NOT EDIT",
+        "",
+    ]
+    for mod in module_names:
+        inst_lines.append(f"static {_to_class_name(mod)}  {mod};")
+
+    inst_path = gen_dir / "module_instances.h"
+    with open(inst_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(inst_lines) + '\n')
+    print(f"  + {inst_path}")
+    files_written += 1
+
+    # 6c. module_register.h
+    # Sort by priority from manifest (lower = earlier)
+    mod_priorities = []
+    for mod in module_names:
+        prio = 2  # default
+        for m in manifests:
+            if m.get("module") == mod:
+                prio = m.get("priority", 2)
+                break
+        mod_priorities.append((prio, mod))
+    mod_priorities.sort(key=lambda x: x[0])
+
+    reg_lines = [
+        "#pragma once",
+        "// Auto-generated from project.json — DO NOT EDIT",
+        "// Sorted by manifest priority (lower = earlier)",
+        "",
+        "#include \"modesp/app.h\"",
+        "",
+        "inline void modesp_register_modules(modesp::App& app) {",
+    ]
+    for prio, mod in mod_priorities:
+        reg_lines.append(f"    app.modules().register_module({mod});  // priority={prio}")
+    reg_lines.append("}")
+
+    reg_path = gen_dir / "module_register.h"
+    with open(reg_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(reg_lines) + '\n')
+    print(f"  + {reg_path}")
+    files_written += 1
+
+    # 6d. modules.cmake — PRIV_REQUIRES list for main/CMakeLists.txt
+    cmake_lines = [
+        "# Auto-generated from project.json — DO NOT EDIT",
+        f"set(PRODUCT_MODULES {' '.join(module_names)})",
+    ]
+    cmake_path = gen_dir / "modules.cmake"
+    with open(cmake_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(cmake_lines) + '\n')
+    print(f"  + {cmake_path}")
+    files_written += 1
+
     # ── i18n: build language packs ───────────────────────────
     i18n_out = args.output_data / "www" / "i18n"
     i18n_out.mkdir(exist_ok=True)

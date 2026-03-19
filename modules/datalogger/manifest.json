@@ -1,6 +1,7 @@
 {
   "manifest_version": 1,
   "module": "datalogger",
+  "class_name": "DataLoggerModule",
   "description": "Temperature and event logger with LittleFS storage",
 
   "state": {
