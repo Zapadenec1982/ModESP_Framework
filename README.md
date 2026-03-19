@@ -82,8 +82,8 @@ Modules publish requests to SharedState. Equipment Manager arbitrates and drives
 | **modesp_mqtt** | `components/modesp_mqtt/` | MQTT + TLS, delta-publish, heartbeat, LWT, OTA |
 | **modesp_aws** | `components/modesp_aws/` | AWS IoT Core (mTLS, Shadow, Jobs) — optional |
 | **Equipment** | `modules/equipment/` | HAL owner, arbitration, interlocks |
-| **DataLogger** | `modules/datalogger/` | Temperature + event logging, LittleFS, SVG chart |
-| **Generator** | `tools/generate_ui.py` | Manifest → 5 artifacts + i18n validation |
+| **DataLogger** | `modules/datalogger/` | Manifest-driven temperature + event logging, LittleFS, SVG chart |
+| **Generator** | `tools/generate_ui.py` | Manifest → 7 artifacts + i18n validation |
 | **WebUI** | `webui/` | Svelte 4 SPA, 24 widget types, dark/light theme |
 
 ### Included Drivers
@@ -229,6 +229,38 @@ Drivers are auto-discovered from `drivers/` directory. No project.json changes n
 
 Drivers are a **library** — all available drivers are compiled, `bindings.json` selects which ones are active. This avoids duplication between project.json and bindings.json.
 
+### DataLogger Integration
+
+Modules declare what they can provide for logging via `loggable` section in manifest:
+
+```json
+// modules/your_module/manifest.json
+{
+  "loggable": {
+    "channels": {
+      "your_module.temperature": {
+        "type": "temperature",
+        "label": "Process temperature",
+        "default": true
+      }
+    },
+    "events": {
+      "your_module.alarm": {
+        "id": 20,
+        "edge": "rising",
+        "label": "Process alarm"
+      }
+    }
+  }
+}
+```
+
+Generator collects all `loggable` sections → produces `datalogger_channels.h` + `datalogger_events.h`. DataLogger reads generated tables — zero hardcoded state keys.
+
+- **Channels**: temperature values sampled periodically, toggleable in WebUI Settings
+- **Events**: edge-detect on bool state keys, logged with explicit IDs (stable across builds)
+- **Adding logging** = add `loggable` to your module manifest → rebuild → appears in DataLogger
+
 ---
 
 ## Board Configuration
@@ -263,7 +295,7 @@ Switch board → rebuild → same firmware runs on different hardware.
 | **MQTT + TLS** | Delta-publish, heartbeat, LWT, tenant-aware topics, HA discovery |
 | **HTTP REST** | 23 endpoints: state, settings, WiFi, OTA, logs, backup/restore |
 | **OTA** | Dual partition, SHA-256 check, board compatibility, auto-rollback |
-| **DataLogger** | 6-ch temperature, 18 event types, LittleFS, SVG chart, CSV export |
+| **DataLogger** | Manifest-driven channels + events, LittleFS, SVG chart, CSV export |
 | **i18n** | 4 languages (UK/EN/DE/PL), lazy-load packs, add language = JSON only |
 | **WiFi** | STA + AP fallback, AP→STA probe, mDNS, STA watchdog |
 | **Cloud** | MQTT broker or AWS IoT Core (compile-time Kconfig switch) |

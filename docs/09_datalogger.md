@@ -1,32 +1,61 @@
-# ModESP v4 — DataLogger Module
+# ModESP Framework — DataLogger Module
 
-Модуль багатоканального логування температури та подій обладнання.
+Universal manifest-driven temperature and event logging module.
 Записує дані на LittleFS (flash), віддає через streaming HTTP JSON,
 візуалізує у ChartWidget (SVG, Catmull-Rom smooth curves).
 
 ## Архітектура
 
-- **6-channel dynamic logging:** канал `air` завжди активний, решта (evap, cond, setpoint, humidity, reserved) опціональні
-- **TempRecord:** 16 bytes фіксований розмір — `timestamp` (uint32_t, 4B) + `ch[6]` (int16_t x6, 12B)
-- **ChannelDef:** compile-time таблиця каналів — `id`, `state_key`, `enable_key`, `has_key` per channel
+- **Manifest-driven channels:** модулі декларують `loggable.channels` — generator → `datalogger_channels.h`
+- **Manifest-driven events:** модулі декларують `loggable.events` з explicit IDs — generator → `datalogger_events.h`
+- **TempRecord:** 16 bytes фіксований розмір — `timestamp` (uint32_t, 4B) + `ch[MAX_CHANNELS]` (int16_t ×6, 12B)
+- **MAX_CHANNELS = 6** — фіксовано для binary compatibility
 - **TEMP_NO_DATA sentinel:** `INT16_MIN` (-32768) — канал вимкнений або датчик відсутній
 - **EventRecord:** 8 bytes — `timestamp` (uint32_t) + `event_type` (uint8_t) + 3B padding
-- **Timestamp:** UNIX epoch якщо SNTP синхронізовано, інакше uptime в секундах
-- **Пріоритет модуля:** LOW (ініціалізується останнім)
-- **Edge-detect подій:** poll кожен update cycle, порівнює поточний стан з попереднім
+- **Generic edge-detect:** `poll_events()` — 15-рядковий loop по generated LOG_EVENTS[] table
+- **Zero hardcoded state keys** — DataLogger не знає які модулі в системі
 
 ## Канали
 
-Порядок каналів у бінарному записі фіксований (compile-time `CHANNEL_DEFS[6]`):
+Channels визначаються в module manifests через `loggable.channels`:
 
-| # | id         | state_key              | enable_key             | has_key                  |
-|---|------------|------------------------|------------------------|--------------------------|
-| 0 | `air`      | `equipment.air_temp`   | _(завжди)_             | _(завжди)_               |
-| 1 | `evap`     | `equipment.evap_temp`  | `datalogger.log_evap`  | `equipment.has_evap_temp`|
-| 2 | `cond`     | `equipment.cond_temp`  | `datalogger.log_cond`  | `equipment.has_cond_temp`|
-| 3 | `setpoint` | `thermostat.setpoint`  | `datalogger.log_setpoint`| _(завжди)_             |
-| 4 | `humidity` | `equipment.humidity`   | `datalogger.log_humidity`| `equipment.has_humidity`|
-| 5 | _(reserved)_ | _(nullptr)_         | _(nullptr)_            | _(nullptr)_              |
+```json
+// modules/equipment/manifest.json
+{
+  "loggable": {
+    "channels": {
+      "equipment.air_temp": {"type": "temperature", "label": "Темп. камери", "default": true},
+      "equipment.evap_temp": {"type": "temperature", "label": "Темп. випарника", "default": false, "enable_key": "datalogger.log_evap", "requires": "equipment.has_evap_temp"}
+    }
+  }
+}
+```
+
+Generator збирає всі channels → `generated/datalogger_channels.h` (constexpr table).
+
+## Події
+
+Events визначаються в module manifests через `loggable.events` з **explicit IDs** (stable across builds):
+
+```json
+{
+  "loggable": {
+    "events": {
+      "equipment.compressor": {"id": 1, "edge": "both", "label_on": "Compressor ON", "label_off": "Compressor OFF"},
+      "protection.high_temp_alarm": {"id": 5, "edge": "rising", "label": "High T alarm"}
+    }
+  }
+}
+```
+
+Edge types:
+- `rising` — log event on true, log ALARM_CLEAR on false
+- `falling` — log event on false only
+- `both` — log id on true, log id+1 on false
+
+System events (not edge-detect, logged explicitly):
+- `EVENT_POWER_ON = 10` — logged in `on_init()`
+- `EVENT_ALARM_CLEAR = 7` — logged on falling edge of `rising` events
 
 **Логіка увімкнення каналу:**
 - `enable_key == nullptr` — канал завжди увімкнений (air)
