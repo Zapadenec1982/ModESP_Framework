@@ -16,32 +16,6 @@
 
   $: page = $pages.find((p) => p.id === pageId);
 
-  // Protection state specific
-  $: isProtection = pageId === "protection";
-  $: alarmActive = $state["protection.alarm_active"];
-  $: alarmCode = $state["protection.alarm_code"];
-
-  // Alarm detail definitions
-  const alarmDefs = [
-    { key: "protection.high_temp_alarm", label: "prot.alarm.high_temp",
-      current: "equipment.air_temp", limit: "protection.high_limit", unit: "°C" },
-    { key: "protection.low_temp_alarm", label: "prot.alarm.low_temp",
-      current: "equipment.air_temp", limit: "protection.low_limit", unit: "°C" },
-    { key: "protection.sensor1_alarm", label: "prot.alarm.sensor1" },
-    { key: "protection.sensor2_alarm", label: "prot.alarm.sensor2" },
-    { key: "protection.door_alarm", label: "prot.alarm.door" },
-    { key: "protection.short_cycle_alarm", label: "prot.alarm.short_cycle" },
-    { key: "protection.rapid_cycle_alarm", label: "prot.alarm.rapid_cycle",
-      current: "protection.compressor_starts_1h", limit: "protection.max_starts_hour" },
-    { key: "protection.continuous_run_alarm", label: "prot.alarm.continuous_run",
-      current: "protection.compressor_run_time", limit: "protection.max_continuous_run", unit: "min" },
-    { key: "protection.pulldown_alarm", label: "prot.alarm.pulldown" },
-    { key: "protection.rate_alarm", label: "prot.alarm.rate" },
-  ];
-
-  $: activeAlarms = alarmDefs.filter(a => $state[a.key]);
-  $: checksCount = page ? page.cards.reduce((n, c) => n + c.widgets.length, 0) : 0;
-
   // Адаптивний розмір карток: короткі парами, довгі на повну ширину
   const FULL_WIDTH_THRESHOLD = 7;
 
@@ -49,14 +23,11 @@
     .map((card, origIdx) => ({
       card,
       origIdx,
-      isAlarmCard: isProtection && card.widgets?.some(w => w.key === 'protection.alarm_active'),
-      isDiagCard: isProtection && card.widgets?.some(w => w.key === 'protection.compressor_starts_1h'),
       visible: isVisible(card.visible_when, $state),
       widgetCount: card.widgets.filter(w => isVisible(w.visible_when, $state)).length,
     }))
-    .filter(c => !c.isAlarmCard && !c.isDiagCard && c.visible)
+    .filter(c => c.visible)
     .sort((a, b) => {
-      // Явно wide картки зберігають позицію; auto-wide (>7 widgets) — після коротких
       const aFull = !a.card.wide && a.widgetCount > FULL_WIDTH_THRESHOLD ? 1 : 0;
       const bFull = !b.card.wide && b.widgetCount > FULL_WIDTH_THRESHOLD ? 1 : 0;
       return aFull - bFull;
@@ -102,156 +73,6 @@
 
 {#if page}
   <div class="page-grid page-padding">
-    {#if isProtection}
-      <!-- Protection Status Hero -->
-      {#if alarmActive}
-        <div
-          class="protect-status protect-alarm"
-          in:fly={{ y: -10, duration: 300 }}
-        >
-          <div class="p-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          </div>
-          <div class="p-title">{$t['prot.title_alarm']}</div>
-          <div class="p-desc">{$t['prot.desc_alarm']}</div>
-          <div class="al-code">{alarmCode || "UNKNOWN"}</div>
-        </div>
-
-        <!-- Individual alarm detail cards -->
-        {#each activeAlarms as alarm, i}
-          <div class="alarm-detail" in:fly={{ y: 15, duration: 250, delay: i * 50 }}>
-            <div class="alarm-detail-header">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              <span class="alarm-detail-name">{$t[alarm.label]}</span>
-            </div>
-            {#if alarm.current || alarm.limit}
-              <div class="alarm-detail-grid">
-                {#if alarm.current}
-                  <div>
-                    <div class="alarm-detail-l">{$t['prot.current']}</div>
-                    <div class="alarm-detail-v">
-                      {typeof $state[alarm.current] === "number"
-                        ? $state[alarm.current].toFixed(1) : "—"}
-                      {#if alarm.unit}<small>{alarm.unit}</small>{/if}
-                    </div>
-                  </div>
-                {/if}
-                {#if alarm.limit}
-                  <div>
-                    <div class="alarm-detail-l">{$t['prot.limit']}</div>
-                    <div class="alarm-detail-v">
-                      {typeof $state[alarm.limit] === "number"
-                        ? $state[alarm.limit].toFixed(1) : "—"}
-                      {#if alarm.unit}<small>{alarm.unit}</small>{/if}
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/each}
-
-        <!-- Hold-to-confirm reset button -->
-        <div class="reset-wrap">
-          <button
-            class="al-btn"
-            on:pointerdown={startHold}
-            on:pointerup={stopHold}
-            on:pointerleave={stopHold}
-          >
-            <div class="hold-fill" style="width: {holdProgress}%"></div>
-            <span class="hold-text">
-              {holdActive ? $t['prot.resetting'] : $t['prot.reset_alarms']}
-            </span>
-          </button>
-        </div>
-      {:else}
-        <div
-          class="protect-status protect-ok"
-          in:fly={{ y: -10, duration: 300 }}
-        >
-          <div class="p-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2.5">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              <polyline points="9 12 11 14 15 10"/>
-            </svg>
-          </div>
-          <div class="p-title">{$t['prot.title_ok']}</div>
-          <div class="p-desc">{checksCount} {$t['prot.checks_passed']}</div>
-          <div class="check-chips">
-            <span class="check-chip"
-              ><span class="check-chip-dot"></span>{$t['prot.chip_temp']}</span>
-            <span class="check-chip"
-              ><span class="check-chip-dot"></span>{$t['prot.chip_sensors']}</span>
-            <span class="check-chip"
-              ><span class="check-chip-dot"></span>{$t['prot.chip_comp']}</span>
-            <span class="check-chip"
-              ><span class="check-chip-dot"></span>{$t['prot.chip_door']}</span>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Compressor Diagnostics Card -->
-      <div class="diag-card" in:fly={{ y: 20, duration: 300, delay: 100 }}>
-        <div class="diag-header">
-          <div class="diag-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2">
-              <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/>
-              <path d="M12 6v6l4 2"/>
-            </svg>
-          </div>
-          <span class="diag-title">{$t['prot.diag_title']}</span>
-        </div>
-        <div class="diag-grid">
-          <div>
-            <div class="diag-metric-label">{$t['prot.starts_h']}</div>
-            <div class="diag-metric-value">
-              {$state["protection.compressor_starts_1h"] ?? 0}<small>{$t['prot.unit_per_h']}</small>
-            </div>
-          </div>
-          <div>
-            <div class="diag-metric-label">{$t['prot.runtime']}</div>
-            <div class="diag-metric-value">
-              {($state["protection.compressor_hours"] ?? 0).toFixed(1)}<small>{$t['prot.unit_h']}</small>
-            </div>
-          </div>
-          <div>
-            <div class="diag-metric-label">{$t['prot.current_cycle']}</div>
-            <div class="diag-metric-value">
-              {Math.floor(($state["protection.compressor_run_time"] ?? 0) / 60)}:{(
-                ($state["protection.compressor_run_time"] ?? 0) % 60
-              )
-                .toString()
-                .padStart(2, "0")}<small>{$t['prot.unit_min']}</small>
-            </div>
-          </div>
-          <div class="duty-wrap">
-            <div class="duty-labels">
-              <span>{$t['prot.duty_cycle']}</span>
-              <span>{($state["protection.compressor_duty"] ?? 0).toFixed(1)}%</span>
-            </div>
-            <div class="duty-bar">
-              <div
-                class="duty-fill"
-                style="width: {($state['protection.compressor_duty'] ?? 0).toFixed(1)}%"
-              ></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    {/if}
     {#each filteredCards as { card, origIdx, widgetCount }, i}
       {@const isReadonly = card.widgets.every(w => !w.writable)}
       {@const isFullWidth = card.wide || widgetCount > FULL_WIDTH_THRESHOLD}

@@ -11,9 +11,12 @@
 
   export let currentPage = "dashboard";
 
-  // AUDIT-009: alarm banner на всіх сторінках
-  $: alarmActive = $state["protection.alarm_active"];
-  $: alarmCode = $state["protection.alarm_code"];
+  // Generic alarm banner — any module can publish *.alarm_active
+  $: alarmKeys = Object.keys($state || {}).filter(k => k.endsWith('.alarm_active') && $state[k]);
+  $: alarmActive = alarmKeys.length > 0;
+  $: alarmCode = alarmActive
+    ? ($state[alarmKeys[0].replace('.alarm_active', '.alarm_code')] || "ALARM")
+    : "";
 
   function navigate(id) {
     currentPage = id;
@@ -110,8 +113,8 @@
         class="alarm-banner"
         role="button"
         tabindex="0"
-        on:click={() => navigate("protection")}
-        on:keydown={(e) => e.key === "Enter" && navigate("protection")}
+        on:click={() => { /* navigate to alarm source page if available */ }}
+        on:keydown={(e) => { /* navigate to alarm source */ }}
       >
         {$t["alarm.banner"]}: {alarmCode
           ? String(alarmCode).toUpperCase().replace("_", " ")
