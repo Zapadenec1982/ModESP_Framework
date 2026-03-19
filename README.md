@@ -288,6 +288,8 @@ data/
 
 Switch board → rebuild → same firmware runs on different hardware.
 
+**Full guide:** [docs/BOARD_SETUP.md](docs/BOARD_SETUP.md) — 3 board examples, field reference, driver table.
+
 ---
 
 ## Key Features
@@ -336,6 +338,21 @@ tools/
 webui/                  # Svelte 4 SPA (24 widget components)
 tests/host/             # C++ doctest (host-compiled)
 ```
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [**TUTORIAL.md**](docs/TUTORIAL.md) | **Step-by-step: create your first module** (simple thermostat demo) |
+| [**BOARD_SETUP.md**](docs/BOARD_SETUP.md) | Hardware configuration: board.json, bindings.json, drivers |
+| [01_architecture.md](docs/01_architecture.md) | System architecture deep-dive |
+| [02_core.md](docs/02_core.md) | Core components: SharedState, ModuleManager, BaseModule |
+| [03_services.md](docs/03_services.md) | Services: Config, Persist, Error, Watchdog, Logger |
+| [08_webui.md](docs/08_webui.md) | WebUI: Svelte components, widgets, theming |
+| [09_datalogger.md](docs/09_datalogger.md) | DataLogger: manifest-driven channels + events |
+| [10_manifest_standard.md](docs/10_manifest_standard.md) | Manifest specification v2.0 |
 
 ---
 
