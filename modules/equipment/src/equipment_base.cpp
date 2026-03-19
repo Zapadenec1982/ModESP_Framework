@@ -22,7 +22,7 @@ static const char* TAG = "Equipment";
 // ═══════════════════════════════════════════════════════════════
 
 EquipmentBase::EquipmentBase(const char* name, int priority)
-    : BaseModule(name, priority)
+    : BaseModule(name, static_cast<modesp::ModulePriority>(priority))
 {}
 
 // ═══════════════════════════════════════════════════════════════
@@ -44,7 +44,7 @@ void EquipmentBase::bind_drivers(modesp::DriverManager& dm) {
         strncpy(r.role, s->role(), sizeof(r.role) - 1);
         strncpy(r.type, "sensor", sizeof(r.type) - 1);
         r.as_sensor = s;
-        r.bound = true;
+        // bound = role name is set
         ESP_LOGI(TAG, "  Sensor '%s' [%s] bound", r.role, s->type());
         role_count_++;
     }
@@ -57,7 +57,7 @@ void EquipmentBase::bind_drivers(modesp::DriverManager& dm) {
         strncpy(r.role, a->role(), sizeof(r.role) - 1);
         strncpy(r.type, "actuator", sizeof(r.type) - 1);
         r.as_actuator = a;
-        r.bound = true;
+        // bound = role name is set
         ESP_LOGI(TAG, "  Actuator '%s' bound", r.role);
         role_count_++;
     }
@@ -89,7 +89,7 @@ modesp::IActuatorDriver* EquipmentBase::actuator(const char* role) const {
 
 bool EquipmentBase::has_driver(const char* role) const {
     int idx = find_role(role);
-    return (idx >= 0) && roles_[idx].bound;
+    return (idx >= 0) && (roles_[idx].as_sensor || roles_[idx].as_actuator);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -316,7 +316,7 @@ void EquipmentBase::inject_sensor(const char* role, modesp::ISensorDriver* s) {
         strncpy(r.role, role, sizeof(r.role) - 1);
         strncpy(r.type, "sensor", sizeof(r.type) - 1);
         r.as_sensor = s;
-        r.bound = true;
+        // bound = role name is set
         role_count_++;
     }
 }
@@ -330,7 +330,7 @@ void EquipmentBase::inject_actuator(const char* role, modesp::IActuatorDriver* a
         strncpy(r.role, role, sizeof(r.role) - 1);
         strncpy(r.type, "actuator", sizeof(r.type) - 1);
         r.as_actuator = a;
-        r.bound = true;
+        // bound = role name is set
         role_count_++;
     }
 }

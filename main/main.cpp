@@ -47,8 +47,8 @@
 #endif
 
 // Module includes + instances + registration (auto-generated from project.json)
-#include "generated/module_includes.h"
-#include "generated/module_register.h"
+#include "module_includes.h"
+#include "module_register.h"
 
 #include "esp_log.h"
 #include "esp_task_wdt.h"
@@ -90,7 +90,7 @@ static modesp::MqttService     cloud_service;
 #endif
 
 // Module instances (auto-generated from project.json)
-#include "generated/module_instances.h"
+#include "module_instances.h"
 
 // ═══════════════════════════════════════════════════════════════
 // Entry point
