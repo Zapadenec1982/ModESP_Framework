@@ -43,6 +43,10 @@ public:
     size_t sensor_count()   const { return sensor_count_; }
     size_t actuator_count() const { return actuator_count_; }
 
+    /// Access sensor by index (for EquipmentBase generic binding)
+    ISensorDriver*   sensor_at(size_t i) const { return (i < sensors_.size()) ? sensors_[i].driver : nullptr; }
+    IActuatorDriver* actuator_at(size_t i) const { return (i < actuators_.size()) ? actuators_[i].driver : nullptr; }
+
 private:
     struct SensorEntry {
         ISensorDriver* driver;
