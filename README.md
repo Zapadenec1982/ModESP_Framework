@@ -177,8 +177,8 @@ public:
 }
 ```
 
-That's it. The generator auto-creates includes, instances, and registration code.
-No changes to `main.cpp` or `CMakeLists.txt` needed.
+The generator auto-creates includes, instances, and registration code.
+**One manual step:** add the module name to `main/CMakeLists.txt` PRIV_REQUIRES list (ESP-IDF requirement).
 
 ### 4. Build
 
@@ -212,9 +212,15 @@ For non-standard names, add `"class_name": "MyClass"` to manifest.json.
 ### Adding / Removing Modules
 
 ```bash
-# Add: insert module name in project.json → idf.py build
-# Remove: delete from project.json + delete modules/xxx/ → idf.py build
-# That's it — main.cpp and CMakeLists.txt are untouched
+# Add:
+# 1. Add module name to project.json
+# 2. Add module name to main/CMakeLists.txt PRIV_REQUIRES
+# 3. idf.py build
+
+# Remove:
+# 1. Remove from project.json + main/CMakeLists.txt PRIV_REQUIRES
+# 2. Delete modules/xxx/
+# 3. idf.py build
 ```
 
 ### Adding a New Driver
