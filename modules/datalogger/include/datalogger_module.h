@@ -16,8 +16,9 @@
 /// Sentinel: канал не логується або датчик відсутній
 static constexpr int16_t TEMP_NO_DATA = INT16_MIN;  // -32768
 
-/// Channel definitions — auto-generated from module manifests
+/// Channel + event definitions — auto-generated from module manifests
 #include "generated/datalogger_channels.h"
+#include "generated/datalogger_events.h"
 
 /// Fixed for binary compatibility (TempRecord size must not change)
 static constexpr int MAX_CHANNELS = static_cast<int>(modesp::gen::MAX_LOG_CHANNELS);
@@ -29,28 +30,11 @@ struct TempRecord {
 };
 static_assert(sizeof(TempRecord) == 16, "TempRecord must be 16 bytes");
 
-/// Тип події
-enum EventType : uint8_t {
-    EVENT_COMPRESSOR_ON   = 1,
-    EVENT_COMPRESSOR_OFF  = 2,
-    EVENT_DEFROST_START   = 3,
-    EVENT_DEFROST_END     = 4,
-    EVENT_ALARM_HIGH      = 5,
-    EVENT_ALARM_LOW       = 6,
-    EVENT_ALARM_CLEAR     = 7,
-    EVENT_DOOR_OPEN       = 8,
-    EVENT_DOOR_CLOSE      = 9,
-    EVENT_POWER_ON        = 10,
-    // Phase 17 — protection alarms
-    EVENT_ALARM_SENSOR1   = 11,
-    EVENT_ALARM_SENSOR2   = 12,
-    EVENT_ALARM_CONT_RUN  = 13,
-    EVENT_ALARM_PULLDOWN  = 14,
-    EVENT_ALARM_SHORT_CYC = 15,
-    EVENT_ALARM_RAPID_CYC = 16,
-    EVENT_ALARM_RATE_RISE = 17,
-    EVENT_ALARM_DOOR      = 18,
-};
+/// Event types — from generated/datalogger_events.h (manifest-driven)
+/// System events (not edge-detect):
+///   modesp::gen::EVENT_POWER_ON    = 10
+///   modesp::gen::EVENT_ALARM_CLEAR = 7
+/// Edge-detect events: modesp::gen::LOG_EVENTS[] table
 
 /// Запис події (8 bytes, aligned)
 struct EventRecord {
@@ -79,20 +63,9 @@ private:
     etl::vector<TempRecord, 16>   temp_buf_;
     etl::vector<EventRecord, 32>  event_buf_;
 
-    // ── Попередній стан для edge-detect ──
-    bool prev_compressor_     = false;
-    bool prev_defrost_active_ = false;
-    bool prev_door_open_      = false;
-    bool prev_alarm_high_     = false;
-    bool prev_alarm_low_      = false;
-    bool prev_sensor1_alarm_  = false;
-    bool prev_sensor2_alarm_  = false;
-    bool prev_cont_run_alarm_ = false;
-    bool prev_pulldown_alarm_ = false;
-    bool prev_short_cyc_alarm_= false;
-    bool prev_rapid_cyc_alarm_= false;
-    bool prev_rate_alarm_     = false;
-    bool prev_door_alarm_     = false;
+    // ── Попередній стан для edge-detect (generated events) ──
+    static constexpr size_t MAX_EVENTS = 32;  // max edge-detect events
+    bool prev_event_state_[MAX_EVENTS] = {};
 
     // ── Таймери ──
     uint32_t sample_timer_ms_ = 0;
@@ -112,7 +85,7 @@ private:
     void sync_settings();
     bool flush_to_flash();
     void rotate_if_needed(const char* path, size_t max_size);
-    void log_event(EventType type);
+    void log_event(uint8_t event_id);
     uint32_t current_timestamp() const;
     void update_flash_used();
     void poll_events();

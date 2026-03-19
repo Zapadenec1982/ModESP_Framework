@@ -1882,6 +1882,81 @@ def main():
         print(f"  + {ch_path} ({len(log_channels)} channels)")
         files_written += 1
 
+    # ── 8. DataLogger events (manifest-driven) ─────────────
+    log_events = []
+    event_ids_seen = set()
+    for m in manifests:
+        loggable = m.get("loggable", {})
+        for key, cfg in loggable.get("events", {}).items():
+            eid = cfg.get("id")
+            if eid is None:
+                print(f"  ERROR: loggable event '{key}' missing explicit 'id'")
+                sys.exit(1)
+            if eid in event_ids_seen:
+                print(f"  ERROR: duplicate event id={eid} for '{key}'")
+                sys.exit(1)
+            event_ids_seen.add(eid)
+            log_events.append({
+                "id": eid,
+                "state_key": key,
+                "edge": cfg.get("edge", "rising"),
+                "label": cfg.get("label", key),
+                "label_on": cfg.get("label_on"),
+                "label_off": cfg.get("label_off"),
+            })
+
+    # Sort by ID for stable ordering
+    log_events.sort(key=lambda e: e["id"])
+
+    if log_events:
+        ev_lines = [
+            "#pragma once",
+            "// Auto-generated from module manifests — DO NOT EDIT",
+            "",
+            "#include <cstddef>",
+            "#include <cstdint>",
+            "",
+            "namespace modesp::gen {",
+            "",
+            "enum class EdgeType : uint8_t { RISING = 0, FALLING = 1, BOTH = 2 };",
+            "",
+            "struct LogEvent {",
+            "    uint8_t     id;          // unique event ID (stable across builds)",
+            "    const char* state_key;   // SharedState key to watch",
+            "    EdgeType    edge;        // which edge triggers the event",
+            "    const char* label;       // default label (or label_on for BOTH)",
+            "    const char* label_off;   // label for falling edge (BOTH only, nullptr otherwise)",
+            "};",
+            "",
+            "// System events (not edge-detect, logged explicitly in code)",
+            "static constexpr uint8_t EVENT_POWER_ON    = 10;",
+            "static constexpr uint8_t EVENT_ALARM_CLEAR = 7;",
+            "",
+            f"static constexpr size_t LOG_EVENTS_COUNT = {len(log_events)};",
+            "",
+            "static constexpr LogEvent LOG_EVENTS[] = {",
+        ]
+        for ev in log_events:
+            edge_str = {"rising": "EdgeType::RISING", "falling": "EdgeType::FALLING", "both": "EdgeType::BOTH"}[ev["edge"]]
+            if ev["edge"] == "both" and ev["label_on"]:
+                label = ev["label_on"]
+                label_off = f'"{ev["label_off"]}"' if ev["label_off"] else "nullptr"
+            else:
+                label = ev["label"]
+                label_off = "nullptr"
+            ev_lines.append(f'    {{{ev["id"]}, "{ev["state_key"]}", {edge_str}, "{label}", {label_off}}},')
+        ev_lines.extend([
+            "};",
+            "",
+            "} // namespace modesp::gen",
+        ])
+
+        ev_path = gen_dir / "datalogger_events.h"
+        with open(ev_path, "w", encoding="utf-8") as f:
+            f.write('\n'.join(ev_lines) + '\n')
+        print(f"  + {ev_path} ({len(log_events)} events)")
+        files_written += 1
+
     # ── i18n: build language packs ───────────────────────────
     i18n_out = args.output_data / "www" / "i18n"
     i18n_out.mkdir(exist_ok=True)

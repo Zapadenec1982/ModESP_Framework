@@ -119,7 +119,7 @@ bool DataLoggerModule::on_init() {
     update_flash_used();
 
     // POWER_ON маркер
-    log_event(EVENT_POWER_ON);
+    log_event(modesp::gen::EVENT_POWER_ON);
 
     // Ініціалізувати SharedState (після POWER_ON щоб events_count включав його)
     state_set("datalogger.records_count", static_cast<int32_t>(temp_count_));
@@ -127,20 +127,10 @@ bool DataLoggerModule::on_init() {
               static_cast<int32_t>(event_count_ + event_buf_.size()));
     state_set("datalogger.flash_used", static_cast<int32_t>(flash_used_kb_));
 
-    // Прочитати початковий стан для edge-detect
-    prev_compressor_     = read_bool("equipment.compressor", false);
-    prev_defrost_active_ = read_bool("defrost.active", false);
-    prev_door_open_      = read_bool("equipment.door_open", false);
-    prev_alarm_high_     = read_bool("protection.high_temp_alarm", false);
-    prev_alarm_low_      = read_bool("protection.low_temp_alarm", false);
-    prev_sensor1_alarm_  = read_bool("protection.sensor1_alarm", false);
-    prev_sensor2_alarm_  = read_bool("protection.sensor2_alarm", false);
-    prev_cont_run_alarm_ = read_bool("protection.continuous_run_alarm", false);
-    prev_pulldown_alarm_ = read_bool("protection.pulldown_alarm", false);
-    prev_short_cyc_alarm_= read_bool("protection.short_cycle_alarm", false);
-    prev_rapid_cyc_alarm_= read_bool("protection.rapid_cycle_alarm", false);
-    prev_rate_alarm_     = read_bool("protection.rate_alarm", false);
-    prev_door_alarm_     = read_bool("protection.door_alarm", false);
+    // Прочитати початковий стан для edge-detect (generated events)
+    for (size_t i = 0; i < modesp::gen::LOG_EVENTS_COUNT && i < MAX_EVENTS; i++) {
+        prev_event_state_[i] = read_bool(modesp::gen::LOG_EVENTS[i].state_key, false);
+    }
 
     // Логувати активні канали
     int active = 0;
@@ -232,86 +222,38 @@ void DataLoggerModule::on_update(uint32_t dt_ms) {
 // ── Edge-detect подій ──
 
 void DataLoggerModule::poll_events() {
-    bool comp = read_bool("equipment.compressor", false);
-    if (comp != prev_compressor_) {
-        log_event(comp ? EVENT_COMPRESSOR_ON : EVENT_COMPRESSOR_OFF);
-        prev_compressor_ = comp;
+    using namespace modesp::gen;
+
+    for (size_t i = 0; i < LOG_EVENTS_COUNT && i < MAX_EVENTS; i++) {
+        const auto& ev = LOG_EVENTS[i];
+        bool current = read_bool(ev.state_key, false);
+        bool prev = prev_event_state_[i];
+
+        if (current == prev) continue;
+        prev_event_state_[i] = current;
+
+        switch (ev.edge) {
+            case EdgeType::RISING:
+                if (current) log_event(ev.id);
+                if (!current) log_event(modesp::gen::EVENT_ALARM_CLEAR);  // auto-clear on falling
+                break;
+            case EdgeType::FALLING:
+                if (!current) log_event(ev.id);
+                break;
+            case EdgeType::BOTH:
+                // For BOTH: id = rising event, id+1 = falling event
+                log_event(current ? ev.id : (ev.id + 1));
+                break;
+        }
     }
-
-    bool defrost = read_bool("defrost.active", false);
-    if (defrost != prev_defrost_active_) {
-        log_event(defrost ? EVENT_DEFROST_START : EVENT_DEFROST_END);
-        prev_defrost_active_ = defrost;
-    }
-
-    bool door = read_bool("equipment.door_open", false);
-    if (door != prev_door_open_) {
-        log_event(door ? EVENT_DOOR_OPEN : EVENT_DOOR_CLOSE);
-        prev_door_open_ = door;
-    }
-
-    // === Аварії: rising edge → event, falling edge → ALARM_CLEAR ===
-    // ВАЖЛИВО: зберігаємо prev_ ПІСЛЯ clear check
-
-    bool alarm_high = read_bool("protection.high_temp_alarm", false);
-    if (alarm_high && !prev_alarm_high_) log_event(EVENT_ALARM_HIGH);
-    if (!alarm_high && prev_alarm_high_) log_event(EVENT_ALARM_CLEAR);
-    prev_alarm_high_ = alarm_high;
-
-    bool alarm_low = read_bool("protection.low_temp_alarm", false);
-    if (alarm_low && !prev_alarm_low_) log_event(EVENT_ALARM_LOW);
-    if (!alarm_low && prev_alarm_low_) log_event(EVENT_ALARM_CLEAR);
-    prev_alarm_low_ = alarm_low;
-
-    // Sensor alarms
-    bool s1 = read_bool("protection.sensor1_alarm", false);
-    if (s1 && !prev_sensor1_alarm_) log_event(EVENT_ALARM_SENSOR1);
-    if (!s1 && prev_sensor1_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_sensor1_alarm_ = s1;
-
-    bool s2 = read_bool("protection.sensor2_alarm", false);
-    if (s2 && !prev_sensor2_alarm_) log_event(EVENT_ALARM_SENSOR2);
-    if (!s2 && prev_sensor2_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_sensor2_alarm_ = s2;
-
-    // Compressor protection alarms
-    bool cont = read_bool("protection.continuous_run_alarm", false);
-    if (cont && !prev_cont_run_alarm_) log_event(EVENT_ALARM_CONT_RUN);
-    if (!cont && prev_cont_run_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_cont_run_alarm_ = cont;
-
-    bool pull = read_bool("protection.pulldown_alarm", false);
-    if (pull && !prev_pulldown_alarm_) log_event(EVENT_ALARM_PULLDOWN);
-    if (!pull && prev_pulldown_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_pulldown_alarm_ = pull;
-
-    bool sc = read_bool("protection.short_cycle_alarm", false);
-    if (sc && !prev_short_cyc_alarm_) log_event(EVENT_ALARM_SHORT_CYC);
-    if (!sc && prev_short_cyc_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_short_cyc_alarm_ = sc;
-
-    bool rc = read_bool("protection.rapid_cycle_alarm", false);
-    if (rc && !prev_rapid_cyc_alarm_) log_event(EVENT_ALARM_RAPID_CYC);
-    if (!rc && prev_rapid_cyc_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_rapid_cyc_alarm_ = rc;
-
-    bool rate = read_bool("protection.rate_alarm", false);
-    if (rate && !prev_rate_alarm_) log_event(EVENT_ALARM_RATE_RISE);
-    if (!rate && prev_rate_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_rate_alarm_ = rate;
-
-    bool da = read_bool("protection.door_alarm", false);
-    if (da && !prev_door_alarm_) log_event(EVENT_ALARM_DOOR);
-    if (!da && prev_door_alarm_) log_event(EVENT_ALARM_CLEAR);
-    prev_door_alarm_ = da;
 }
 
 // ── Запис події в RAM буфер ──
 
-void DataLoggerModule::log_event(EventType type) {
+void DataLoggerModule::log_event(uint8_t event_id) {
     EventRecord rec;
     rec.timestamp = current_timestamp();
-    rec.event_type = static_cast<uint8_t>(type);
+    rec.event_type = event_id;
     rec._pad[0] = 0;
     rec._pad[1] = 0;
     rec._pad[2] = 0;
@@ -319,7 +261,7 @@ void DataLoggerModule::log_event(EventType type) {
     if (!event_buf_.full()) {
         event_buf_.push_back(rec);
     } else {
-        ESP_LOGW(TAG, "Event buffer full, dropping event %d", type);
+        ESP_LOGW(TAG, "Event buffer full, dropping event %d", event_id);
     }
 }
 
