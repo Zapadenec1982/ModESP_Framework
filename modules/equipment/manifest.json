@@ -74,6 +74,44 @@
     ]
   },
 
+  "loggable": {
+    "channels": {
+      "equipment.air_temp": {
+        "type": "temperature",
+        "label": "Темп. камери",
+        "default": true
+      },
+      "equipment.evap_temp": {
+        "type": "temperature",
+        "label": "Темп. випарника",
+        "default": false,
+        "enable_key": "datalogger.log_evap",
+        "requires": "equipment.has_evap_temp"
+      },
+      "equipment.cond_temp": {
+        "type": "temperature",
+        "label": "Темп. конденсатора",
+        "default": false,
+        "enable_key": "datalogger.log_cond",
+        "requires": "equipment.has_cond_temp"
+      }
+    },
+    "events": {
+      "equipment.compressor": {
+        "id": 1,
+        "edge": "both",
+        "label_on": "Компресор ON",
+        "label_off": "Компресор OFF"
+      },
+      "equipment.door_open": {
+        "id": 8,
+        "edge": "both",
+        "label_on": "Двері відчинено",
+        "label_off": "Двері зачинено"
+      }
+    }
+  },
+
   "display": {
     "main_value": {
       "key": "equipment.air_temp",

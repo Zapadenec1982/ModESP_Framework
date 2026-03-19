@@ -145,7 +145,7 @@ bool DataLoggerModule::on_init() {
     // Логувати активні канали
     int active = 0;
     for (int i = 0; i < MAX_CHANNELS; i++) {
-        if (ch_enabled_[i] && CHANNEL_DEFS[i].id) active++;
+        if (ch_enabled_[i] && i < static_cast<int>(modesp::gen::LOG_CHANNELS_COUNT)) active++;
     }
     ESP_LOGI(TAG, "Ініціалізовано: %lu temp, %lu events, %lu KB flash, %d каналів",
              (unsigned long)temp_count_, (unsigned long)event_count_,
@@ -162,11 +162,11 @@ void DataLoggerModule::sync_settings() {
 
     // Оновити enabled стан кожного каналу
     for (int i = 0; i < MAX_CHANNELS; i++) {
-        const auto& def = CHANNEL_DEFS[i];
-        if (!def.id) {
+        if (i >= static_cast<int>(modesp::gen::LOG_CHANNELS_COUNT)) {
             ch_enabled_[i] = false;
             continue;
         }
+        const auto& def = modesp::gen::LOG_CHANNELS[i];
         // Канал без enable_key — завжди увімкнений (air)
         if (!def.enable_key) {
             ch_enabled_[i] = true;
@@ -174,7 +174,7 @@ void DataLoggerModule::sync_settings() {
         }
         // Канал увімкнений якщо toggle ON + hardware присутній (якщо потрібен)
         bool toggled = read_bool(def.enable_key, false);
-        bool has_hw = def.has_key ? read_bool(def.has_key, false) : true;
+        bool has_hw = def.requires_key ? read_bool(def.requires_key, false) : true;
         ch_enabled_[i] = toggled && has_hw;
     }
 }
@@ -197,8 +197,8 @@ void DataLoggerModule::on_update(uint32_t dt_ms) {
         rec.timestamp = now;
 
         for (int i = 0; i < MAX_CHANNELS; i++) {
-            const auto& def = CHANNEL_DEFS[i];
-            if (ch_enabled_[i] && def.state_key) {
+            if (ch_enabled_[i] && i < static_cast<int>(modesp::gen::LOG_CHANNELS_COUNT)) {
+                const auto& def = modesp::gen::LOG_CHANNELS[i];
                 float val = read_float(def.state_key, 0.0f);
                 rec.ch[i] = static_cast<int16_t>(val * 10.0f);
             } else {
@@ -452,7 +452,7 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
     int active_idx[MAX_CHANNELS];
     int active_count = 0;
     for (int i = 0; i < MAX_CHANNELS; i++) {
-        if (ch_has_data[i] && CHANNEL_DEFS[i].id) {
+        if (ch_has_data[i] && i < static_cast<int>(modesp::gen::LOG_CHANNELS_COUNT)) {
             active_idx[active_count++] = i;
         }
     }
@@ -461,7 +461,7 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
     int pos = snprintf(buf, sizeof(buf), "{\"channels\":[");
     for (int a = 0; a < active_count; a++) {
         pos += snprintf(buf + pos, sizeof(buf) - pos, "%s\"%s\"",
-                       a > 0 ? "," : "", CHANNEL_DEFS[active_idx[a]].id);
+                       a > 0 ? "," : "", modesp::gen::LOG_CHANNELS[active_idx[a]].id);
     }
     pos += snprintf(buf + pos, sizeof(buf) - pos, "],\"temp\":[");
     httpd_resp_send_chunk(req, buf, pos);
@@ -572,7 +572,7 @@ bool DataLoggerModule::serialize_summary(char* buf, size_t buf_size) const {
     // Порахувати активні канали
     int active = 0;
     for (int i = 0; i < MAX_CHANNELS; i++) {
-        if (ch_enabled_[i] && CHANNEL_DEFS[i].id) active++;
+        if (ch_enabled_[i] && i < static_cast<int>(modesp::gen::LOG_CHANNELS_COUNT)) active++;
     }
 
     int len = snprintf(buf, buf_size,

@@ -1823,6 +1823,65 @@ def main():
     print(f"  + {cmake_path}")
     files_written += 1
 
+    # ── 7. DataLogger channels (manifest-driven) ───────────
+    log_channels = []
+    for m in manifests:
+        loggable = m.get("loggable", {})
+        for key, cfg in loggable.get("channels", {}).items():
+            ch_id = key.split(".")[-1]  # "equipment.air_temp" → "air_temp"
+            log_channels.append({
+                "id": ch_id,
+                "state_key": key,
+                "enable_key": cfg.get("enable_key"),
+                "requires": cfg.get("requires"),
+                "default": cfg.get("default", False),
+                "label": cfg.get("label", ch_id),
+            })
+
+    if log_channels:
+        MAX_CHANNELS = 6  # Fixed for binary compatibility
+        if len(log_channels) > MAX_CHANNELS:
+            print(f"  WARNING: {len(log_channels)} channels declared, MAX_CHANNELS={MAX_CHANNELS}")
+
+        ch_lines = [
+            "#pragma once",
+            "// Auto-generated from module manifests — DO NOT EDIT",
+            "",
+            "#include <cstddef>",
+            "#include <cstdint>",
+            "",
+            "namespace modesp::gen {",
+            "",
+            "struct LogChannel {",
+            "    const char* id;",
+            "    const char* state_key;",
+            "    const char* enable_key;   // nullptr = always enabled",
+            "    const char* requires_key; // nullptr = no hardware condition",
+            "    bool default_enabled;",
+            "};",
+            "",
+            f"static constexpr size_t MAX_LOG_CHANNELS = {MAX_CHANNELS};",
+            f"static constexpr size_t LOG_CHANNELS_COUNT = {len(log_channels)};",
+            "",
+            "static constexpr LogChannel LOG_CHANNELS[] = {",
+        ]
+        for ch in log_channels:
+            ek = f'"{ch["enable_key"]}"' if ch["enable_key"] else "nullptr"
+            rk = f'"{ch["requires"]}"' if ch["requires"] else "nullptr"
+            de = "true" if ch["default"] else "false"
+            ch_lines.append(f'    {{"{ch["id"]}", "{ch["state_key"]}", {ek}, {rk}, {de}}},')
+        ch_lines.extend([
+            "};",
+            "",
+            "} // namespace modesp::gen",
+        ])
+
+        ch_path = gen_dir / "datalogger_channels.h"
+        with open(ch_path, "w", encoding="utf-8") as f:
+            f.write('\n'.join(ch_lines) + '\n')
+        print(f"  + {ch_path} ({len(log_channels)} channels)")
+        files_written += 1
+
     # ── i18n: build language packs ───────────────────────────
     i18n_out = args.output_data / "www" / "i18n"
     i18n_out.mkdir(exist_ok=True)

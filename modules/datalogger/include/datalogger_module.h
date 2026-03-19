@@ -16,26 +16,11 @@
 /// Sentinel: канал не логується або датчик відсутній
 static constexpr int16_t TEMP_NO_DATA = INT16_MIN;  // -32768
 
-/// Максимум каналів у записі
-static constexpr int MAX_CHANNELS = 6;
+/// Channel definitions — auto-generated from module manifests
+#include "generated/datalogger_channels.h"
 
-/// Визначення каналу (compile-time)
-struct ChannelDef {
-    const char* id;          ///< "air", "evap", "cond", "setpoint", "humidity"
-    const char* state_key;   ///< "equipment.air_temp" — звідки читати значення
-    const char* enable_key;  ///< "datalogger.log_evap" — toggle (nullptr = завжди)
-    const char* has_key;     ///< "equipment.has_evap_temp" — потрібен hardware (nullptr = ні)
-};
-
-/// Таблиця каналів (порядок = порядок у бінарному записі)
-static constexpr ChannelDef CHANNEL_DEFS[MAX_CHANNELS] = {
-    {"air",      "equipment.air_temp",      nullptr,                    nullptr                     },
-    {"evap",     "equipment.evap_temp",     "datalogger.log_evap",      "equipment.has_evap_temp"   },
-    {"cond",     "equipment.cond_temp",     "datalogger.log_cond",      "equipment.has_cond_temp"   },
-    {"setpoint", "thermostat.setpoint",     "datalogger.log_setpoint",  nullptr                     },
-    {"humidity", "equipment.humidity",      "datalogger.log_humidity",  "equipment.has_humidity"    },
-    {nullptr,    nullptr,                   nullptr,                    nullptr                     },
-};
+/// Fixed for binary compatibility (TempRecord size must not change)
+static constexpr int MAX_CHANNELS = static_cast<int>(modesp::gen::MAX_LOG_CHANNELS);
 
 /// Запис температури (16 bytes, 6 каналів)
 struct TempRecord {
