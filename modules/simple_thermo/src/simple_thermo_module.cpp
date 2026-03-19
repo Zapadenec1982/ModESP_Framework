@@ -9,7 +9,7 @@
 static const char* TAG = "SimpleThermo";
 
 SimpleThermoModule::SimpleThermoModule()
-    : BaseModule("simple_thermo", 2)  // priority 2 = normal
+    : BaseModule("simple_thermo", modesp::ModulePriority::NORMAL)
 {}
 
 bool SimpleThermoModule::on_init() {

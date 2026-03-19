@@ -21,8 +21,8 @@ static const char* TAG = "Equipment";
 // Constructor
 // ═══════════════════════════════════════════════════════════════
 
-EquipmentBase::EquipmentBase(const char* name, int priority)
-    : BaseModule(name, static_cast<modesp::ModulePriority>(priority))
+EquipmentBase::EquipmentBase(const char* name, modesp::ModulePriority priority)
+    : BaseModule(name, priority)
 {}
 
 // ═══════════════════════════════════════════════════════════════

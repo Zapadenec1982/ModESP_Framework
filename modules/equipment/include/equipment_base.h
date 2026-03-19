@@ -35,7 +35,8 @@ class DriverManager;
 
 class EquipmentBase : public modesp::BaseModule {
 public:
-    explicit EquipmentBase(const char* name = "equipment", int priority = 0);
+    explicit EquipmentBase(const char* name = "equipment",
+                           modesp::ModulePriority priority = modesp::ModulePriority::CRITICAL);
 
     /// Bind drivers from DriverManager (reads roles from manifest "requires")
     void bind_drivers(modesp::DriverManager& dm);
