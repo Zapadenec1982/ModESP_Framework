@@ -1566,6 +1566,16 @@ def main():
     print(f"\nProject: {project.get('project', '?')} v{project.get('version', '?')}")
     print(f"Modules: {', '.join(project.get('modules', []))}")
 
+    # Validate module names (must be valid C++ identifiers)
+    import re
+    _MODULE_NAME_RE = re.compile(r'^[a-z][a-z0-9_]*$')
+    for mod_name in project.get("modules", []):
+        if not _MODULE_NAME_RE.match(mod_name):
+            print(f"ERROR: Invalid module name '{mod_name}'")
+            print(f"  Must match ^[a-z][a-z0-9_]*$ (lowercase, start with letter, only a-z 0-9 _)")
+            print(f"  Examples: thermostat, heat_pump, data_logger")
+            sys.exit(1)
+
     # Load and validate module manifests
     print("\nLoading module manifests...")
     validator = ManifestValidator()
