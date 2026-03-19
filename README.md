@@ -52,22 +52,29 @@ ModESP Framework is the **reusable core** extracted from [ModESP v4](https://git
                                            ──▶  i18n packs     (4 languages)
 ```
 
-### Equipment Arbitration
+### Equipment Base + Product Override
 
 ```
-  Your Module A        Your Module B       Protection
-      │                    │                   │
-      │ req.compressor     │ req.relay_2       │ lockout / block
-      ▼                    ▼                   ▼
-  ┌──────────────────────────────────────────────────┐
-  │           Equipment Manager                       │
-  │  Priority: Protection > Module B > Module A       │
-  │  Reads requests from SharedState                  │
-  │  Drives hardware through HAL                      │
-  └──────────────────────────────────────────────────┘
+Framework (EquipmentBase):                   Product (your override):
+  ├── bind_drivers()  ← generic              ├── apply_arbitration() ← YOUR LOGIC
+  ├── read_sensors()  ← EMA + publish        │   ├── Priority rules
+  ├── apply_outputs() ← set relays           │   ├── Interlocks
+  └── publish_states()← actual states        │   └── Anti-short-cycle
 ```
 
-Modules publish requests to SharedState. Equipment Manager arbitrates and drives hardware. Modules never touch GPIO directly.
+```cpp
+class MyEquipment : public EquipmentBase {
+protected:
+    void apply_arbitration(uint32_t dt_ms) override {
+        bool lockout = read_bool("protection.lockout");
+        if (lockout) { set_actuator("pump", false); return; }
+        set_actuator("pump", read_bool("controller.req.pump"));
+    }
+};
+```
+
+Framework provides driver binding, sensor reading, state publishing.
+Product provides arbitration logic — **business logic belongs in C++, not JSON**.
 
 ---
 
