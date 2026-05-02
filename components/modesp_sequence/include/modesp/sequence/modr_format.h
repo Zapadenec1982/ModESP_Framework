@@ -13,6 +13,27 @@
  * **Specification reference:** docs/sequence_engine/02_binary_format.md
  * **ADR rationale:** docs/sequence_engine/adr/0001-binary-format-not-constexpr.md
  *
+ * ## Format Evolution Rules (Q11 — protobuf/flatbuffers convention)
+ *
+ * Поточна версія: format_version = 1. Для backward/forward compatibility
+ * (industry pattern per Protobuf/FlatBuffers):
+ *
+ *  1. **Add fields ONLY at end of structs.** Old loaders ignore unknown trailing
+ *     bytes if struct size known and validated.
+ *  2. **NEVER remove fields.** Mark deprecated; old data still parses.
+ *  3. **NEVER reuse field positions.** Reserve removed positions з comment.
+ *  4. **Reserved bytes** (reserved_a, reserved_b, etc.) are designated growth
+ *     points — fill them у future minor revisions (format_version stays 1).
+ *  5. **Major bump (format_version → 2)** ONLY for incompatible changes
+ *     (struct layout reorder, sentinel value change, field semantic change).
+ *     Loader rejects з UNSUPPORTED_VERSION.
+ *  6. **Migration strategy:** Recipes are derived artifacts from manifests.
+ *     On format bump: regenerate всі .modr через compile_scenario.py
+ *     (cheap operation, не "live data" що вимагає migration tools).
+ *
+ * Цей policy дозволяє minor field additions без version bump while
+ * preserving можливість breaking changes коли обґрунтовано.
+ *
  * **Alignment guarantee:** all structs have natural alignment (no packed
  * attribute needed). Layouts reorganized у Step 1 from plan Q1 spec to
  * achieve this. See "Layout corrections" comment block у tests/fixtures.
