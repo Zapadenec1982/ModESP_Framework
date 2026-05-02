@@ -154,14 +154,22 @@ modules/recipe_plov/manifest.json:42:18: error[E0207]: transition target 'wrong_
 | E0301 | Emission | String exceeds u8 length limit (>255 bytes) |
 | E0302 | Emission | Compiled binary exceeds MODR_MAX_SIZE (16 KB) |
 | E0303 | Emission | Internal: emitted bytes ≠ header.total_size |
+| E0226 | Strict | Unknown action name (--strict mode elevates W0220) |
+| E0231 | Strict | Unknown ContinuousBehavior (--strict mode elevates W0230) |
 | E0401 | Cross-val | manifest.state missing mirror key declarations |
 | E0402 | Cross-val | Derived mirror key exceeds 32-char SharedState budget |
+| E0403 | Cross-val | Type mismatch — manifest declares wrong type для mirror key |
 
-### Warnings (non-blocking)
+### Warnings (non-blocking, default mode)
 
-| Code | Class | Trigger |
-|------|-------|---------|
-| W0220 | Action | Unknown action name (домен module must register at runtime) |
+| Code | Class | Trigger | Becomes у --strict |
+|------|-------|---------|-------------------|
+| W0220 | Action | Unknown action name (domain module must register at runtime) | E0226 |
+| W0230 | Continuous | Unknown ContinuousBehavior reference у `phase.continuous` | E0231 |
+
+### CLI flags
+
+- `--strict` — elevate warnings to errors. Industry-standard pattern (TypeScript `--strict`, GCC `-Werror`, ESLint `--max-warnings 0`). Use у CI to detect typos і drift.
 
 Full descriptions з examples → [`10_error_model.md`](10_error_model.md) (filled у Step 2b once accumulated).
 

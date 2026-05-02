@@ -985,6 +985,106 @@ class TestSchemaCleanups:
         assert "scope" in exc.value.message
 
 
+class TestTypeMatchingValidation:
+    """Q5: cross-validation of declared type vs engine-emit type для mirror keys.
+    Industry pattern (TypeScript/Rust strict typing) — boundary type check catches
+    silent runtime failures (SharedState rejects type mismatch без diagnostic)."""
+
+    def test_wrong_type_for_scenario_state_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        # scenario_state should be string, declare as int
+        m["state"]["recipe_min.scenario_state"] = {"type": "int", "access": "read"}
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0403"
+        assert "scenario_state" in exc.value.message
+        assert "string" in exc.value.message  # what engine actually writes
+
+    def test_wrong_type_for_phase_idx_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["state"]["recipe_min.main_phase_idx"] = {"type": "string", "access": "read"}
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0403"
+        assert "phase_idx" in exc.value.message
+
+    def test_correct_types_accepted(self, compiler, tmp_path):
+        # Default fixture has all correct types
+        path = write_manifest(tmp_path, make_minimal_manifest())
+        result = compiler.compile(path)
+        assert result.module_name == "recipe_min"
+
+
+class TestStrictMode:
+    """Q6: --strict CLI flag elevates warnings (W0220 unknown action, W0230 unknown
+    continuous) to errors (E0226, E0231). Industry pattern (TS strict, GCC -Werror).
+    Default off для author convenience; CI uses --strict для drift protection."""
+
+    @pytest.fixture
+    def strict_compiler(self, registry, schema):
+        return ScenarioCompiler(registry, schema, strict=True)
+
+    def test_unknown_action_warns_in_default_mode(self, compiler, tmp_path, capsys):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["entry"] = [
+            {"action": "domain.totally_unknown", "params": {}}
+        ]
+        path = write_manifest(tmp_path, m)
+        compiler.compile(path)  # warning, not error
+        captured = capsys.readouterr()
+        assert "W0220" in captured.err
+
+    def test_unknown_action_errors_in_strict_mode(self, strict_compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["entry"] = [
+            {"action": "domain.totally_unknown", "params": {}}
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            strict_compiler.compile(path)
+        assert exc.value.code == "E0226"
+
+    def test_strict_flag_passes_through(self, registry, schema):
+        c = ScenarioCompiler(registry, schema, strict=True)
+        assert c.strict is True
+
+    def test_default_strict_off(self, registry, schema):
+        c = ScenarioCompiler(registry, schema)
+        assert c.strict is False
+
+
+class TestContinuousBehaviorValidation:
+    """Q12: phase.continuous references unknown ContinuousBehaviors. MVP has 0
+    built-ins (per ADR-0006). Domain modules register at runtime — compiler can't
+    verify. Symmetric pattern з W0220 unknown action handling."""
+
+    def test_unknown_continuous_warns(self, compiler, tmp_path, capsys):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["continuous"] = ["pid_controller"]
+        path = write_manifest(tmp_path, m)
+        compiler.compile(path)  # warning, not error
+        captured = capsys.readouterr()
+        assert "W0230" in captured.err
+        assert "pid_controller" in captured.err
+
+    def test_unknown_continuous_errors_in_strict_mode(self, registry, schema, tmp_path):
+        c = ScenarioCompiler(registry, schema, strict=True)
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["continuous"] = ["pid_controller"]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            c.compile(path)
+        assert exc.value.code == "E0231"
+
+    def test_no_continuous_no_warning(self, compiler, tmp_path, capsys):
+        path = write_manifest(tmp_path, make_minimal_manifest())
+        compiler.compile(path)
+        captured = capsys.readouterr()
+        assert "W0230" not in captured.err
+
+
 class TestKitchenSinkIntegration:
     """Step 2b review fix B2: end-to-end test combining ALL features at once.
     Catches struct-layout / cross-feature regression that isolated tests miss."""

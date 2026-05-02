@@ -474,9 +474,14 @@ class CompiledScenario:
 
 
 class ScenarioCompiler:
-    def __init__(self, registry: KnownActionRegistry, schema: dict[str, Any]):
+    def __init__(self, registry: KnownActionRegistry, schema: dict[str, Any], strict: bool = False):
         self.registry = registry
         self.schema = schema
+        # Q6: --strict CLI flag elevates warnings (W0220 unknown action,
+        # W0230 unknown ContinuousBehavior) to errors (E0226, E0231).
+        # Industry standard pattern (TypeScript --strict, GCC -Werror, ESLint --max-warnings).
+        # Default off для author convenience; CI uses --strict для drift protection.
+        self.strict = strict
 
     def compile(self, manifest_path: Path) -> CompiledScenario:
         """Read manifest, extract scenario section, emit .modr bytes."""
@@ -550,6 +555,9 @@ class ScenarioCompiler:
 
         for tdata in tracks_data:
             for pdata in tdata["phases"]:
+                # Q12: validate phase.continuous references (warn or strict-error)
+                self._validate_continuous_behaviors(pdata, file)
+
                 # Entry actions
                 entry_actions = pdata.get("entry", [])
                 if entry_actions:
@@ -912,9 +920,10 @@ class ScenarioCompiler:
     def _cross_validate_state_keys(self, scenario: dict[str, Any], manifest: dict[str, Any],
                                     module_name: str, file: str) -> None:
         """Per plan Q9: every state key engine WILL write MUST be declared у
-        manifest.state. Mismatch → E0401."""
+        manifest.state з correct type. Mismatch → E0401/E0403."""
         expected = self._derive_expected_mirror_keys(scenario, module_name)
-        declared = set(manifest.get("state", {}).keys())
+        declared_state = manifest.get("state", {})
+        declared = set(declared_state.keys())
 
         # Check budget: SharedState key max 32 chars. Long names → E0402.
         for key in expected:
@@ -938,6 +947,47 @@ class ScenarioCompiler:
                 file,
             )
 
+        # Q5: type matching — engine writes specific types per derived keys.
+        # If author declared wrong type, runtime SharedState.set() rejects silently
+        # (set_failures counter increments, але no diagnostic to author).
+        # Compile-time check catches drift between manifest declarations і engine emit.
+        type_mismatches: list[str] = []
+        for key, expected_type in expected.items():
+            declared_decl = declared_state.get(key, {})
+            declared_type = declared_decl.get("type")
+            if declared_type != expected_type:
+                type_mismatches.append(
+                    f"  {key}: declared {declared_type!r}, engine writes {expected_type!r}"
+                )
+        if type_mismatches:
+            raise CompileError(
+                "E0403",
+                f"manifest.state type mismatch — engine will write different types:\n"
+                + "\n".join(type_mismatches[:5])
+                + (f"\n  ... ({len(type_mismatches) - 5} more)" if len(type_mismatches) > 5 else ""),
+                file,
+            )
+
+    # Built-in ContinuousBehaviors for MVP (per plan Q4 — registered у engine).
+    # Domain modules can register additional via runtime ContinuousRegistry.
+    # MVP ships 0 built-ins (foundation в ADR-0006 — engine domain-agnostic).
+    _BUILTIN_CONTINUOUS: set[str] = set()
+
+    def _validate_continuous_behaviors(self, phase: dict[str, Any], file: str) -> None:
+        """Per Q12: phase.continuous references must resolve. Built-ins у MVP = 0.
+        Domain modules register at runtime → warn (W0230) at compile, --strict
+        elevates to E0231. Symmetric з W0220 unknown action handling."""
+        cont_list = phase.get("continuous", [])
+        for name in cont_list:
+            if name in self._BUILTIN_CONTINUOUS:
+                continue
+            msg = (f"ContinuousBehavior {name!r} not у built-ins і compiler can't verify "
+                   f"runtime registration. Domain module must register before scenario starts. "
+                   f"Built-ins (currently empty у MVP per ADR-0006): {sorted(self._BUILTIN_CONTINUOUS)}")
+            if self.strict:
+                raise CompileError("E0231", msg, file)
+            sys.stderr.write(f"{file}:0:0: warning[W0230]: {msg}\n")
+
     def _validate_action_invocation(self, action_inv: dict[str, Any], file: str) -> None:
         """Verify that referenced action name is у known_actions.json. Domain modules
         will register additional actions runtime; for compile-time, only built-ins
@@ -948,13 +998,14 @@ class ScenarioCompiler:
         descriptor = self.registry.actions.get(name)
         if descriptor is None:
             # Domain modules register actions runtime — can't strictly require у compile.
-            # Industry standard (TypeScript strict mode, GCC -Wall, ESLint) is warn-not-silent
-            # to surface typos. Stage 1.5 adds --strict CLI flag що elevates warning to E0226.
-            sys.stderr.write(
-                f"{file}:0:0: warning[W0220]: action {name!r} not у known_actions.json. "
-                f"Will be looked up у runtime ActionRegistry — verify domain module registers it. "
-                f"Possible typo? Known: {sorted(self.registry.actions.keys())}\n"
-            )
+            # Industry standard (TypeScript strict mode, GCC -Wall, ESLint) is warn-not-silent.
+            # --strict flag elevates до E0226.
+            msg = (f"action {name!r} not у known_actions.json. "
+                   f"Will be looked up у runtime ActionRegistry — verify domain module "
+                   f"registers it. Possible typo? Known: {sorted(self.registry.actions.keys())}")
+            if self.strict:
+                raise CompileError("E0226", msg, file)
+            sys.stderr.write(f"{file}:0:0: warning[W0220]: {msg}\n")
             return
         params = action_inv.get("params", {})
         if not isinstance(params, dict):
@@ -1034,6 +1085,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--known-actions", type=Path, default=Path("tools/known_actions.json"))
     parser.add_argument("--schema", type=Path, default=Path("tools/scenario_schema.json"))
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--strict", action="store_true",
+                        help="Elevate warnings (W0220 unknown action, W0230 unknown continuous) "
+                             "to errors. Industry-standard pattern (TypeScript --strict, GCC -Werror). "
+                             "Use у CI to detect typos і drift.")
     args = parser.parse_args(argv)
 
     try:
@@ -1048,7 +1103,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"failed to read schema {args.schema}: {e}", file=sys.stderr)
         return 1
 
-    compiler = ScenarioCompiler(registry, schema)
+    compiler = ScenarioCompiler(registry, schema, strict=args.strict)
 
     if args.recipe:
         manifests = [args.recipe]
