@@ -703,6 +703,131 @@ class TestConditionalTransitions:
         assert crc_stored == crc_computed
 
 
+class TestActionInvocations:
+    """Step 2b.2: lift v0 'no entry/exit actions' limitation. Phase actions encoded
+    у action_pool, з phase.entry_action_off / exit_action_off pointing to first
+    action's index у pool. action.param_idx points into shared param_pool."""
+
+    def _make_recipe_with_actions(self, entry=None, exit=None):
+        m = make_minimal_manifest()
+        if entry is not None:
+            m["scenario"]["tracks"][0]["phases"][0]["entry"] = entry
+        if exit is not None:
+            m["scenario"]["tracks"][0]["phases"][0]["exit"] = exit
+        return m
+
+    def test_log_action_compiles(self, compiler, tmp_path):
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "log", "params": {"msg": "hello"}}
+        ])
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+
+        # action_pool_count at offset 30
+        action_count = struct.unpack_from("<H", data, 30)[0]
+        assert action_count == 1
+        # phase[0].entry_action_off (offset 0..1 у phase struct)
+        # phase[0] at 56+16=72 (header + 1 track)
+        entry_off = struct.unpack_from("<H", data, 72 + 2)[0]
+        entry_n = data[72 + 8]
+        assert entry_off == 0  # first entry у action_pool
+        assert entry_n == 1
+
+    def test_set_state_action_three_params(self, compiler, tmp_path):
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "set_state", "params": {"key": "test.x", "type": "bool", "value": True}}
+        ])
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+
+        action_count = struct.unpack_from("<H", data, 30)[0]
+        param_count = struct.unpack_from("<H", data, 26)[0]
+        assert action_count == 1
+        assert param_count == 3  # key + type + value
+
+    def test_multiple_entry_actions(self, compiler, tmp_path):
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "log", "params": {"msg": "first"}},
+            {"action": "log", "params": {"msg": "second"}},
+            {"action": "wait_ms", "params": {"ms": 500}}
+        ])
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+
+        action_count = struct.unpack_from("<H", data, 30)[0]
+        assert action_count == 3
+        entry_n = data[72 + 8]
+        assert entry_n == 3
+
+    def test_entry_and_exit_actions(self, compiler, tmp_path):
+        m = self._make_recipe_with_actions(
+            entry=[{"action": "set_state", "params": {"key": "x", "type": "bool", "value": True}}],
+            exit=[{"action": "set_state", "params": {"key": "x", "type": "bool", "value": False}}]
+        )
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+
+        action_count = struct.unpack_from("<H", data, 30)[0]
+        assert action_count == 2  # 1 entry + 1 exit
+        entry_off = struct.unpack_from("<H", data, 72 + 2)[0]
+        exit_off = struct.unpack_from("<H", data, 72 + 4)[0]
+        entry_n = data[72 + 8]
+        exit_n = data[72 + 9]
+        assert entry_off == 0
+        assert exit_off == 1
+        assert entry_n == 1
+        assert exit_n == 1
+
+    def test_no_actions_emits_no_offset(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, make_minimal_manifest())
+        data = compiler.compile(path).blob
+        entry_off = struct.unpack_from("<H", data, 72 + 2)[0]
+        exit_off = struct.unpack_from("<H", data, 72 + 4)[0]
+        assert entry_off == 0xFFFF  # MODR_NO_OFFSET
+        assert exit_off == 0xFFFF
+
+    def test_unknown_action_allowed_runtime_registered(self, compiler, tmp_path):
+        # Per Step 2b.2 design — unknown actions accepted (могла би register
+        # domain module runtime). Strict mode added later.
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "domain.custom_action", "params": {}}
+        ])
+        path = write_manifest(tmp_path, m)
+        # Should compile without error
+        result = compiler.compile(path)
+        assert result.module_name == "recipe_min"
+
+    def test_action_param_count_validation(self, compiler, tmp_path):
+        # log expects exactly 1 param (msg). Sending 0 should fail.
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "log", "params": {}}  # missing msg
+        ])
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0222"
+
+    def test_string_param_interned_in_pool(self, compiler, tmp_path):
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "log", "params": {"msg": "interned_string_xyz"}}
+        ])
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        # The param value points to string pool offset; verify string actually present.
+        assert b"interned_string_xyz" in data
+
+    def test_crc32_valid_with_actions(self, compiler, tmp_path):
+        m = self._make_recipe_with_actions(entry=[
+            {"action": "log", "params": {"msg": "test"}},
+            {"action": "set_state", "params": {"key": "k", "type": "i32", "value": 42}}
+        ])
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        crc_stored = struct.unpack_from("<I", data, len(data) - 4)[0]
+        crc_computed = zlib.crc32(data[:-4]) & 0xFFFFFFFF
+        assert crc_stored == crc_computed
+
+
 class TestV0Limitations:
     """Step 2a v0 explicitly defers some features. These tests document deferred
     behavior and ensure compiler emits clear error rather than silent miscompilation."""

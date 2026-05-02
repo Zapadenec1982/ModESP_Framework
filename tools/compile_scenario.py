@@ -355,7 +355,7 @@ class PoolBuilder:
             key_hash=djb2_hash16("key"), type=MODR_PARAM_TYPE["str"], flags=0,
             value=string_pool.intern(body["key"])
         )
-        value_param = self._typed_value_param(body["value"], "value", file)
+        value_param = self._typed_value_param(body["value"], "value", file, string_pool)
         return self._record_condition(op, [key_param, value_param])
 
     def _record_state_key_in_range(self, body: dict[str, Any], string_pool: StringPool, file: str) -> int:
@@ -364,13 +364,15 @@ class PoolBuilder:
         params = [
             _ParamRecord(key_hash=djb2_hash16("key"), type=MODR_PARAM_TYPE["str"], flags=0,
                          value=string_pool.intern(body["key"])),
-            self._typed_value_param(body["min"], "min", file),
-            self._typed_value_param(body["max"], "max", file),
+            self._typed_value_param(body["min"], "min", file, string_pool),
+            self._typed_value_param(body["max"], "max", file, string_pool),
         ]
         return self._record_condition("state_key_in_range", params)
 
-    def _typed_value_param(self, value: Any, param_name: str, file: str) -> _ParamRecord:
-        """Encode a scalar value into a param entry, picking type based on Python type."""
+    def _typed_value_param(self, value: Any, param_name: str, file: str,
+                           string_pool: StringPool | None = None) -> _ParamRecord:
+        """Encode a scalar value into a param entry, picking type based on Python type.
+        For string values, string_pool is required for interning."""
         kh = djb2_hash16(param_name)
         if isinstance(value, bool):
             return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["bool"], flags=0, value=1 if value else 0)
@@ -379,9 +381,12 @@ class PoolBuilder:
         if isinstance(value, float):
             return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["f32"], flags=0, value=_pack_f32(value))
         if isinstance(value, str):
-            # String values stored у string pool; param.value = pool offset.
-            # Caller responsible для interning.
-            raise CompileError("E0216", f"string-typed condition values not yet supported у v0 (Step 2b.2)", file)
+            if string_pool is None:
+                raise CompileError("E0216", f"param {param_name!r}: string value requires string_pool context", file)
+            return _ParamRecord(
+                key_hash=kh, type=MODR_PARAM_TYPE["str"], flags=0,
+                value=string_pool.intern(value)  # u16 offset stored у low bits of value
+            )
         raise CompileError("E0217", f"unsupported value type для param {param_name!r}: {type(value).__name__}", file)
 
     def _record_condition(self, name: str, params: list[_ParamRecord]) -> int:
@@ -401,7 +406,7 @@ class PoolBuilder:
             return MODR_NO_OFFSET, 0
         idx = len(self.params)
         for name, val in params.items():
-            self.params.append(self._typed_value_param(val, name, file))
+            self.params.append(self._typed_value_param(val, name, file, string_pool))
         return idx, len(params)
 
 
@@ -486,9 +491,7 @@ class ScenarioCompiler:
         track_count = len(tracks_data)
 
         # ── Pass 1: walk scenario і build pools ──
-        # Conditions і transitions encoded eagerly into PoolBuilder.
-        # Action invocations (entry/exit) deferred to Step 2b.2 — for тепер
-        # phase.entry/exit ignored у emission (но schema validation still applies).
+        # Conditions, actions, parameters all encoded eagerly into PoolBuilder.
 
         builder = PoolBuilder()
 
@@ -497,6 +500,40 @@ class ScenarioCompiler:
             pool.intern(tdata["name"])
             for pdata in tdata["phases"]:
                 pool.intern(pdata["name"])
+
+        # Per-phase entry/exit action ranges — parallel arrays, populated у Pass 1
+        # before layout. Each phase has 4 numbers: (entry_off, entry_n, exit_off, exit_n).
+        # entry_off/exit_off are ACTION POOL INDICES (not byte offsets) for first action;
+        # MODR_NO_OFFSET when n=0.
+        phase_action_ranges: list[tuple[int, int, int, int]] = []
+
+        for tdata in tracks_data:
+            for pdata in tdata["phases"]:
+                # Entry actions
+                entry_actions = pdata.get("entry", [])
+                if entry_actions:
+                    entry_first_idx = len(builder.actions)
+                    for action_inv in entry_actions:
+                        self._validate_action_invocation(action_inv, file)
+                        builder.add_action(action_inv["action"], action_inv.get("params", {}), pool, file)
+                    entry_n = len(entry_actions)
+                else:
+                    entry_first_idx = MODR_NO_OFFSET
+                    entry_n = 0
+
+                # Exit actions
+                exit_actions = pdata.get("exit", [])
+                if exit_actions:
+                    exit_first_idx = len(builder.actions)
+                    for action_inv in exit_actions:
+                        self._validate_action_invocation(action_inv, file)
+                        builder.add_action(action_inv["action"], action_inv.get("params", {}), pool, file)
+                    exit_n = len(exit_actions)
+                else:
+                    exit_first_idx = MODR_NO_OFFSET
+                    exit_n = 0
+
+                phase_action_ranges.append((entry_first_idx, entry_n, exit_first_idx, exit_n))
 
         # Per-transition cond_pool indices (parallel array — len matches total transitions)
         # Built у emission order (track 0 phase 0 trans 0, track 0 phase 0 trans 1, ...).
@@ -640,18 +677,19 @@ class ScenarioCompiler:
         for tdata in tracks_data:
             for pdata in tdata["phases"]:
                 trans_off = transitions_off_per_phase[phase_idx_global]
+                entry_off, entry_n, exit_off, exit_n = phase_action_ranges[phase_idx_global]
                 out.extend(struct.pack(
                     "<HHHHBBBBIHBB",
                     pool.offset_of(pdata["name"]),
-                    MODR_NO_OFFSET,  # entry_action_off (v0 — no actions yet)
-                    MODR_NO_OFFSET,  # exit_action_off
+                    entry_off,  # action_pool index of first entry action, MODR_NO_OFFSET if none
+                    exit_off,
                     trans_off,
-                    0,  # entry_action_n
-                    0,  # exit_action_n
+                    entry_n,
+                    exit_n,
                     len(pdata["transitions"]),
                     0,  # cont_mask
                     pdata.get("timeout_ms", 0),
-                    MODR_NO_OFFSET,  # phase_resources_off (v0)
+                    MODR_NO_OFFSET,  # phase_resources_off (deferred 2b.3)
                     0,  # phase_resource_n
                     0,  # reserved
                 ))
@@ -737,6 +775,31 @@ class ScenarioCompiler:
                 file,
             )
         return bytes(out)
+
+    def _validate_action_invocation(self, action_inv: dict[str, Any], file: str) -> None:
+        """Verify that referenced action name is у known_actions.json. Domain modules
+        will register additional actions runtime; for compile-time, only built-ins
+        validated. Cross-checks param count against descriptor."""
+        name = action_inv.get("action")
+        if not name:
+            raise CompileError("E0220", "action invocation missing 'action' field", file)
+        descriptor = self.registry.actions.get(name)
+        if descriptor is None:
+            # Allow runtime-registered actions (domain modules) — emit warning but compile.
+            # Stage 1.5 adds strict mode flag для CI.
+            return
+        params = action_inv.get("params", {})
+        if not isinstance(params, dict):
+            raise CompileError("E0221", f"action {name!r} params must be object, got {type(params).__name__}", file)
+        n = len(params)
+        pmin = descriptor.get("param_min", 0)
+        pmax = descriptor.get("param_max", 999)
+        if n < pmin or n > pmax:
+            raise CompileError(
+                "E0222",
+                f"action {name!r} expects {pmin}..{pmax} params, got {n}: {list(params.keys())}",
+                file,
+            )
 
     def _validate_unique_names(self, scenario: dict[str, Any], file: str) -> None:
         """Track names must be unique within scenario; phase names within track.
