@@ -1259,9 +1259,14 @@ class StateMetaGenerator:
     def generate(self, manifests):
         # Підрахунок ВСІХ state keys з маніфестів для auto-capacity
         total_manifest_keys = sum(len(m.get("state", {})) for m in manifests)
-        # +48 for runtime keys: _ota.* (7), wifi.* (5), mqtt.* (3), system.* (5),
-        # equipment.has_* (up to 12 dynamic roles), equipment.* actuator states
-        capacity = total_manifest_keys + 48
+        # Runtime margin breakdown:
+        #   48 — base: _ota.* (7), wifi.* (5), mqtt.* (3), system.* (5),
+        #         equipment.has_* (up to 12 dynamic roles), equipment.* actuator states
+        #   48 — sequence engine reservation: scenario.resource.<hash>.owner mirrors
+        #         (up to 32 resources x MAX_SEQUENCES instances), engine internal counters,
+        #         future expansion. See ADR-0005 (resource arbitration), plan Q3.
+        SEQUENCE_RUNTIME_MARGIN = 96
+        capacity = total_manifest_keys + SEQUENCE_RUNTIME_MARGIN
 
         lines = [
             "#pragma once",
@@ -1270,7 +1275,7 @@ class StateMetaGenerator:
             "#include <cstdint>",
             "#include <cstddef>",
             "",
-            f"// SharedState auto-capacity: {total_manifest_keys} manifest keys + 32 runtime margin",
+            f"// SharedState auto-capacity: {total_manifest_keys} manifest keys + {SEQUENCE_RUNTIME_MARGIN} runtime margin",
             f"#define MODESP_MAX_STATE_ENTRIES {capacity}",
             "",
             "namespace modesp::gen {",
