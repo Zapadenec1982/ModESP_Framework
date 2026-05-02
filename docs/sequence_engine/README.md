@@ -41,6 +41,7 @@
 | [0005](adr/0005-isa88-resource-arbitration.md) | ISA-88 §5.3 acquire-before-start | placeholder, filled у Step 10 |
 | [0006](adr/0006-no-builtin-continuous-behaviors.md) | 0 built-in continuous behaviors у MVP | placeholder, filled у Step 6 |
 | [0007](adr/0007-mandatory-phase-timeouts.md) | Mandatory per-phase timeouts | placeholder, filled у Step 8 |
+| [0008](adr/0008-expressiveness-paper-pilot.md) | Expressiveness paper pilot validation (Step 0.75) | Accepted |
 
 ## Deferred to Stage 1.5
 
