@@ -467,10 +467,11 @@ class ScenarioCompiler:
         # тільки for primitive arrays, not arrays of objects. Validate manually:
         self._validate_unique_names(scenario, str(manifest_path))
 
-        # Cross-validate state keys vs manifest.state (E04XX) — deferred to Step 2b
-        # коли mirror-key derivation з scenario section implemented.
-        # Plan refs: lines 402, 699, 878 — cross-validation belongs у compile_scenario.py.
-        _ = manifest.get("state", {})
+        # Cross-validate state keys vs manifest.state (E04XX).
+        # Per plan Q3 і Q9: engine writes mirror keys derived from scenario structure.
+        # Recipe author MUST declare each у manifest.state так що generate_ui.py emits
+        # state_meta.h entry і SharedState capacity sized correctly.
+        self._cross_validate_state_keys(scenario, manifest, module_name, str(manifest_path))
 
         # Build binary
         blob = self._emit(scenario, module_name, str(manifest_path))
@@ -840,6 +841,57 @@ class ScenarioCompiler:
                 file,
             )
         return bytes(out)
+
+    def _derive_expected_mirror_keys(self, scenario: dict[str, Any], module_name: str) -> dict[str, str]:
+        """Compute mirror state keys engine WILL write at runtime для this scenario.
+        Returns {key: type} dict. Per plan Q3 namespace convention:
+        - <module>.scenario_state (string)
+        - <module>.scenario_elapsed_s (int)
+        - <module>.last_error (int)
+        - <module>.<track>_state (string), <track>_phase_name (string),
+          <track>_phase_idx (int), <track>_elapsed_s (int)
+        """
+        expected: dict[str, str] = {
+            f"{module_name}.scenario_state": "string",
+            f"{module_name}.scenario_elapsed_s": "int",
+            f"{module_name}.last_error": "int",
+        }
+        for track in scenario["tracks"]:
+            tname = track["name"]
+            expected[f"{module_name}.{tname}_state"] = "string"
+            expected[f"{module_name}.{tname}_phase_name"] = "string"
+            expected[f"{module_name}.{tname}_phase_idx"] = "int"
+            expected[f"{module_name}.{tname}_elapsed_s"] = "int"
+        return expected
+
+    def _cross_validate_state_keys(self, scenario: dict[str, Any], manifest: dict[str, Any],
+                                    module_name: str, file: str) -> None:
+        """Per plan Q9: every state key engine WILL write MUST be declared у
+        manifest.state. Mismatch → E0401."""
+        expected = self._derive_expected_mirror_keys(scenario, module_name)
+        declared = set(manifest.get("state", {}).keys())
+
+        # Check budget: SharedState key max 32 chars. Long names → E0402.
+        for key in expected:
+            if len(key) > 32:
+                raise CompileError(
+                    "E0402",
+                    f"derived mirror key {key!r} exceeds 32-char SharedState budget. "
+                    f"Reduce module name (current {len(module_name)} chars, max 12) "
+                    f"and/or track name (max 8 chars).",
+                    file,
+                )
+
+        missing = sorted(set(expected.keys()) - declared)
+        if missing:
+            sample = missing[:3]
+            extra = "" if len(missing) <= 3 else f" (and {len(missing) - 3} more)"
+            raise CompileError(
+                "E0401",
+                f"manifest.state missing mirror key declarations що engine writes runtime: "
+                f"{sample}{extra}. Add these keys (з access:'read') to manifest.state.",
+                file,
+            )
 
     def _validate_action_invocation(self, action_inv: dict[str, Any], file: str) -> None:
         """Verify that referenced action name is у known_actions.json. Domain modules

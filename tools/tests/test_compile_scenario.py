@@ -65,15 +65,32 @@ def compiler(registry, schema) -> ScenarioCompiler:
     return ScenarioCompiler(registry, schema)
 
 
+def _mirror_keys_for(module_name: str, track_names: list[str]) -> dict:
+    """Build the manifest.state dict containing all mirror keys engine writes.
+    Required for Step 2b.4 cross-validation (E0401)."""
+    keys = {
+        f"{module_name}.scenario_state":     {"type": "string", "access": "read"},
+        f"{module_name}.scenario_elapsed_s": {"type": "int",    "access": "read"},
+        f"{module_name}.last_error":         {"type": "int",    "access": "read"},
+    }
+    for tname in track_names:
+        keys[f"{module_name}.{tname}_state"]      = {"type": "string", "access": "read"}
+        keys[f"{module_name}.{tname}_phase_name"] = {"type": "string", "access": "read"}
+        keys[f"{module_name}.{tname}_phase_idx"]  = {"type": "int",    "access": "read"}
+        keys[f"{module_name}.{tname}_elapsed_s"]  = {"type": "int",    "access": "read"}
+    return keys
+
+
 def make_minimal_manifest() -> dict:
-    """Smallest valid recipe manifest для compilation tests."""
+    """Smallest valid recipe manifest для compilation tests.
+    Includes declared mirror state keys (required by Step 2b.4 cross-validation)."""
     return {
         "manifest_version": 1,
         "module": "recipe_min",
         "module_type": "recipe",
         "version": "1.0.0",
         "priority": 5,
-        "state": {},
+        "state": _mirror_keys_for("recipe_min", ["main"]),
         "scenario": {
             "default_phase_timeout_ms": 60000,
             "completion_rule": "all_tracks_complete",
@@ -457,6 +474,7 @@ class TestUniqueness:
     def test_same_phase_name_in_different_tracks_allowed(self, compiler, tmp_path):
         # Name "p" у track A AND track B — це legitimate, no error.
         m = make_minimal_manifest()
+        m["state"] = _mirror_keys_for("recipe_min", ["a", "b"])
         m["scenario"]["tracks"] = [
             {"name": "a", "flags": ["main_track"], "phases": [
                 {"name": "p", "transitions": [{"to": "$complete"}]}]},
@@ -479,7 +497,7 @@ class TestMultiTrackBinary:
             "module_type": "recipe",
             "version": "1.0.0",
             "priority": 5,
-            "state": {},
+            "state": _mirror_keys_for("recipe_mt", ["a", "b"]),
             "scenario": {
                 "default_phase_timeout_ms": 60000,
                 "completion_rule": "all_tracks_complete",
@@ -826,6 +844,78 @@ class TestActionInvocations:
         crc_stored = struct.unpack_from("<I", data, len(data) - 4)[0]
         crc_computed = zlib.crc32(data[:-4]) & 0xFFFFFFFF
         assert crc_stored == crc_computed
+
+
+class TestCrossValidation:
+    """Step 2b.4: per plan Q9, every state key engine writes runtime MUST be declared
+    у manifest.state section. Mirror keys derived from scenario structure
+    (<module>.<track>_phase_name etc.) і matched against declared. E04XX errors."""
+
+    def test_missing_mirror_keys_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        # Drop one of the required mirror keys
+        del m["state"]["recipe_min.main_phase_name"]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0401"
+        assert "main_phase_name" in exc.value.message
+
+    def test_empty_state_section_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["state"] = {}  # nothing declared
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0401"
+        # Several keys missing — error message lists sample + count
+        assert "scenario_state" in exc.value.message or "more" in exc.value.message
+
+    def test_complete_state_section_accepted(self, compiler, tmp_path):
+        # All required keys present (default fixture provides them)
+        path = write_manifest(tmp_path, make_minimal_manifest())
+        result = compiler.compile(path)
+        assert result.module_name == "recipe_min"
+
+    def test_extra_keys_in_state_section_allowed(self, compiler, tmp_path):
+        # Recipe може declare additional state keys beyond mirror keys.
+        # Cross-validation only checks SUBSET (declared ⊇ expected), not equality.
+        m = make_minimal_manifest()
+        m["state"]["recipe_min.custom_field"] = {"type": "int", "access": "read"}
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)
+        assert result.module_name == "recipe_min"
+
+    def test_long_module_name_rejected(self, compiler, tmp_path):
+        # 13-char module name + ".main_phase_name" (16) = 29 chars OK.
+        # But 14-char module + 8-char track + "_phase_name" exceeds budget.
+        # Use realistic edge case: very long module name.
+        m = make_minimal_manifest()
+        # "recipe_extremely_long_name" (26 chars) + ".main_phase_name" (16) = 42 > 32
+        very_long = "recipe_extremely_long_name"
+        # Schema doesn't enforce module name length (manifest_version is system-wide),
+        # but cross-validation does via budget check.
+        m["module"] = very_long
+        m["state"] = _mirror_keys_for(very_long, ["main"])  # would exceed budget
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0402"
+        assert "32-char" in exc.value.message
+
+    def test_multitrack_mirror_keys_derived(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["state"] = _mirror_keys_for("recipe_min", ["alpha", "beta"])
+        m["scenario"]["tracks"] = [
+            {"name": "alpha", "flags": ["main_track"], "phases": [
+                {"name": "p", "transitions": [{"to": "$complete"}]}]},
+            {"name": "beta", "phases": [
+                {"name": "p", "transitions": [{"to": "$complete"}]}]}
+        ]
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)
+        # 3 scenario keys + 2 tracks × 4 keys = 11 keys minimum
+        assert len(m["state"]) >= 11
 
 
 class TestGlobalTransitions:
