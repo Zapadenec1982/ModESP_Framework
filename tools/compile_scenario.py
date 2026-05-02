@@ -36,9 +36,13 @@ from typing import Any
 
 try:
     import jsonschema  # type: ignore[import-untyped]
-    HAS_JSONSCHEMA = True
-except ImportError:
-    HAS_JSONSCHEMA = False
+except ImportError as _e:
+    sys.stderr.write(
+        "compile_scenario.py: jsonschema package required для schema validation.\n"
+        "Install via: pip install -r tools/requirements.txt\n"
+        f"Original error: {_e}\n"
+    )
+    sys.exit(2)
 
 
 # ── Constants matching modr_format.h ──
@@ -195,6 +199,11 @@ class StringPool:
         self._data.extend(encoded)
         return offset
 
+    def offset_of(self, s: str) -> int:
+        """Public accessor for previously-interned string's offset.
+        Raises KeyError якщо not interned (caller's bug)."""
+        return self._offsets[s]
+
     def to_bytes(self) -> bytes:
         return bytes(self._data)
 
@@ -203,17 +212,12 @@ class StringPool:
 
 
 def validate_scenario_schema(scenario: dict[str, Any], schema: dict[str, Any], file: str) -> None:
-    """Run JSON Schema validation. Re-raises як CompileError E01XX."""
-    if not HAS_JSONSCHEMA:
-        # Skip schema validation якщо jsonschema not installed; manual checks downstream.
-        # Better than hard failure in environments without jsonschema.
-        return
-
+    """Run JSON Schema validation. Re-raises як CompileError E01XX.
+    jsonschema is hard requirement — module-level import fails fast if missing."""
     validator_cls = jsonschema.Draft7Validator
     validator = validator_cls(schema)
     errors = sorted(validator.iter_errors(scenario), key=lambda e: e.path)
     if errors:
-        # Take first error.
         e = errors[0]
         path = "/".join(str(p) for p in e.absolute_path) or "<root>"
         raise CompileError(
@@ -266,13 +270,14 @@ class ScenarioCompiler:
         # Schema validation
         validate_scenario_schema(scenario, self.schema, str(manifest_path))
 
-        # Cross-validate state keys (E04XX). MVP version: just check that engine writes
-        # to declared keys. Full mirror-key derivation is deferred to Step 16 для real recipe.
-        # Тепер: basic sanity — declared state section exists.
-        manifest_state = manifest.get("state", {})
-        # Skip cross-validation у v0; too early to derive expected keys without full
-        # mirror-key generator. Will be enforced у Step 16.
-        _ = manifest_state
+        # Semantic uniqueness — JSON Schema doesn't enforce це bo uniqueItems працює
+        # тільки for primitive arrays, not arrays of objects. Validate manually:
+        self._validate_unique_names(scenario, str(manifest_path))
+
+        # Cross-validate state keys vs manifest.state (E04XX) — deferred to Step 2b
+        # коли mirror-key derivation з scenario section implemented.
+        # Plan refs: lines 402, 699, 878 — cross-validation belongs у compile_scenario.py.
+        _ = manifest.get("state", {})
 
         # Build binary
         blob = self._emit(scenario, module_name, str(manifest_path))
@@ -420,7 +425,7 @@ class ScenarioCompiler:
                     tflags |= MODR_TRACK_FLAG_LOOP
             out.extend(struct.pack(
                 "<HHHHBBHI",
-                pool._offsets[tdata["name"]],
+                pool.offset_of(tdata["name"]),
                 phase_offs_per_track[ti],
                 0,  # initial_phase
                 0,  # reserved_a
@@ -437,7 +442,7 @@ class ScenarioCompiler:
                 trans_off = transitions_off_per_phase[phase_idx_global]
                 out.extend(struct.pack(
                     "<HHHHBBBBIHBB",
-                    pool._offsets[pdata["name"]],
+                    pool.offset_of(pdata["name"]),
                     MODR_NO_OFFSET,  # entry_action_off (v0 — no actions yet)
                     MODR_NO_OFFSET,  # exit_action_off
                     trans_off,
@@ -498,6 +503,41 @@ class ScenarioCompiler:
                 file,
             )
         return bytes(out)
+
+    def _validate_unique_names(self, scenario: dict[str, Any], file: str) -> None:
+        """Track names must be unique within scenario; phase names within track.
+        JSON Schema's uniqueItems doesn't apply to arrays of objects, so explicit check.
+
+        Real bug protections:
+        - Two tracks з тією ж name → mirror state keys collide
+          (e.g., recipe_x.main_phase_name written by both)
+        - Two phases з тією ж name within track → _resolve_target silently picks
+          first match; subsequent phases unreachable
+        """
+        track_names: dict[str, int] = {}
+        for ti, t in enumerate(scenario["tracks"]):
+            name = t["name"]
+            if name in track_names:
+                raise CompileError(
+                    "E0208",
+                    f"duplicate track name {name!r} (also at index {track_names[name]}). "
+                    f"Track names must be unique у scenario.",
+                    file,
+                )
+            track_names[name] = ti
+
+            phase_names: dict[str, int] = {}
+            for pi, p in enumerate(t["phases"]):
+                pname = p["name"]
+                if pname in phase_names:
+                    raise CompileError(
+                        "E0208",
+                        f"duplicate phase name {pname!r} у track {name!r} "
+                        f"(also at index {phase_names[pname]}). "
+                        f"Phase names must be unique within track.",
+                        file,
+                    )
+                phase_names[pname] = pi
 
     def _resolve_target(self, target: str, phase: dict[str, Any], track: dict[str, Any], file: str) -> int:
         if target == "$complete":

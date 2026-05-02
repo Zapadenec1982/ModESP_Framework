@@ -137,27 +137,32 @@ class TestKnownActionRegistry:
         assert exc.value.code == "E0202"
         assert "hash mismatch" in exc.value.message
 
-    def test_synthetic_collision_detected(self, tmp_path):
-        # Construct two names that hash to same low-16 на purpose.
-        # Easiest: use empirical pair.
-        # Actually, just inject identical hashes у the JSON manually:
+    def test_real_collision_detected(self, tmp_path):
+        # Brute-force found pair: 'aa' і 'gjq' both djb2_hash16 to 0x7727.
+        # Verified: djb2_hash16('aa') == djb2_hash16('gjq') == 0x7727.
+        # Це genuine algorithmic collision, не synthetic hash injection.
+        h_aa = djb2_hash16("aa")
+        h_gjq = djb2_hash16("gjq")
+        assert h_aa == h_gjq == 0x7727, "test invariant: brute-forced collision pair"
+
         bad = {
             "format_version": 1,
             "hash_algorithm": "djb2_hash16",
             "actions": {
-                "fake1": {"hash": djb2_hash16("fake1")},
-                "fake2": {"hash": djb2_hash16("fake1")}  # forced identical hash to fake1
+                "aa": {"hash": h_aa},   # both stored hashes correct (no E0202)
+                "gjq": {"hash": h_gjq}, # but they collide на 0x7727 (E0203)
             },
             "conditions": {}
         }
-        bad_path = tmp_path / "collide.json"
+        bad_path = tmp_path / "real_collision.json"
         bad_path.write_text(json.dumps(bad), encoding="utf-8")
-        # First check: fake2's stored hash != djb2(fake2) — caught як E0202.
         with pytest.raises(CompileError) as exc:
             KnownActionRegistry.load(bad_path)
-        # Either E0202 (hash mismatch detected first) OR E0203 (collision).
-        # Both correct rejection paths.
-        assert exc.value.code in {"E0202", "E0203"}
+        # Both stored hashes correct → E0202 не fires. E0203 (collision) IS the path.
+        assert exc.value.code == "E0203", (
+            f"Expected E0203 collision detection, got {exc.value.code}: {exc.value.message}"
+        )
+        assert "0x7727" in exc.value.message or "30503" in exc.value.message  # 0x7727 = 30503
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -416,6 +421,134 @@ class TestErrorFormat:
 # ─────────────────────────────────────────────────────────────────────
 # v0 limitations explicitly tested
 # ─────────────────────────────────────────────────────────────────────
+
+
+class TestUniqueness:
+    """Track і phase names must be unique. JSON Schema's uniqueItems doesn't apply
+    to arrays of objects, so explicit semantic check (E0208) у compiler."""
+
+    def test_duplicate_track_names_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"] = [
+            {"name": "main", "flags": ["main_track"], "phases": [
+                {"name": "p", "transitions": [{"to": "$complete"}]}]},
+            {"name": "main", "phases": [  # duplicate!
+                {"name": "p", "transitions": [{"to": "$complete"}]}]}
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0208"
+        assert "duplicate track" in exc.value.message
+        assert "main" in exc.value.message
+
+    def test_duplicate_phase_names_within_track_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"] = [
+            {"name": "p", "transitions": [{"to": "$complete"}]},
+            {"name": "p", "transitions": [{"to": "$complete"}]},  # duplicate
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0208"
+        assert "duplicate phase" in exc.value.message
+
+    def test_same_phase_name_in_different_tracks_allowed(self, compiler, tmp_path):
+        # Name "p" у track A AND track B — це legitimate, no error.
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"] = [
+            {"name": "a", "flags": ["main_track"], "phases": [
+                {"name": "p", "transitions": [{"to": "$complete"}]}]},
+            {"name": "b", "phases": [
+                {"name": "p", "transitions": [{"to": "$complete"}]}]}  # OK — different track
+        ]
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)
+        assert result.module_name == "recipe_min"
+
+
+class TestMultiTrackBinary:
+    """Multi-track recipes mais different layout (per-track phase tables, transition
+    arrays interleaved). Step 2a code handles цей correctly але was previously untested."""
+
+    def _build_two_track_recipe(self) -> dict:
+        return {
+            "manifest_version": 1,
+            "module": "recipe_mt",
+            "module_type": "recipe",
+            "version": "1.0.0",
+            "priority": 5,
+            "state": {},
+            "scenario": {
+                "default_phase_timeout_ms": 60000,
+                "completion_rule": "all_tracks_complete",
+                "tracks": [
+                    {"name": "a", "flags": ["main_track"], "phases": [
+                        {"name": "p1", "transitions": [{"to": "p2"}]},
+                        {"name": "p2", "transitions": [{"to": "$complete"}]}
+                    ]},
+                    {"name": "b", "phases": [
+                        {"name": "q", "transitions": [{"to": "$complete"}]}
+                    ]}
+                ]
+            }
+        }
+
+    def test_two_tracks_compile(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, self._build_two_track_recipe())
+        result = compiler.compile(path)
+        assert result.blob[16] == 2  # track_count
+
+    def test_per_track_phase_arrays_dont_overlap(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, self._build_two_track_recipe())
+        data = compiler.compile(path).blob
+        track_table_off = struct.unpack_from("<H", data, 22)[0]
+
+        # Track A
+        ta_phases_off = struct.unpack_from("<H", data, track_table_off + 2)[0]
+        ta_phase_count = data[track_table_off + 8]
+        ta_end = ta_phases_off + 20 * ta_phase_count
+
+        # Track B
+        tb_phases_off = struct.unpack_from("<H", data, track_table_off + 16 + 2)[0]
+        tb_phase_count = data[track_table_off + 16 + 8]
+        tb_end = tb_phases_off + 20 * tb_phase_count
+
+        # Ranges must not overlap
+        assert ta_end <= tb_phases_off, (
+            f"Track A phases [{ta_phases_off}..{ta_end}) overlaps з track B [{tb_phases_off}..{tb_end})"
+        )
+
+    def test_named_phase_target_within_track_resolves(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, self._build_two_track_recipe())
+        data = compiler.compile(path).blob
+        # Track A, phase[0] = "p1" з transition to "p2" (index 1)
+        track_table_off = struct.unpack_from("<H", data, 22)[0]
+        ta_phases_off = struct.unpack_from("<H", data, track_table_off + 2)[0]
+        # phase[0].transitions_off
+        p1_trans_off = struct.unpack_from("<H", data, ta_phases_off + 6)[0]
+        # transition[0].target_phase
+        target = struct.unpack_from("<H", data, p1_trans_off + 2)[0]
+        assert target == 1, f"Expected p2 index 1, got {target}"
+
+    def test_main_track_flag_preserved_for_first_track(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, self._build_two_track_recipe())
+        data = compiler.compile(path).blob
+        track_table_off = struct.unpack_from("<H", data, 22)[0]
+        # Track A flags at offset+9
+        ta_flags = data[track_table_off + 9]
+        assert ta_flags & 0x01  # MODR_TRACK_FLAG_MAIN
+        # Track B has no main_track flag
+        tb_flags = data[track_table_off + 16 + 9]
+        assert (tb_flags & 0x01) == 0
+
+    def test_crc32_valid_multi_track(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, self._build_two_track_recipe())
+        data = compiler.compile(path).blob
+        crc_stored = struct.unpack_from("<I", data, len(data) - 4)[0]
+        crc_computed = zlib.crc32(data[:-4]) & 0xFFFFFFFF
+        assert crc_stored == crc_computed
 
 
 class TestV0Limitations:
