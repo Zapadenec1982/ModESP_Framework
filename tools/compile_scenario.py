@@ -483,6 +483,13 @@ class ScenarioCompiler:
         # Default off для author convenience; CI uses --strict для drift protection.
         self.strict = strict
 
+        # Q2: recipe-level params (`@param:NAME` syntax) — compile-time substitution.
+        # Per WebUI architecture decision: parameters are authoring concept, not runtime.
+        # WebUI editor recompiles recipe with new defaults, uploads new .modr.
+        # Engine sees only literals (no param_pool indirection).
+        # `overridable: true` flag is WebUI metadata (which params show on edit form).
+        self._param_table: dict[str, Any] = {}  # name → {type, default, min, max}
+
     def compile(self, manifest_path: Path) -> CompiledScenario:
         """Read manifest, extract scenario section, emit .modr bytes."""
         try:
@@ -507,6 +514,10 @@ class ScenarioCompiler:
 
         # Schema validation
         validate_scenario_schema(scenario, self.schema, str(manifest_path))
+
+        # Q2: Build param table from scenario.params (з range validation).
+        # Substitution of `@param:NAME` references happens later у _emit().
+        self._build_param_table(scenario, str(manifest_path))
 
         # Semantic uniqueness — JSON Schema doesn't enforce це bo uniqueItems працює
         # тільки for primitive arrays, not arrays of objects. Validate manually:
@@ -558,13 +569,17 @@ class ScenarioCompiler:
                 # Q12: validate phase.continuous references (warn or strict-error)
                 self._validate_continuous_behaviors(pdata, file)
 
-                # Entry actions
+                # Entry actions — Q2: resolve @param: refs у params before emit
                 entry_actions = pdata.get("entry", [])
                 if entry_actions:
                     entry_first_idx = len(builder.actions)
                     for action_inv in entry_actions:
                         self._validate_action_invocation(action_inv, file)
-                        builder.add_action(action_inv["action"], action_inv.get("params", {}), pool, file)
+                        resolved_params = self._resolve_param_ref(
+                            action_inv.get("params", {}),
+                            f"action {action_inv['action']!r}", file
+                        )
+                        builder.add_action(action_inv["action"], resolved_params, pool, file)
                     entry_n = len(entry_actions)
                 else:
                     entry_first_idx = MODR_NO_OFFSET
@@ -576,7 +591,11 @@ class ScenarioCompiler:
                     exit_first_idx = len(builder.actions)
                     for action_inv in exit_actions:
                         self._validate_action_invocation(action_inv, file)
-                        builder.add_action(action_inv["action"], action_inv.get("params", {}), pool, file)
+                        resolved_params = self._resolve_param_ref(
+                            action_inv.get("params", {}),
+                            f"action {action_inv['action']!r}", file
+                        )
+                        builder.add_action(action_inv["action"], resolved_params, pool, file)
                     exit_n = len(exit_actions)
                 else:
                     exit_first_idx = MODR_NO_OFFSET
@@ -586,6 +605,7 @@ class ScenarioCompiler:
 
         # Per-transition cond_pool indices (parallel array — len matches total transitions)
         # Built у emission order (track 0 phase 0 trans 0, track 0 phase 0 trans 1, ...).
+        # Q2: @param: references resolved до compile-time literal values.
         transition_cond_indices: list[int] = []
         for tdata in tracks_data:
             for pdata in tdata["phases"]:
@@ -594,7 +614,8 @@ class ScenarioCompiler:
                     if when is None:
                         transition_cond_indices.append(MODR_NO_OFFSET)
                     else:
-                        cond_idx = builder.add_condition(when, pool, file)
+                        resolved_when = self._resolve_param_ref(when, "transition condition", file)
+                        cond_idx = builder.add_condition(resolved_when, pool, file)
                         transition_cond_indices.append(cond_idx)
 
         # Resources — both scenario-scope і phase-scope supported (Step 2b.3).
@@ -967,6 +988,57 @@ class ScenarioCompiler:
                 + (f"\n  ... ({len(type_mismatches) - 5} more)" if len(type_mismatches) > 5 else ""),
                 file,
             )
+
+    # Q2: Recipe-level params resolution (compile-time substitution).
+    # Pattern matches `@param:<name>` у JSON values (string literals).
+    _PARAM_REF_PATTERN = "@param:"
+
+    def _build_param_table(self, scenario: dict[str, Any], file: str) -> None:
+        """Read scenario.params section, validate defaults within ranges, store
+        у self._param_table for later substitution. Per Q2 spec — defaults must
+        satisfy declared min/max bounds."""
+        self._param_table = {}
+        params_section = scenario.get("params", {})
+        for name, decl in params_section.items():
+            ptype = decl.get("type")
+            default = decl.get("default")
+            pmin = decl.get("min")
+            pmax = decl.get("max")
+            # Range validation на defaults
+            if pmin is not None and default < pmin:
+                raise CompileError(
+                    "E0240",
+                    f"recipe param {name!r} default {default} < min {pmin}",
+                    file,
+                )
+            if pmax is not None and default > pmax:
+                raise CompileError(
+                    "E0240",
+                    f"recipe param {name!r} default {default} > max {pmax}",
+                    file,
+                )
+            self._param_table[name] = {
+                "type": ptype, "default": default, "min": pmin, "max": pmax,
+            }
+
+    def _resolve_param_ref(self, value: Any, context: str, file: str) -> Any:
+        """Якщо value є рядок виду '@param:NAME' — substitute з self._param_table.
+        Інакше повертає value незмінним. Recursive по dicts і lists."""
+        if isinstance(value, str) and value.startswith(self._PARAM_REF_PATTERN):
+            param_name = value[len(self._PARAM_REF_PATTERN):]
+            if param_name not in self._param_table:
+                raise CompileError(
+                    "E0241",
+                    f"reference to undeclared param {param_name!r} у {context}. "
+                    f"Available params: {sorted(self._param_table.keys())}",
+                    file,
+                )
+            return self._param_table[param_name]["default"]
+        if isinstance(value, dict):
+            return {k: self._resolve_param_ref(v, context, file) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._resolve_param_ref(v, context, file) for v in value]
+        return value
 
     # Built-in ContinuousBehaviors for MVP (per plan Q4 — registered у engine).
     # Domain modules can register additional via runtime ContinuousRegistry.
