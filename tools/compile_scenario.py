@@ -229,6 +229,15 @@ def validate_scenario_schema(scenario: dict[str, Any], schema: dict[str, Any], f
 
 # ── Pool builder (conditions, actions, params) ──
 
+# Maximum recursion depth для composite condition expressions (all_of/any_of/not).
+# Conservative cap protects compiler from CVE-class stack overflow attacks
+# (CVE-2024-21907 Newtonsoft.Json, CVE-2025-52999 Jackson). Build-time-only
+# context limits blast radius (no runtime exposure), але cheap mitigation
+# defends against malformed manifests AND defensive against malicious recipes
+# у future OTA distribution paths (Stage 1.5).
+# Real-world recipes rarely nest beyond 3-4 levels; 16 is generous.
+_MAX_CONDITION_DEPTH = 16
+
 
 @dataclass
 class _ActionRecord:
@@ -266,6 +275,21 @@ class PoolBuilder:
 
     def add_action(self, name: str, params: dict[str, Any], string_pool: StringPool, file: str) -> int:
         """Adds entry to action_pool. Returns its index. params_dict is named (key_hash = djb2(param_name))."""
+        # Special-case: set_state's "type" param is enum {"i32","f32","bool"} but Python
+        # represents it як string. Pre-translate to MODR_PARAM_TYPE int code so engine
+        # doesn't string-parse at runtime. Industry standard is integer enum encoding
+        # (Protobuf, SBE) — string encoding wastes runtime cycles + flash.
+        # Generic enum support через action descriptor metadata — Stage 1.5.
+        if name == "set_state" and isinstance(params.get("type"), str):
+            type_str = params["type"]
+            if type_str in MODR_PARAM_TYPE:
+                params = {**params, "type": MODR_PARAM_TYPE[type_str]}
+            else:
+                raise CompileError(
+                    "E0225",
+                    f"set_state 'type' param must be one of {list(MODR_PARAM_TYPE.keys())}, got {type_str!r}",
+                    file,
+                )
         param_idx, param_n = self._intern_named_params(params, string_pool, file)
         rec = _ActionRecord(
             hash=djb2_hash16(name),
@@ -276,8 +300,12 @@ class PoolBuilder:
         self.actions.append(rec)
         return len(self.actions) - 1
 
-    def add_condition(self, expr: dict[str, Any], string_pool: StringPool, file: str) -> int:
+    def add_condition(self, expr: dict[str, Any], string_pool: StringPool, file: str,
+                      depth: int = 0) -> int:
         """Recursively encodes a condition expression. Returns cond_pool index.
+
+        Depth-bounded to _MAX_CONDITION_DEPTH (= 16) — guards проти stack overflow
+        from deeply-nested composites (CVE-class у similar JSON libs).
 
         Handles all built-in condition forms per scenario_schema.json:
         - {"time_elapsed_ms": int}
@@ -288,6 +316,13 @@ class PoolBuilder:
         - {"all_of"|"any_of": [<cond>, ...]}
         - {"not": <cond>}
         """
+        if depth > _MAX_CONDITION_DEPTH:
+            raise CompileError(
+                "E0218",
+                f"condition expression exceeds maximum nesting depth of {_MAX_CONDITION_DEPTH}. "
+                f"Refactor recipe to flatten conditions (most real recipes nest <4 levels).",
+                file,
+            )
         if not isinstance(expr, dict) or len(expr) != 1:
             raise CompileError(
                 "E0211",
@@ -334,7 +369,7 @@ class PoolBuilder:
             if not isinstance(body, list) or len(body) == 0:
                 raise CompileError("E0215", f"{op} requires non-empty array of conditions, got {body!r}", file)
             # Add children FIRST so their indices are known when composite is recorded.
-            child_indices = [self.add_condition(child, string_pool, file) for child in body]
+            child_indices = [self.add_condition(child, string_pool, file, depth + 1) for child in body]
             params = [
                 _ParamRecord(key_hash=0, type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(idx))
                 for idx in child_indices
@@ -342,7 +377,7 @@ class PoolBuilder:
             return self._record_condition(op, params)
 
         if op == "not":
-            child_idx = self.add_condition(body, string_pool, file)
+            child_idx = self.add_condition(body, string_pool, file, depth + 1)
             params = [_ParamRecord(key_hash=0, type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(child_idx))]
             return self._record_condition("not", params)
 
@@ -372,9 +407,14 @@ class PoolBuilder:
     def _typed_value_param(self, value: Any, param_name: str, file: str,
                            string_pool: StringPool | None = None) -> _ParamRecord:
         """Encode a scalar value into a param entry, picking type based on Python type.
-        For string values, string_pool is required for interning."""
+        For string values, string_pool is required for interning.
+
+        ORDER INVARIANT: bool MUST be checked before int — Python's `bool` subclasses
+        `int`, so `isinstance(True, int)` returns True. Reordering breaks correct
+        encoding silently (all bools become i32). Standard Python pattern (see
+        labex.io/python-bool, realpython.com isinstance docs)."""
         kh = djb2_hash16(param_name)
-        if isinstance(value, bool):
+        if isinstance(value, bool):  # MUST precede int check
             return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["bool"], flags=0, value=1 if value else 0)
         if isinstance(value, int):
             return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(value))
@@ -567,10 +607,13 @@ class ScenarioCompiler:
         # $abort (validated explicitly — schema's `to` field requires uniformity).
         global_trans_records: list[tuple[int, int, int]] = []  # (cond_idx, scope, priority)
         for gt in scenario.get("global_transitions", []):
-            if gt.get("to") != "$abort":
+            # `to` field optional post-D3 cleanup — schema enforces literal "$abort"
+            # if present. Globals always abort (binary format has no target_phase
+            # field; scope determines whether scenario or only main track aborts).
+            if "to" in gt and gt["to"] != "$abort":
                 raise CompileError(
                     "E0223",
-                    f"global_transitions.to must be '$abort' (only abort actions supported); got {gt.get('to')!r}",
+                    f"global_transitions.to must be '$abort' or omitted; got {gt.get('to')!r}",
                     file,
                 )
             when = gt.get("when")
@@ -807,13 +850,15 @@ class ScenarioCompiler:
                 0,                  # reserved_b
             ))
 
-        # Scenario-scope resource declarations
+        # Scenario-scope resource declarations (always scope=SCENARIO; phase-scope
+        # уlives у separate pool via phase.phase_resources). Schema enforces this
+        # post-D1 cleanup — `scope` field removed from scenario.resources schema.
         for r in scenario.get("resources", []):
             out.extend(struct.pack(
                 "<HBB",
                 djb2_hash16(r["resource"]),
                 1 if r.get("exclusive", True) else 0,
-                MODR_RESOURCE_SCOPE[r.get("scope", "scenario")],
+                MODR_RESOURCE_SCOPE["scenario"],
             ))
 
         # Phase-scope resource claims pool — concatenated per-phase claim arrays.
@@ -902,8 +947,14 @@ class ScenarioCompiler:
             raise CompileError("E0220", "action invocation missing 'action' field", file)
         descriptor = self.registry.actions.get(name)
         if descriptor is None:
-            # Allow runtime-registered actions (domain modules) — emit warning but compile.
-            # Stage 1.5 adds strict mode flag для CI.
+            # Domain modules register actions runtime — can't strictly require у compile.
+            # Industry standard (TypeScript strict mode, GCC -Wall, ESLint) is warn-not-silent
+            # to surface typos. Stage 1.5 adds --strict CLI flag що elevates warning to E0226.
+            sys.stderr.write(
+                f"{file}:0:0: warning[W0220]: action {name!r} not у known_actions.json. "
+                f"Will be looked up у runtime ActionRegistry — verify domain module registers it. "
+                f"Possible typo? Known: {sorted(self.registry.actions.keys())}\n"
+            )
             return
         params = action_inv.get("params", {})
         if not isinstance(params, dict):

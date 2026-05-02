@@ -68,28 +68,28 @@
         "exclusive": {
           "type": "boolean",
           "default": true
-        },
-        "scope": {
-          "enum": ["scenario", "phase"],
-          "default": "scenario",
-          "description": "scenario = claim at start; phase = claim per-phase entry."
         }
-      }
+      },
+      "$comment": "Scenario-scope resources only — claimed at start(handle), released on completion. For phase-scope (per-track per-phase) claims, use phase.phase_resources[*] instead. Cleanup post-Step 2b review (D1)."
     },
 
     "global_transition": {
       "type": "object",
-      "required": ["to", "when"],
+      "required": ["when"],
       "additionalProperties": false,
       "properties": {
-        "to": { "$ref": "#/definitions/transition_target" },
+        "to": {
+          "const": "$abort",
+          "description": "Optional. Globals always abort — binary format has no target_phase field. Field kept for forward compat і author readability. Schema enforces literal '$abort' if present."
+        },
         "when": { "$ref": "#/definitions/condition_expr" },
         "priority": {
           "type": "integer", "minimum": 0, "maximum": 255, "default": 100
         },
         "scope": {
           "enum": ["abort_scenario", "abort_only_main_track"],
-          "default": "abort_scenario"
+          "default": "abort_scenario",
+          "description": "Determines actual target: scenario (all tracks aborted) or main_track (only main track fails, scenario follows completion_rule)."
         }
       }
     },

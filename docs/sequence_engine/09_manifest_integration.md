@@ -136,10 +136,32 @@ modules/recipe_plov/manifest.json:42:18: error[E0207]: transition target 'wrong_
 | E0206 | Semantics | Conditional transitions used (deferred Step 2b) |
 | E0207 | Semantics | Transition target references unknown phase |
 | E0208 | Semantics | Duplicate track or phase name |
+| E0210 | Semantics | Unknown condition operator |
+| E0211 | Semantics | Condition expression must be single-key object |
+| E0212 | Semantics | `time_elapsed_ms` requires non-negative integer |
+| E0213 | Semantics | `state_key_*` missing required field (key/value) |
+| E0214 | Semantics | `time_of_day_eq` missing hh/mm |
+| E0215 | Semantics | `all_of`/`any_of` requires non-empty array |
+| E0216 | Semantics | String value у condition без string_pool context |
+| E0217 | Semantics | Unsupported value type для condition param |
+| E0218 | Semantics | Composite condition exceeds max nesting depth (16) — DoS guard |
+| E0220 | Action | Action invocation missing 'action' field |
+| E0221 | Action | Action params must be object |
+| E0222 | Action | Action param count mismatch vs descriptor |
+| E0223 | Globals | Global transition `to` not "$abort" or omitted |
+| E0224 | Globals | Global transition missing `when` clause |
+| E0225 | Action | `set_state` 'type' param invalid (must be i32/f32/bool) |
 | E0301 | Emission | String exceeds u8 length limit (>255 bytes) |
 | E0302 | Emission | Compiled binary exceeds MODR_MAX_SIZE (16 KB) |
 | E0303 | Emission | Internal: emitted bytes ≠ header.total_size |
-| E04XX | Cross-val | Reserved for state-key cross-validation (Step 2b) |
+| E0401 | Cross-val | manifest.state missing mirror key declarations |
+| E0402 | Cross-val | Derived mirror key exceeds 32-char SharedState budget |
+
+### Warnings (non-blocking)
+
+| Code | Class | Trigger |
+|------|-------|---------|
+| W0220 | Action | Unknown action name (домен module must register at runtime) |
 
 Full descriptions з examples → [`10_error_model.md`](10_error_model.md) (filled у Step 2b once accumulated).
 

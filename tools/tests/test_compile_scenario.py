@@ -846,6 +846,249 @@ class TestActionInvocations:
         assert crc_stored == crc_computed
 
 
+class TestRecursionDepthGuard:
+    """Step 2b review fix A2: depth limit on composite condition recursion.
+    Protects compiler against CVE-class stack overflow (CVE-2024-21907,
+    CVE-2025-52999) у similar JSON-schema validators."""
+
+    def test_deep_nesting_rejected(self, compiler, tmp_path):
+        # 20 levels deep of `not` — exceeds _MAX_CONDITION_DEPTH = 16
+        deep = {"time_elapsed_ms": 100}
+        for _ in range(20):
+            deep = {"not": deep}
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["transitions"] = [
+            {"to": "$complete", "when": deep}
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0218"
+        assert "depth" in exc.value.message.lower()
+
+    def test_shallow_nesting_accepted(self, compiler, tmp_path):
+        # 5 levels deep — well below limit
+        deep = {"time_elapsed_ms": 100}
+        for _ in range(5):
+            deep = {"not": deep}
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["transitions"] = [
+            {"to": "$complete", "when": deep}
+        ]
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)  # should NOT raise
+        assert result.module_name == "recipe_min"
+
+
+class TestSetStateTypeIntEncoding:
+    """Step 2b review fix A4: set_state's 'type' param encoded as integer enum
+    (matches MODR_PARAM_TYPE_*) instead of string. Standard practice у binary
+    formats (Protobuf, SBE). Saves runtime string parsing у engine."""
+
+    def test_type_param_encoded_as_i32(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["entry"] = [
+            {"action": "set_state", "params": {"key": "x", "type": "bool", "value": True}}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        # Walk param pool, find "type" param via key_hash
+        param_pool_off = struct.unpack_from("<H", data, 24)[0]
+        param_count = struct.unpack_from("<H", data, 26)[0]
+        type_kh = djb2_hash16("type")
+        for i in range(param_count):
+            off = param_pool_off + i * 8
+            kh = struct.unpack_from("<H", data, off)[0]
+            if kh == type_kh:
+                ptype = data[off + 2]
+                value = struct.unpack_from("<I", data, off + 4)[0]
+                # Should be I32 (0), value = MODR_PARAM_TYPE["bool"] = 2
+                assert ptype == 0  # i32 type
+                assert value == 2  # MODR_PARAM_TYPE_BOOL
+                return
+        pytest.fail("'type' param not found у pool")
+
+    def test_invalid_type_value_rejected(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["entry"] = [
+            {"action": "set_state", "params": {"key": "x", "type": "blob", "value": True}}
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0225"
+
+
+class TestUnknownActionWarning:
+    """Step 2b review fix D2: unknown action names emit warning to stderr
+    instead of silently passing. Industry standard (TypeScript strict, GCC -Wall)."""
+
+    def test_unknown_action_emits_warning(self, compiler, tmp_path, capsys):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["entry"] = [
+            {"action": "domain.totally_unregistered", "params": {}}
+        ]
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)  # should NOT raise — domain action accepted
+        captured = capsys.readouterr()
+        assert "warning[W0220]" in captured.err
+        assert "domain.totally_unregistered" in captured.err
+        assert "ActionRegistry" in captured.err
+
+    def test_known_action_no_warning(self, compiler, tmp_path, capsys):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["entry"] = [
+            {"action": "log", "params": {"msg": "hello"}}
+        ]
+        path = write_manifest(tmp_path, m)
+        compiler.compile(path)
+        captured = capsys.readouterr()
+        assert "W0220" not in captured.err
+
+
+class TestSchemaCleanups:
+    """Step 2b review fixes D1, D3: schema cleanup after design review."""
+
+    def test_global_transition_to_optional_now(self, compiler, tmp_path):
+        # D3: `to` field made optional у schema (defaults to "$abort" semantically)
+        m = make_minimal_manifest()
+        m["scenario"]["global_transitions"] = [
+            {"when": {"state_key_eq": {"key": "x", "value": True}}}  # no `to`
+        ]
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)  # should compile cleanly
+        assert result.module_name == "recipe_min"
+
+    def test_global_transition_to_must_be_abort_when_present(self, compiler, tmp_path):
+        # D3: schema constrains `to` to literal "$abort" when present
+        m = make_minimal_manifest()
+        m["scenario"]["global_transitions"] = [
+            {"to": "phase_x", "when": {"state_key_eq": {"key": "x", "value": True}}}
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        # Either schema (E0101) catches via const constraint or compiler (E0223)
+        assert exc.value.code in {"E0101", "E0223"}
+
+    def test_scenario_resource_no_scope_field(self, compiler, tmp_path):
+        # D1: `scope` field removed from scenario.resources schema. Adding це should
+        # fail schema validation (additionalProperties: false).
+        m = make_minimal_manifest()
+        m["scenario"]["resources"] = [
+            {"resource": "equipment.x", "exclusive": True, "scope": "phase"}
+        ]
+        path = write_manifest(tmp_path, m)
+        with pytest.raises(CompileError) as exc:
+            compiler.compile(path)
+        assert exc.value.code == "E0101"
+        assert "scope" in exc.value.message
+
+
+class TestKitchenSinkIntegration:
+    """Step 2b review fix B2: end-to-end test combining ALL features at once.
+    Catches struct-layout / cross-feature regression that isolated tests miss."""
+
+    def test_all_features_together(self, compiler, tmp_path):
+        """One recipe із: 2 tracks, multi-phase, conditional transitions з composite
+        condition, entry/exit actions, global transition, scenario+phase resources,
+        full mirror state declaration. Must compile cleanly з valid CRC32."""
+        m = {
+            "manifest_version": 1,
+            "module": "recipe_full",
+            "module_type": "recipe",
+            "version": "1.0.0",
+            "priority": 5,
+            "state": _mirror_keys_for("recipe_full", ["main", "watch"]),
+            "scenario": {
+                "default_phase_timeout_ms": 60000,
+                "scenario_timeout_max_ms": 120000,
+                "completion_rule": "all_tracks_complete",
+                "resources": [
+                    {"resource": "equipment.heater", "exclusive": True}
+                ],
+                "global_transitions": [
+                    {"when": {"state_key_eq": {"key": "safety.fault", "value": True}},
+                     "priority": 255, "scope": "abort_scenario"}
+                ],
+                "tracks": [
+                    {
+                        "name": "main",
+                        "flags": ["main_track"],
+                        "phases": [
+                            {
+                                "name": "warm",
+                                "timeout_ms": 30000,
+                                "entry": [
+                                    {"action": "log", "params": {"msg": "warming"}},
+                                    {"action": "set_state",
+                                     "params": {"key": "x", "type": "bool", "value": True}}
+                                ],
+                                "phase_resources": [
+                                    {"resource": "equipment.pump", "exclusive": True}
+                                ],
+                                "transitions": [
+                                    {"to": "soak", "when": {"all_of": [
+                                        {"time_elapsed_ms": 5000},
+                                        {"state_key_gt": {"key": "test.temp", "value": 70}}
+                                    ]}}
+                                ],
+                                "exit": [
+                                    {"action": "set_state",
+                                     "params": {"key": "x", "type": "bool", "value": False}}
+                                ]
+                            },
+                            {
+                                "name": "soak",
+                                "transitions": [
+                                    {"to": "$complete", "when": {"time_elapsed_ms": 10000}}
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "watch",
+                        "phases": [
+                            {
+                                "name": "obs",
+                                "transitions": [
+                                    {"to": "$complete", "when": {"state_key_eq": {
+                                        "key": "recipe_full.main_phase_name",
+                                        "value": "soak"
+                                    }}}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        path = write_manifest(tmp_path, m)
+        result = compiler.compile(path)
+        data = result.blob
+
+        # Sanity checks across features
+        assert struct.unpack_from("<I", data, 0)[0] == MODR_MAGIC
+        assert struct.unpack_from("<H", data, 4)[0] == MODR_FORMAT_VERSION
+        assert data[16] == 2  # 2 tracks
+        assert data[18] == 1  # 1 scenario-resource
+        assert data[19] == 1  # 1 global_trans
+
+        # CRC32 valid
+        crc_stored = struct.unpack_from("<I", data, len(data) - 4)[0]
+        crc_computed = zlib.crc32(data[:-4]) & 0xFFFFFFFF
+        assert crc_stored == crc_computed
+
+        # Total size matches header field
+        total_size_field = struct.unpack_from("<I", data, 8)[0]
+        assert total_size_field == len(data)
+
+        # Pools all populated
+        assert struct.unpack_from("<H", data, 26)[0] > 0  # param_count
+        assert struct.unpack_from("<H", data, 30)[0] > 0  # action_count (entry+exit)
+        assert struct.unpack_from("<H", data, 34)[0] > 0  # cond_count
+
+
 class TestCrossValidation:
     """Step 2b.4: per plan Q9, every state key engine writes runtime MUST be declared
     у manifest.state section. Mirror keys derived from scenario structure
@@ -956,7 +1199,9 @@ class TestGlobalTransitions:
         path = write_manifest(tmp_path, m)
         with pytest.raises(CompileError) as exc:
             compiler.compile(path)
-        assert exc.value.code == "E0223"
+        # Post-D3 cleanup: schema enforces const "$abort" → E0101 у нашого
+        # validator. Pre-cleanup це було E0223. Both correct rejection paths.
+        assert exc.value.code in {"E0101", "E0223"}
 
     def test_globals_sorted_by_priority_descending(self, compiler, tmp_path):
         m = make_minimal_manifest()
