@@ -227,6 +227,194 @@ def validate_scenario_schema(scenario: dict[str, Any], schema: dict[str, Any], f
         )
 
 
+# ── Pool builder (conditions, actions, params) ──
+
+
+@dataclass
+class _ActionRecord:
+    """Internal representation of a modr_action entry (8 bytes у binary)."""
+    hash: int          # uint16 djb2_hash16
+    param_idx: int     # uint16 first param index, MODR_NO_OFFSET if no params
+    param_n: int       # uint8 param count
+    flags: int         # uint8 MODR_ACTION_FLAG_*
+
+
+@dataclass
+class _ParamRecord:
+    """Internal representation of a modr_param_entry (8 bytes у binary)."""
+    key_hash: int      # uint16 — для composite conditions can be 0 (positional)
+    type: int          # uint8 MODR_PARAM_TYPE_*
+    flags: int         # uint8
+    value: int         # uint32 — i32 reinterpret, f32 reinterpret, bool, або str_idx
+
+
+class PoolBuilder:
+    """Accumulates action_pool, cond_pool, і param_pool entries.
+
+    Conditions і actions share modr_action struct shape — separate pools maintained
+    for engine-side find_action vs find_condition lookup, але same wire format.
+
+    Composite conditions (all_of/any_of/not) use param entries з type=i32 і
+    value=cond_pool_idx of the nested condition. param_n = number of children.
+    Recursive — children added before parent so indices known when parent emits.
+    """
+
+    def __init__(self) -> None:
+        self.actions: list[_ActionRecord] = []
+        self.conditions: list[_ActionRecord] = []
+        self.params: list[_ParamRecord] = []
+
+    def add_action(self, name: str, params: dict[str, Any], string_pool: StringPool, file: str) -> int:
+        """Adds entry to action_pool. Returns its index. params_dict is named (key_hash = djb2(param_name))."""
+        param_idx, param_n = self._intern_named_params(params, string_pool, file)
+        rec = _ActionRecord(
+            hash=djb2_hash16(name),
+            param_idx=param_idx,
+            param_n=param_n,
+            flags=0,
+        )
+        self.actions.append(rec)
+        return len(self.actions) - 1
+
+    def add_condition(self, expr: dict[str, Any], string_pool: StringPool, file: str) -> int:
+        """Recursively encodes a condition expression. Returns cond_pool index.
+
+        Handles all built-in condition forms per scenario_schema.json:
+        - {"time_elapsed_ms": int}
+        - {"state_key_eq|ne|lt|gt|le|ge": {"key": str, "value": <typed>}}
+        - {"state_key_in_range": {"key": str, "min": num, "max": num}}
+        - {"state_key_changed": {"key": str}}
+        - {"time_of_day_eq": {"hh": int, "mm": int}}
+        - {"all_of"|"any_of": [<cond>, ...]}
+        - {"not": <cond>}
+        """
+        if not isinstance(expr, dict) or len(expr) != 1:
+            raise CompileError(
+                "E0211",
+                f"condition expression must be single-key object, got: {expr!r}",
+                file,
+            )
+        op = next(iter(expr))
+        body = expr[op]
+
+        if op == "time_elapsed_ms":
+            if not isinstance(body, int) or body < 0:
+                raise CompileError("E0212", f"time_elapsed_ms requires non-negative int, got {body!r}", file)
+            params: list[_ParamRecord] = [
+                _ParamRecord(key_hash=djb2_hash16("ms"), type=MODR_PARAM_TYPE["i32"], flags=0,
+                             value=_pack_i32(body))
+            ]
+            return self._record_condition("time_elapsed_ms", params)
+
+        if op in {"state_key_eq", "state_key_ne", "state_key_lt", "state_key_gt", "state_key_le", "state_key_ge"}:
+            return self._record_state_key_cmp(op, body, string_pool, file)
+
+        if op == "state_key_in_range":
+            return self._record_state_key_in_range(body, string_pool, file)
+
+        if op == "state_key_changed":
+            if not isinstance(body, dict) or "key" not in body:
+                raise CompileError("E0213", f"state_key_changed requires {{key: str}}, got {body!r}", file)
+            params = [_ParamRecord(
+                key_hash=djb2_hash16("key"), type=MODR_PARAM_TYPE["str"], flags=0,
+                value=string_pool.intern(body["key"])
+            )]
+            return self._record_condition("state_key_changed", params)
+
+        if op == "time_of_day_eq":
+            if not isinstance(body, dict) or "hh" not in body or "mm" not in body:
+                raise CompileError("E0214", f"time_of_day_eq requires {{hh, mm}}, got {body!r}", file)
+            params = [
+                _ParamRecord(key_hash=djb2_hash16("hh"), type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(body["hh"])),
+                _ParamRecord(key_hash=djb2_hash16("mm"), type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(body["mm"])),
+            ]
+            return self._record_condition("time_of_day_eq", params)
+
+        if op in {"all_of", "any_of"}:
+            if not isinstance(body, list) or len(body) == 0:
+                raise CompileError("E0215", f"{op} requires non-empty array of conditions, got {body!r}", file)
+            # Add children FIRST so their indices are known when composite is recorded.
+            child_indices = [self.add_condition(child, string_pool, file) for child in body]
+            params = [
+                _ParamRecord(key_hash=0, type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(idx))
+                for idx in child_indices
+            ]
+            return self._record_condition(op, params)
+
+        if op == "not":
+            child_idx = self.add_condition(body, string_pool, file)
+            params = [_ParamRecord(key_hash=0, type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(child_idx))]
+            return self._record_condition("not", params)
+
+        raise CompileError("E0210", f"unknown condition operator {op!r}", file)
+
+    def _record_state_key_cmp(self, op: str, body: dict[str, Any], string_pool: StringPool, file: str) -> int:
+        if not isinstance(body, dict) or "key" not in body or "value" not in body:
+            raise CompileError("E0213", f"{op} requires {{key, value}}, got {body!r}", file)
+        key_param = _ParamRecord(
+            key_hash=djb2_hash16("key"), type=MODR_PARAM_TYPE["str"], flags=0,
+            value=string_pool.intern(body["key"])
+        )
+        value_param = self._typed_value_param(body["value"], "value", file)
+        return self._record_condition(op, [key_param, value_param])
+
+    def _record_state_key_in_range(self, body: dict[str, Any], string_pool: StringPool, file: str) -> int:
+        if not isinstance(body, dict) or not all(k in body for k in ("key", "min", "max")):
+            raise CompileError("E0213", f"state_key_in_range requires {{key, min, max}}, got {body!r}", file)
+        params = [
+            _ParamRecord(key_hash=djb2_hash16("key"), type=MODR_PARAM_TYPE["str"], flags=0,
+                         value=string_pool.intern(body["key"])),
+            self._typed_value_param(body["min"], "min", file),
+            self._typed_value_param(body["max"], "max", file),
+        ]
+        return self._record_condition("state_key_in_range", params)
+
+    def _typed_value_param(self, value: Any, param_name: str, file: str) -> _ParamRecord:
+        """Encode a scalar value into a param entry, picking type based on Python type."""
+        kh = djb2_hash16(param_name)
+        if isinstance(value, bool):
+            return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["bool"], flags=0, value=1 if value else 0)
+        if isinstance(value, int):
+            return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["i32"], flags=0, value=_pack_i32(value))
+        if isinstance(value, float):
+            return _ParamRecord(key_hash=kh, type=MODR_PARAM_TYPE["f32"], flags=0, value=_pack_f32(value))
+        if isinstance(value, str):
+            # String values stored у string pool; param.value = pool offset.
+            # Caller responsible для interning.
+            raise CompileError("E0216", f"string-typed condition values not yet supported у v0 (Step 2b.2)", file)
+        raise CompileError("E0217", f"unsupported value type для param {param_name!r}: {type(value).__name__}", file)
+
+    def _record_condition(self, name: str, params: list[_ParamRecord]) -> int:
+        param_idx = MODR_NO_OFFSET if not params else len(self.params)
+        self.params.extend(params)
+        rec = _ActionRecord(
+            hash=djb2_hash16(name),
+            param_idx=param_idx,
+            param_n=len(params),
+            flags=0,
+        )
+        self.conditions.append(rec)
+        return len(self.conditions) - 1
+
+    def _intern_named_params(self, params: dict[str, Any], string_pool: StringPool, file: str) -> tuple[int, int]:
+        if not params:
+            return MODR_NO_OFFSET, 0
+        idx = len(self.params)
+        for name, val in params.items():
+            self.params.append(self._typed_value_param(val, name, file))
+        return idx, len(params)
+
+
+def _pack_i32(v: int) -> int:
+    """Reinterpret signed int as uint32 для wire format."""
+    return v & 0xFFFFFFFF
+
+
+def _pack_f32(v: float) -> int:
+    """Reinterpret float as uint32 (IEEE 754 little-endian)."""
+    return struct.unpack("<I", struct.pack("<f", v))[0]
+
+
 # ── Compiler ──
 
 
@@ -294,83 +482,95 @@ class ScenarioCompiler:
         pool = StringPool()
         name_str_off = pool.intern(module_name)
 
-        # Tracks
         tracks_data = scenario["tracks"]
         track_count = len(tracks_data)
 
-        # Pre-build per-track phase tables (offsets computed after layout)
-        track_phase_tables: list[list[dict[str, Any]]] = []
-        for t in tracks_data:
-            track_phase_tables.append(t["phases"])
+        # ── Pass 1: walk scenario і build pools ──
+        # Conditions і transitions encoded eagerly into PoolBuilder.
+        # Action invocations (entry/exit) deferred to Step 2b.2 — for тепер
+        # phase.entry/exit ignored у emission (но schema validation still applies).
 
-        # Plan layout offsets (pre-compute):
-        # header (56) + tracks (16*N) + phases (20*sum) + transitions (12*sum) +
-        # action/cond pools (8*count) + param pool (8*count) + global trans (8*count) +
-        # resources (4*count) + phase_resource_claims (4*sum) + string pool + CRC32
+        builder = PoolBuilder()
 
-        # Count phases і transitions
-        total_phases = sum(len(t["phases"]) for t in tracks_data)
-        total_transitions = sum(len(p["transitions"]) for t in tracks_data for p in t["phases"])
+        # Pre-intern all strings (track names, phase names) — emitted у string pool.
+        for tdata in tracks_data:
+            pool.intern(tdata["name"])
+            for pdata in tdata["phases"]:
+                pool.intern(pdata["name"])
 
-        # MVP scope: ignore actions/params/resources/globals — emit empty pools.
-        # Phase entry/exit actions ignored у v0 (not needed for minimal recipe round-trip).
-        # Step 2b will extend until full feature parity з paper-piloted greenhouse recipe.
-        action_count = 0
-        param_count = 0
-        cond_count = 0
+        # Per-transition cond_pool indices (parallel array — len matches total transitions)
+        # Built у emission order (track 0 phase 0 trans 0, track 0 phase 0 trans 1, ...).
+        transition_cond_indices: list[int] = []
+        for tdata in tracks_data:
+            for pdata in tdata["phases"]:
+                for trdata in pdata["transitions"]:
+                    when = trdata.get("when")
+                    if when is None:
+                        transition_cond_indices.append(MODR_NO_OFFSET)
+                    else:
+                        cond_idx = builder.add_condition(when, pool, file)
+                        transition_cond_indices.append(cond_idx)
+
+        # Resources — lift v0 limitation для scenario-scope; phase-scope still defers.
         resource_count = len(scenario.get("resources", []))
-        global_trans_count = len(scenario.get("global_transitions", []))
-
         for r in scenario.get("resources", []):
             if r.get("scope", "scenario") != "scenario":
                 raise CompileError(
                     "E0204",
-                    "v0 compiler supports only scenario-scope resources; phase-scope coming Step 2b",
+                    "phase-scope resources deferred to Step 2b.3; current v0 supports only scenario-scope",
                     file,
                 )
 
-        if global_trans_count > 0:
+        # Global transitions still deferred to Step 2b.3.
+        if scenario.get("global_transitions"):
             raise CompileError(
                 "E0205",
-                "v0 compiler doesn't yet emit global_transitions (Step 2b)",
+                "global_transitions deferred to Step 2b.3",
                 file,
             )
 
-        # Compute offsets
+        # ── Pass 2: compute offsets ──
+
         offset = SIZE_HEADER
         track_table_off = offset
         offset += SIZE_TRACK * track_count
 
-        # Per-track phases laid out sequentially
         phase_offs_per_track: list[int] = []
         for tdata in tracks_data:
             phase_offs_per_track.append(offset)
             offset += SIZE_PHASE * len(tdata["phases"])
 
-        # Per-phase transition arrays laid out sequentially
-        # We'll fill these as we emit phases — track each phase's transition_off.
         transitions_off_per_phase: list[int] = []
         for tdata in tracks_data:
             for pdata in tdata["phases"]:
                 transitions_off_per_phase.append(offset)
                 offset += SIZE_TRANSITION * len(pdata["transitions"])
 
-        # Resource decls
+        # Action pool (empty у 2b.1; populated у 2b.2)
+        action_pool_off = offset if builder.actions else 0
+        offset += SIZE_ACTION * len(builder.actions)
+
+        # Condition pool
+        cond_pool_off = offset if builder.conditions else 0
+        offset += SIZE_ACTION * len(builder.conditions)  # cond_pool entries — same struct as action
+
+        # Param pool (shared by actions і conditions)
+        param_pool_off = offset if builder.params else 0
+        offset += SIZE_PARAM_ENTRY * len(builder.params)
+
         resource_off = offset if resource_count > 0 else 0
         offset += SIZE_RESOURCE_DECL * resource_count
-
-        # String pool
-        # First pre-intern всі strings we'll need
-        for tdata in tracks_data:
-            pool.intern(tdata["name"])
-            for pdata in tdata["phases"]:
-                pool.intern(pdata["name"])
 
         string_pool_off = offset
         pool_bytes = pool.to_bytes()
         offset += len(pool_bytes)
 
-        total_size = offset + 4  # +4 для CRC32 trailer
+        total_size = offset + 4  # CRC32 trailer
+
+        action_count = len(builder.actions)
+        cond_count = len(builder.conditions)
+        param_count = len(builder.params)
+        global_trans_count = 0  # 2b.3
 
         # Compute scenario_id
         scenario_id = djb2_hash16(module_name)
@@ -400,14 +600,14 @@ class ScenarioCompiler:
             MODR_COMPLETION[scenario["completion_rule"]],
             0,  # reserved_a
             track_table_off,
-            0,  # param_pool_off
+            param_pool_off,
             param_count,
-            0,  # action_pool_off
+            action_pool_off,
             action_count,
-            0,  # cond_pool_off
+            cond_pool_off,
             cond_count,
             string_pool_off,
-            0,  # global_trans_off (unused у v0)
+            0,  # global_trans_off (deferred 2b.3)
             resource_off,
             0,  # reserved_b
             scenario["default_phase_timeout_ms"],
@@ -457,28 +657,62 @@ class ScenarioCompiler:
                 ))
                 phase_idx_global += 1
 
-        # Transition arrays
+        # Transition arrays — emit з kind based on (when present?, time_elapsed_ms only?)
+        # transition_cond_indices is parallel to emission order (built у Pass 1).
+        trans_idx = 0
         for tdata in tracks_data:
             for pdata in tdata["phases"]:
                 for trdata in pdata["transitions"]:
                     target = self._resolve_target(trdata["to"], pdata, tdata, file)
+                    cond_idx = transition_cond_indices[trans_idx]
+                    trans_idx += 1
                     when = trdata.get("when")
-                    # v0: only unconditional (no `when`) supported.
-                    if when is not None:
-                        raise CompileError(
-                            "E0206",
-                            "v0 compiler supports only unconditional transitions (no `when` clause). Step 2b adds conditions.",
-                            file,
-                        )
+
+                    # Determine encoding strategy:
+                    # - No `when` → UNCONDITIONAL (cond_pool_idx irrelevant)
+                    # - `when` is `{time_elapsed_ms: T}` ONLY → encode як TIME з threshold,
+                    #   skip cond_pool reference (engine evaluates time directly)
+                    # - Otherwise → COND з cond_pool_idx pointing to pre-built condition
+                    # TIME_OR_COND і TIME_AND_COND — Step 2b.5 (compound time+cond — explicit syntax TBD)
+                    if when is None:
+                        kind = MODR_TRANS_KIND_UNCONDITIONAL
+                        cond_emit_idx = MODR_NO_OFFSET
+                        time_threshold = 0
+                    elif (isinstance(when, dict) and len(when) == 1
+                          and "time_elapsed_ms" in when and isinstance(when["time_elapsed_ms"], int)):
+                        # Pure time threshold — no condition lookup needed at runtime
+                        kind = MODR_TRANS_KIND_TIME
+                        cond_emit_idx = MODR_NO_OFFSET
+                        time_threshold = when["time_elapsed_ms"]
+                        # Note: builder.add_condition was already called у Pass 1 для this when —
+                        # creating an unused entry. Acceptable у v0 (small waste); Step 2b.5
+                        # may dedupe by skipping pure-time conditions у Pass 1.
+                    else:
+                        kind = MODR_TRANS_KIND_COND
+                        cond_emit_idx = cond_idx
+                        time_threshold = 0
+
                     out.extend(struct.pack(
                         "<HHIBBH",
-                        MODR_NO_OFFSET,  # cond_pool_idx (unused для UNCONDITIONAL)
+                        cond_emit_idx,
                         target,
-                        0,  # time_threshold_ms
-                        MODR_TRANS_KIND_UNCONDITIONAL,
+                        time_threshold,
+                        kind,
                         0,  # reserved_a
                         0,  # reserved_b
                     ))
+
+        # Action pool
+        for a in builder.actions:
+            out.extend(struct.pack("<HHBBH", a.hash, a.param_idx, a.param_n, a.flags, 0))
+
+        # Condition pool (same wire format as actions — modr_action shape)
+        for c in builder.conditions:
+            out.extend(struct.pack("<HHBBH", c.hash, c.param_idx, c.param_n, c.flags, 0))
+
+        # Param pool
+        for p in builder.params:
+            out.extend(struct.pack("<HBBI", p.key_hash, p.type, p.flags, p.value))
 
         # Resource declarations
         for r in scenario.get("resources", []):

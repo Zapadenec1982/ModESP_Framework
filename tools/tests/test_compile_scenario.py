@@ -551,19 +551,161 @@ class TestMultiTrackBinary:
         assert crc_stored == crc_computed
 
 
+class TestConditionalTransitions:
+    """Step 2b.1: lift v0 'unconditional only' limitation. Conditions encoded
+    у cond_pool; transitions reference them via cond_pool_idx. Pure time
+    thresholds use kind=TIME з time_threshold_ms (no cond_pool entry consulted
+    at runtime). Composite conditions (all_of/any_of/not) recursive."""
+
+    MODR_TRANS_KIND_TIME = 0
+    MODR_TRANS_KIND_COND = 1
+    MODR_TRANS_KIND_UNCONDITIONAL = 4
+
+    def _make_recipe_with_when(self, when):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["transitions"] = [
+            {"to": "$complete", "when": when}
+        ]
+        return m
+
+    def test_pure_time_elapsed_uses_kind_time(self, compiler, tmp_path):
+        """{time_elapsed_ms: T} alone → kind=TIME, no cond_pool entry consumed."""
+        m = self._make_recipe_with_when({"time_elapsed_ms": 5000})
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        # phase[0] at offset 56+16=72, transitions_off at +6
+        trans_off = struct.unpack_from("<H", data, 72 + 6)[0]
+        # transition[0]: cond_pool_idx (2), target (2), time_threshold (4), kind (1)
+        cond_idx = struct.unpack_from("<H", data, trans_off)[0]
+        threshold = struct.unpack_from("<I", data, trans_off + 4)[0]
+        kind = data[trans_off + 8]
+        assert kind == self.MODR_TRANS_KIND_TIME
+        assert threshold == 5000
+        assert cond_idx == 0xFFFF  # MODR_NO_OFFSET — engine doesn't lookup cond_pool
+
+    def test_state_key_eq_uses_kind_cond(self, compiler, tmp_path):
+        m = self._make_recipe_with_when(
+            {"state_key_eq": {"key": "test.input", "value": 42}}
+        )
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        trans_off = struct.unpack_from("<H", data, 72 + 6)[0]
+        cond_idx = struct.unpack_from("<H", data, trans_off)[0]
+        kind = data[trans_off + 8]
+        assert kind == self.MODR_TRANS_KIND_COND
+        assert cond_idx == 0  # First condition у pool
+
+        # Verify cond_pool_count і params populated
+        cond_pool_count = struct.unpack_from("<H", data, 34)[0]
+        assert cond_pool_count == 1
+        param_pool_count = struct.unpack_from("<H", data, 26)[0]
+        assert param_pool_count == 2  # key + value
+
+    def test_composite_all_of_emits_children_first(self, compiler, tmp_path):
+        # Composite з 2 children: time_elapsed_ms + state_key_gt
+        m = self._make_recipe_with_when({
+            "all_of": [
+                {"time_elapsed_ms": 1000},
+                {"state_key_gt": {"key": "test.signal", "value": 5}}
+            ]
+        })
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        cond_pool_count = struct.unpack_from("<H", data, 34)[0]
+        # 3 conditions у pool: time_elapsed_ms, state_key_gt, all_of (parent)
+        assert cond_pool_count == 3
+
+        # Transition references the LAST condition (composite parent)
+        trans_off = struct.unpack_from("<H", data, 72 + 6)[0]
+        cond_idx = struct.unpack_from("<H", data, trans_off)[0]
+        assert cond_idx == 2  # all_of is last
+
+        # all_of's params reference indices 0 і 1
+        cond_pool_off = struct.unpack_from("<H", data, 32)[0]
+        param_pool_off = struct.unpack_from("<H", data, 24)[0]
+        # all_of cond entry at cond_pool_off + 2*8 = +16
+        all_of_param_idx = struct.unpack_from("<H", data, cond_pool_off + 16 + 2)[0]
+        all_of_param_n = data[cond_pool_off + 16 + 4]
+        assert all_of_param_n == 2
+        # First param = i32 value 0 (index of first child)
+        first_child_value = struct.unpack_from("<I", data, param_pool_off + all_of_param_idx * 8 + 4)[0]
+        assert first_child_value == 0
+
+    def test_composite_any_of(self, compiler, tmp_path):
+        m = self._make_recipe_with_when({
+            "any_of": [
+                {"state_key_eq": {"key": "a", "value": 1}},
+                {"state_key_eq": {"key": "b", "value": 2}}
+            ]
+        })
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        # 3 cond entries: 2 state_key_eq + 1 any_of
+        cond_pool_count = struct.unpack_from("<H", data, 34)[0]
+        assert cond_pool_count == 3
+
+    def test_composite_not(self, compiler, tmp_path):
+        m = self._make_recipe_with_when({
+            "not": {"state_key_eq": {"key": "x", "value": True}}
+        })
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        cond_pool_count = struct.unpack_from("<H", data, 34)[0]
+        assert cond_pool_count == 2  # state_key_eq + not (parent)
+
+    def test_unconditional_when_absent(self, compiler, tmp_path):
+        m = make_minimal_manifest()  # no `when` у transitions
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        trans_off = struct.unpack_from("<H", data, 72 + 6)[0]
+        kind = data[trans_off + 8]
+        assert kind == self.MODR_TRANS_KIND_UNCONDITIONAL
+        # No cond_pool emitted — count = 0
+        cond_pool_count = struct.unpack_from("<H", data, 34)[0]
+        assert cond_pool_count == 0
+
+    def test_state_key_in_range(self, compiler, tmp_path):
+        m = self._make_recipe_with_when(
+            {"state_key_in_range": {"key": "temp", "min": 20.0, "max": 30.0}}
+        )
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        cond_pool_count = struct.unpack_from("<H", data, 34)[0]
+        param_pool_count = struct.unpack_from("<H", data, 26)[0]
+        assert cond_pool_count == 1
+        assert param_pool_count == 3  # key + min + max
+
+    def test_state_key_changed(self, compiler, tmp_path):
+        m = self._make_recipe_with_when({"state_key_changed": {"key": "edge.signal"}})
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        param_pool_count = struct.unpack_from("<H", data, 26)[0]
+        assert param_pool_count == 1  # key only
+
+    def test_time_of_day_eq(self, compiler, tmp_path):
+        m = self._make_recipe_with_when({"time_of_day_eq": {"hh": 6, "mm": 30}})
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        param_pool_count = struct.unpack_from("<H", data, 26)[0]
+        assert param_pool_count == 2  # hh + mm
+
+    def test_crc32_valid_with_conditions(self, compiler, tmp_path):
+        m = self._make_recipe_with_when(
+            {"all_of": [
+                {"time_elapsed_ms": 1000},
+                {"state_key_gt": {"key": "x", "value": 5}}
+            ]}
+        )
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        crc_stored = struct.unpack_from("<I", data, len(data) - 4)[0]
+        crc_computed = zlib.crc32(data[:-4]) & 0xFFFFFFFF
+        assert crc_stored == crc_computed
+
+
 class TestV0Limitations:
     """Step 2a v0 explicitly defers some features. These tests document deferred
     behavior and ensure compiler emits clear error rather than silent miscompilation."""
-
-    def test_conditional_transition_rejected_in_v0(self, compiler, tmp_path):
-        m = make_minimal_manifest()
-        m["scenario"]["tracks"][0]["phases"][0]["transitions"] = [
-            {"to": "$complete", "when": {"time_elapsed_ms": 1000}}
-        ]
-        path = write_manifest(tmp_path, m)
-        with pytest.raises(CompileError) as exc:
-            compiler.compile(path)
-        assert exc.value.code == "E0206"
 
     def test_global_transitions_rejected_in_v0(self, compiler, tmp_path):
         m = make_minimal_manifest()
