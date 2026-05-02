@@ -11,7 +11,7 @@ Stage 1 plan Step 0.75 — paper pilot перед написанням binary fo
 
 ## Pilot recipe selected
 
-**"Greenhouse irrigation cycle"** — universal pattern (greenhouse, hydroponics, agriculture, even industrial humidity control). Selected over alternatives:
+**"Irrigation cycle"** (module name `recipe_irrig` — 12 chars, fits ModESP 32-char SharedState key budget per existing convention). Universal pattern (greenhouse, hydroponics, agriculture, industrial humidity control). Selected over alternatives:
 - Lab batch process — too thermal-centric, не exercises wall-clock
 - Generic batch reactor — domain-specific concepts (charge/discharge) confuse universal demonstration
 
@@ -28,7 +28,7 @@ Greenhouse irrigation exercises:
 ```jsonc
 {
   "manifest_version": 1,
-  "module": "recipe_greenhouse_irrigation",
+  "module": "recipe_irrig",
   "version": "1.0.0",
   "module_type": "recipe",
   "priority": 5,
@@ -36,21 +36,21 @@ Greenhouse irrigation exercises:
 
   "state": {
     // Scenario-level mirror keys (engine writes)
-    "recipe_greenhouse_irrigation.scenario_state":     {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.scenario_elapsed_s": {"type":"int",   "access":"read"},
+    "recipe_irrig.scenario_state":     {"type":"string","access":"read"},
+    "recipe_irrig.scenario_elapsed_s": {"type":"int",   "access":"read"},
 
     // Per-track mirror keys
-    "recipe_greenhouse_irrigation.zone_a_state":       {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.zone_a_phase_name":  {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.zone_a_elapsed_s":   {"type":"int",   "access":"read"},
+    "recipe_irrig.zone_a_state":       {"type":"string","access":"read"},
+    "recipe_irrig.zone_a_phase_name":  {"type":"string","access":"read"},
+    "recipe_irrig.zone_a_elapsed_s":   {"type":"int",   "access":"read"},
 
-    "recipe_greenhouse_irrigation.zone_b_state":       {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.zone_b_phase_name":  {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.zone_b_elapsed_s":   {"type":"int",   "access":"read"},
+    "recipe_irrig.zone_b_state":       {"type":"string","access":"read"},
+    "recipe_irrig.zone_b_phase_name":  {"type":"string","access":"read"},
+    "recipe_irrig.zone_b_elapsed_s":   {"type":"int",   "access":"read"},
 
-    "recipe_greenhouse_irrigation.zone_c_state":       {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.zone_c_phase_name":  {"type":"string","access":"read"},
-    "recipe_greenhouse_irrigation.zone_c_elapsed_s":   {"type":"int",   "access":"read"}
+    "recipe_irrig.zone_c_state":       {"type":"string","access":"read"},
+    "recipe_irrig.zone_c_phase_name":  {"type":"string","access":"read"},
+    "recipe_irrig.zone_c_elapsed_s":   {"type":"int",   "access":"read"}
   },
 
   "ui": {
@@ -59,11 +59,11 @@ Greenhouse irrigation exercises:
     "cards": [{
       "title": "Стан зон",
       "layout": "single",
-      "visible_when": {"recipe_greenhouse_irrigation.scenario_state": ["running","paused"]},
+      "visible_when": {"recipe_irrig.scenario_state": ["running","paused"]},
       "widgets": [
-        {"key": "recipe_greenhouse_irrigation.zone_a_phase_name", "widget": "value"},
-        {"key": "recipe_greenhouse_irrigation.zone_b_phase_name", "widget": "value"},
-        {"key": "recipe_greenhouse_irrigation.zone_c_phase_name", "widget": "value"}
+        {"key": "recipe_irrig.zone_a_phase_name", "widget": "value"},
+        {"key": "recipe_irrig.zone_b_phase_name", "widget": "value"},
+        {"key": "recipe_irrig.zone_c_phase_name", "widget": "value"}
       ]
     }]
   },
@@ -150,7 +150,7 @@ Greenhouse irrigation exercises:
    Pump declared exclusive. Якщо zone_a у "watering" фазі, zone_b's transition to "watering" буде wait until pump free. **Wait** — but my current spec only handles arbitration AT START, not during running scenario. This is gap → see "Findings: gaps" below.
 
 4. **Cross-track sync via mirror keys:**
-   Якщо потрібно — zone_b може check `recipe_greenhouse_irrigation.zone_a_phase_name == "watering"` і wait. Tick-order naturally allows це because zones declared у order.
+   Якщо потрібно — zone_b може check `recipe_irrig.zone_a_phase_name == "watering"` і wait. Tick-order naturally allows це because zones declared у order.
 
 5. **Power-loss recovery:**
    At t=8h into 24h cycle, zone_a у "wait_evening", zone_b у "watering_evening", zone_c у "wait_morning" → token saves all three phase_idx + elapsed. After boot, engine restores і enters PAUSED. User sees "scenario recovered" banner, resumes manually.
@@ -231,5 +231,5 @@ Refinements integrated as Step 0.85 patch: update plan Q1 (parameters in conditi
 ## References
 
 - Plan `.claude/plans/quirky-imagining-lake.md` Step 0.75 (paper pilot)
-- This pilot recipe will eventually become `usage/examples/05_greenhouse_irrigation.md` у Stage 1.5
+- This pilot recipe will eventually become `usage/examples/05_irrigation_cycle.md` у Stage 1.5
 - Spec updates: pending Step 0.85

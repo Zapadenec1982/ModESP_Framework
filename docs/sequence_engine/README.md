@@ -48,7 +48,7 @@
 These docs are NOT у Stage 1 deliverable, planned для Stage 1.5 коли real value emerges:
 - `usage/04_custom_continuous.md`, `usage/05_resource_management.md`, `usage/06_persistence_and_recovery.md`, `usage/07_testing_recipes.md`
 - `usage/troubleshooting.md`
-- `usage/examples/03_resource_contention.md`, `04_long_running_with_resume.md`, `05_greenhouse_irrigation.md` (recipe paper-piloted у Step 0.75)
+- `usage/examples/03_resource_contention.md`, `04_long_running_with_resume.md`, `05_irrigation_cycle.md` (recipe paper-piloted у Step 0.75)
 - `maint/01_contributing.md`, `02_binary_format_versioning.md`, `03_adding_builtin_action.md`, `04_test_strategy.md`, `05_release_checklist.md`
 - Doc-validation tests (code-in-docs, link checker, API ref completeness lint)
 
