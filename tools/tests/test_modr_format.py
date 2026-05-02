@@ -57,6 +57,7 @@ MODR_TRANS_KIND_TIME = 0
 MODR_TRANS_KIND_COND = 1
 MODR_TRANS_KIND_TIME_OR_COND = 2
 MODR_TRANS_KIND_TIME_AND_COND = 3
+MODR_TRANS_KIND_UNCONDITIONAL = 4  # fires immediately on phase entry
 
 
 def djb2_hash16(s: str) -> int:
@@ -217,13 +218,14 @@ def build_minimal_v1() -> bytes:
     assert len(phase) == SIZE_PHASE, f"Phase packed {len(phase)} bytes, expected {SIZE_PHASE}"
 
     # ── Transition[0] (12 bytes) ──
-    # Unconditional transition: no condition, immediate jump to $complete on entry
+    # Unconditional transition: explicit kind, no condition needed.
+    # Engine fires this transition immediately after phase entry actions complete.
     transition = struct.pack(
         "<HHIBBH",
-        MODR_NO_OFFSET,                   # cond_pool_idx (unconditional)
+        MODR_NO_OFFSET,                   # cond_pool_idx (unused for UNCONDITIONAL kind)
         MODR_TARGET_COMPLETE,             # target_phase = $complete
-        0,                                # time_threshold_ms (unused for unconditional)
-        MODR_TRANS_KIND_COND,             # kind (no time, just condition — and condition unconditional)
+        0,                                # time_threshold_ms (unused for UNCONDITIONAL)
+        MODR_TRANS_KIND_UNCONDITIONAL,    # explicit kind
         0,                                # reserved_a
         0,                                # reserved_b
     )
@@ -317,6 +319,15 @@ class TestMinimalV1Builder:
         data = build_minimal_v1()
         magic = struct.unpack_from("<I", data, 0)[0]
         assert magic == MODR_MAGIC
+
+    def test_magic_byte_order_explicit(self):
+        # File starts з ASCII 'M', 'O', 'D', 'R' (little-endian uint32 MODR_MAGIC).
+        # Якщо someone changes Python pack from "<" to ">" — bytes reordered, this
+        # assertion fails first (clearer than catching через unpacked uint32 mismatch).
+        data = build_minimal_v1()
+        assert data[0:4] == b"MODR", (
+            f"Expected first 4 bytes b'MODR' (LE encoding of MODR_MAGIC), got {data[0:4]!r}"
+        )
 
     def test_header_version(self):
         data = build_minimal_v1()

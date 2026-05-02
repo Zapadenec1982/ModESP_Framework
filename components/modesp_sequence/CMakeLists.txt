@@ -1,7 +1,7 @@
 # ModESP Sequence Engine — track-based time-dependent algorithm runtime
 # See docs/sequence_engine/ for architecture details
 
-# Step 1: header-only stub. Sources will be added incrementally per implementation step:
+# Step 1: header-only INTERFACE library. Sources added у наступних steps:
 #   Step 5  — action_registry.cpp
 #   Step 6  — continuous_registry.cpp
 #   Step 7  — builtin_actions.cpp
@@ -11,13 +11,15 @@
 #   Step 12 — sequence_instance.cpp
 #   Step 14 — sequence_engine.cpp
 #   Step 15 — nvs_token.cpp
+#
+# Per ESP-IDF build-system docs:
+#   "Special components which contain no source files... can have a one-line
+#    CMakeLists.txt file which calls idf_component_register() with no
+#    arguments specified."
+# Header-only extension: omit SRCS, declare INCLUDE_DIRS + REQUIRES only.
+# This makes the component an INTERFACE library — headers exposed без compilation.
 
 idf_component_register(
-    SRCS
-        # Empty until Step 5; INTERFACE_LIBRARY workaround не used because
-        # idf_component_register requires either SRCS or pure include dir
-        # placeholder. Empty src list valid у ESP-IDF 5.x for header-only
-        # transitional component.
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"

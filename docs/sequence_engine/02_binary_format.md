@@ -139,7 +139,7 @@ Failure → `EngineError` returned, file rejected, no engine state mutated.
 
 - **Empty pools** (no actions/no globals/no resources) — represented by `*_count = 0`, offset can be 0 (loader skips).
 - **Single-track scenario** — `track_count = 1`, simplest valid form. Used у `minimal_v1.modr` golden.
-- **Unconditional transition** — `cond_pool_idx = MODR_NO_OFFSET (0xFFFF)`. Fires immediately when phase entered (after entry actions complete).
+- **Unconditional transition** — `kind = MODR_TRANS_KIND_UNCONDITIONAL (4)`, `cond_pool_idx` і `time_threshold_ms` ignored. Fires immediately after phase entry actions complete. Engine rejects ambiguous combos (e.g., `kind=COND` з `cond_pool_idx=NO_OFFSET`) як `INVALID_FILE`.
 - **Implicit timeout transition** — phase `timeout_ms = 0` falls back to `header.default_phase_timeout_ms`. If timeout reached AND no explicit time-based transition catches it → engine synthesizes implicit transition to `$abort`.
 
 ## Versioning policy

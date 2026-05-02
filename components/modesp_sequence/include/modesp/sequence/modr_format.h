@@ -69,11 +69,18 @@ constexpr uint8_t MODR_TRACK_FLAG_MAIN          = 1u << 0;
 constexpr uint8_t MODR_TRACK_FLAG_LOOP_ON_DONE  = 1u << 1;
 
 // ── Transition kind (modr_transition.kind / modr_global_transition.kind) ──
+//
+// `UNCONDITIONAL` (4) added Step 1 review — was implicit `COND + cond_pool_idx=NO_OFFSET`
+// у first golden. Explicit kind is semantically clearer: KIND_COND name implies
+// "evaluate condition X" but unconditional has no condition to evaluate. IEC 61131-3
+// SFC explicitly distinguishes "STEP-TO-STEP without TRANSITION" як precedent.
+// Loader rejects ambiguous combos (e.g. KIND_COND з cond_pool_idx == NO_OFFSET).
 
 constexpr uint8_t MODR_TRANS_KIND_TIME           = 0;
 constexpr uint8_t MODR_TRANS_KIND_COND           = 1;
 constexpr uint8_t MODR_TRANS_KIND_TIME_OR_COND   = 2;
 constexpr uint8_t MODR_TRANS_KIND_TIME_AND_COND  = 3;
+constexpr uint8_t MODR_TRANS_KIND_UNCONDITIONAL  = 4;  // fires immediately on entry
 
 // ── Special transition target_phase values ──
 
