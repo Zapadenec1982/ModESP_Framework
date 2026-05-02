@@ -828,26 +828,147 @@ class TestActionInvocations:
         assert crc_stored == crc_computed
 
 
-class TestV0Limitations:
-    """Step 2a v0 explicitly defers some features. These tests document deferred
-    behavior and ensure compiler emits clear error rather than silent miscompilation."""
+class TestGlobalTransitions:
+    """Step 2b.3: lift v0 'no global transitions' limitation. Globals evaluated
+    each tick before per-phase transitions, sorted by priority descending.
+    Always target $abort з scope ∈ {abort_scenario, abort_only_main_track}."""
 
-    def test_global_transitions_rejected_in_v0(self, compiler, tmp_path):
+    def test_global_transition_compiles(self, compiler, tmp_path):
         m = make_minimal_manifest()
         m["scenario"]["global_transitions"] = [
-            {"to": "$abort", "when": {"state_key_eq": {"key": "test.fault", "value": True}}}
+            {"to": "$abort", "when": {"state_key_eq": {"key": "test.fault", "value": True}},
+             "priority": 200}
         ]
         path = write_manifest(tmp_path, m)
-        with pytest.raises(CompileError) as exc:
-            compiler.compile(path)
-        assert exc.value.code == "E0205"
+        data = compiler.compile(path).blob
+        # global_trans_count at offset 19
+        assert data[19] == 1
+        # global_trans_off at offset 38..39
+        gt_off = struct.unpack_from("<H", data, 38)[0]
+        assert gt_off > 0  # populated
 
-    def test_phase_resources_rejected_in_v0(self, compiler, tmp_path):
+    def test_global_flag_set(self, compiler, tmp_path):
         m = make_minimal_manifest()
-        m["scenario"]["resources"] = [
-            {"resource": "equipment.pump", "exclusive": True, "scope": "phase"}
+        m["scenario"]["global_transitions"] = [
+            {"to": "$abort", "when": {"state_key_eq": {"key": "x", "value": True}}}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        # MODR_FLAG_HAS_GLOBALS = 1<<1 = 2
+        flags = struct.unpack_from("<H", data, 6)[0]
+        assert flags & 0x02
+
+    def test_global_to_must_be_abort(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["global_transitions"] = [
+            {"to": "phase_x", "when": {"state_key_eq": {"key": "x", "value": True}}}
         ]
         path = write_manifest(tmp_path, m)
         with pytest.raises(CompileError) as exc:
             compiler.compile(path)
-        assert exc.value.code == "E0204"
+        assert exc.value.code == "E0223"
+
+    def test_globals_sorted_by_priority_descending(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["global_transitions"] = [
+            {"to": "$abort", "when": {"state_key_eq": {"key": "low", "value": True}}, "priority": 50},
+            {"to": "$abort", "when": {"state_key_eq": {"key": "high", "value": True}}, "priority": 200},
+            {"to": "$abort", "when": {"state_key_eq": {"key": "mid", "value": True}}, "priority": 100},
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        gt_off = struct.unpack_from("<H", data, 38)[0]
+        # Each global_trans 8 bytes; priority at offset +5
+        priorities = [data[gt_off + i * 8 + 5] for i in range(3)]
+        assert priorities == [200, 100, 50]  # descending
+
+    def test_main_track_scope(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["global_transitions"] = [
+            {"to": "$abort", "when": {"state_key_eq": {"key": "x", "value": True}},
+             "scope": "abort_only_main_track"}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        gt_off = struct.unpack_from("<H", data, 38)[0]
+        scope = data[gt_off + 6]  # scope field at offset +6
+        assert scope == 1  # MODR_GLOBAL_SCOPE_MAIN_TRACK
+
+
+class TestPhaseScopeResources:
+    """Step 2b.3: lift v0 'no phase-scope resources' limitation. Each phase has
+    its own claim array; engine claims at phase entry, releases at exit."""
+
+    def test_phase_resources_compile(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["phase_resources"] = [
+            {"resource": "equipment.pump", "exclusive": True}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+
+        # phase[0] at offset 72; phase_resources_off at +16, phase_resource_n at +18
+        pr_off = struct.unpack_from("<H", data, 72 + 16)[0]
+        pr_n = data[72 + 18]
+        assert pr_n == 1
+        assert pr_off != 0xFFFF  # actual offset, not sentinel
+
+        # Verify claim contents
+        resource_hash = struct.unpack_from("<H", data, pr_off)[0]
+        # djb2_hash16("equipment.pump")
+        expected_hash = djb2_hash16("equipment.pump")
+        assert resource_hash == expected_hash
+        exclusive = data[pr_off + 2]
+        assert exclusive == 1
+
+    def test_no_phase_resources_emits_no_offset(self, compiler, tmp_path):
+        path = write_manifest(tmp_path, make_minimal_manifest())
+        data = compiler.compile(path).blob
+        pr_off = struct.unpack_from("<H", data, 72 + 16)[0]
+        pr_n = data[72 + 18]
+        assert pr_off == 0xFFFF
+        assert pr_n == 0
+
+    def test_resources_flag_set_for_phase_scope(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["phase_resources"] = [
+            {"resource": "equipment.x", "exclusive": True}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        flags = struct.unpack_from("<H", data, 6)[0]
+        assert flags & 0x04  # MODR_FLAG_HAS_RESOURCES
+
+    def test_multiple_phases_distinct_offsets(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"] = [
+            {"name": "p1", "transitions": [{"to": "p2"}],
+             "phase_resources": [{"resource": "a.x"}, {"resource": "a.y"}]},
+            {"name": "p2", "transitions": [{"to": "$complete"}],
+             "phase_resources": [{"resource": "b.z"}]}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        # phase[0] at 72, phase[1] at 72+20=92
+        p1_off = struct.unpack_from("<H", data, 72 + 16)[0]
+        p1_n = data[72 + 18]
+        p2_off = struct.unpack_from("<H", data, 92 + 16)[0]
+        p2_n = data[92 + 18]
+        assert p1_n == 2
+        assert p2_n == 1
+        # p2 starts after p1's 2 claims (4 bytes each = 8 bytes apart)
+        assert p2_off == p1_off + 8
+
+    def test_crc32_valid_with_globals_and_phase_resources(self, compiler, tmp_path):
+        m = make_minimal_manifest()
+        m["scenario"]["tracks"][0]["phases"][0]["phase_resources"] = [
+            {"resource": "equipment.pump"}
+        ]
+        m["scenario"]["global_transitions"] = [
+            {"to": "$abort", "when": {"state_key_eq": {"key": "x", "value": True}}}
+        ]
+        path = write_manifest(tmp_path, m)
+        data = compiler.compile(path).blob
+        crc_stored = struct.unpack_from("<I", data, len(data) - 4)[0]
+        crc_computed = zlib.crc32(data[:-4]) & 0xFFFFFFFF
+        assert crc_stored == crc_computed

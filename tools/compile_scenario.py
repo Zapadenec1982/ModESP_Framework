@@ -548,23 +548,43 @@ class ScenarioCompiler:
                         cond_idx = builder.add_condition(when, pool, file)
                         transition_cond_indices.append(cond_idx)
 
-        # Resources — lift v0 limitation для scenario-scope; phase-scope still defers.
+        # Resources — both scenario-scope і phase-scope supported (Step 2b.3).
         resource_count = len(scenario.get("resources", []))
-        for r in scenario.get("resources", []):
-            if r.get("scope", "scenario") != "scenario":
+
+        # Phase-scope resource claims. Each phase has its own claims array; we
+        # concatenate them into one pool і compute per-phase byte offsets.
+        # Parallel array to phases: each entry is the list of claim dicts.
+        phase_resource_claims_per_phase: list[list[dict[str, Any]]] = []
+        for tdata in tracks_data:
+            for pdata in tdata["phases"]:
+                phase_resource_claims_per_phase.append(pdata.get("phase_resources", []))
+
+        flags_has_resources = (resource_count > 0) or any(phase_resource_claims_per_phase)
+
+        # Global transitions — emit to dedicated pool. Each global transition
+        # has condition (added to cond_pool), scope, priority. Always targets
+        # $abort (validated explicitly — schema's `to` field requires uniformity).
+        global_trans_records: list[tuple[int, int, int]] = []  # (cond_idx, scope, priority)
+        for gt in scenario.get("global_transitions", []):
+            if gt.get("to") != "$abort":
                 raise CompileError(
-                    "E0204",
-                    "phase-scope resources deferred to Step 2b.3; current v0 supports only scenario-scope",
+                    "E0223",
+                    f"global_transitions.to must be '$abort' (only abort actions supported); got {gt.get('to')!r}",
                     file,
                 )
+            when = gt.get("when")
+            if when is None:
+                raise CompileError("E0224", "global_transitions require 'when' clause", file)
+            cond_idx = builder.add_condition(when, pool, file)
+            scope_str = gt.get("scope", "abort_scenario")
+            scope = MODR_GLOBAL_SCOPE[scope_str]
+            priority = gt.get("priority", 100)
+            global_trans_records.append((cond_idx, scope, priority))
 
-        # Global transitions still deferred to Step 2b.3.
-        if scenario.get("global_transitions"):
-            raise CompileError(
-                "E0205",
-                "global_transitions deferred to Step 2b.3",
-                file,
-            )
+        # Sort by priority descending (engine evaluates highest first per Q5).
+        global_trans_records.sort(key=lambda r: -r[2])
+        global_trans_count = len(global_trans_records)
+        flags_has_globals = global_trans_count > 0
 
         # ── Pass 2: compute offsets ──
 
@@ -595,8 +615,23 @@ class ScenarioCompiler:
         param_pool_off = offset if builder.params else 0
         offset += SIZE_PARAM_ENTRY * len(builder.params)
 
+        # Global transitions pool — 8 bytes per entry
+        global_trans_off = offset if global_trans_count > 0 else 0
+        offset += SIZE_GLOBAL_TRANSITION * global_trans_count
+
+        # Scenario-scope resource declarations — 4 bytes each
         resource_off = offset if resource_count > 0 else 0
         offset += SIZE_RESOURCE_DECL * resource_count
+
+        # Phase-scope resource claims pool — claim per phase, concatenated.
+        # Each phase's first claim byte offset stored у phase.phase_resources_off field.
+        phase_resources_byte_off: list[int] = []
+        for prs in phase_resource_claims_per_phase:
+            if prs:
+                phase_resources_byte_off.append(offset)
+                offset += SIZE_PHASE_RESOURCE_CLAIM * len(prs)
+            else:
+                phase_resources_byte_off.append(0)  # MODR_NO_OFFSET below; 0 used for clarity
 
         string_pool_off = offset
         pool_bytes = pool.to_bytes()
@@ -607,14 +642,15 @@ class ScenarioCompiler:
         action_count = len(builder.actions)
         cond_count = len(builder.conditions)
         param_count = len(builder.params)
-        global_trans_count = 0  # 2b.3
 
         # Compute scenario_id
         scenario_id = djb2_hash16(module_name)
 
-        # Compute flags
+        # Compute flags (per modr_format.h MODR_FLAG_*)
         flags = 0
-        if resource_count > 0:
+        if flags_has_globals:
+            flags |= 1 << 1  # MODR_FLAG_HAS_GLOBALS
+        if flags_has_resources:
             flags |= 1 << 2  # MODR_FLAG_HAS_RESOURCES
 
         # ── Emit ──
@@ -644,7 +680,7 @@ class ScenarioCompiler:
             cond_pool_off,
             cond_count,
             string_pool_off,
-            0,  # global_trans_off (deferred 2b.3)
+            global_trans_off,
             resource_off,
             0,  # reserved_b
             scenario["default_phase_timeout_ms"],
@@ -678,6 +714,12 @@ class ScenarioCompiler:
             for pdata in tdata["phases"]:
                 trans_off = transitions_off_per_phase[phase_idx_global]
                 entry_off, entry_n, exit_off, exit_n = phase_action_ranges[phase_idx_global]
+
+                # Phase-scope resources — populate phase_resources_off і count
+                pr_claims = phase_resource_claims_per_phase[phase_idx_global]
+                pr_byte_off = phase_resources_byte_off[phase_idx_global] if pr_claims else MODR_NO_OFFSET
+                pr_n = len(pr_claims)
+
                 out.extend(struct.pack(
                     "<HHHHBBBBIHBB",
                     pool.offset_of(pdata["name"]),
@@ -689,8 +731,8 @@ class ScenarioCompiler:
                     len(pdata["transitions"]),
                     0,  # cont_mask
                     pdata.get("timeout_ms", 0),
-                    MODR_NO_OFFSET,  # phase_resources_off (deferred 2b.3)
-                    0,  # phase_resource_n
+                    pr_byte_off,
+                    pr_n,
                     0,  # reserved
                 ))
                 phase_idx_global += 1
@@ -752,7 +794,19 @@ class ScenarioCompiler:
         for p in builder.params:
             out.extend(struct.pack("<HBBI", p.key_hash, p.type, p.flags, p.value))
 
-        # Resource declarations
+        # Global transitions pool — sorted by priority descending у Pass 1
+        for cond_idx, scope, priority in global_trans_records:
+            out.extend(struct.pack(
+                "<HHBBBB",
+                cond_idx,           # cond_pool_idx
+                0,                  # reserved_a
+                MODR_TRANS_KIND_COND,  # kind — globals always COND-based
+                priority,
+                scope,
+                0,                  # reserved_b
+            ))
+
+        # Scenario-scope resource declarations
         for r in scenario.get("resources", []):
             out.extend(struct.pack(
                 "<HBB",
@@ -760,6 +814,17 @@ class ScenarioCompiler:
                 1 if r.get("exclusive", True) else 0,
                 MODR_RESOURCE_SCOPE[r.get("scope", "scenario")],
             ))
+
+        # Phase-scope resource claims pool — concatenated per-phase claim arrays.
+        # Engine reads per phase via phase.phase_resources_off + phase_resource_n.
+        for prs in phase_resource_claims_per_phase:
+            for claim in prs:
+                out.extend(struct.pack(
+                    "<HBB",
+                    djb2_hash16(claim["resource"]),
+                    1 if claim.get("exclusive", True) else 0,
+                    0,  # reserved
+                ))
 
         # String pool
         out.extend(pool_bytes)
