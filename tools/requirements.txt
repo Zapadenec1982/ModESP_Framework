@@ -1,0 +1,15 @@
+# Python tooling dependencies для ModESP build pipeline.
+# Install: pip install -r tools/requirements.txt
+#
+# Used by:
+#   tools/generate_ui.py        — manifest validation
+#   tools/compile_scenario.py   — JSON Schema validation
+#   tools/tests/                — pytest suite
+#
+# Production firmware build does NOT depend on these — only host-side tooling.
+
+jsonschema>=4.0,<5.0
+pytest>=8.0,<10.0
+
+# Optional: Hypothesis для property tests (Step 2b)
+# hypothesis>=6.0,<7.0

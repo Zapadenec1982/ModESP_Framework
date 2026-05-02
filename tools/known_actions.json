@@ -1,0 +1,58 @@
+{
+  "$comment": "Manually-maintained registry of action/condition names знайомих compile_scenario.py. Used для hash collision detection (each name's djb2_hash16 low-16 must be unique). Domain modules adding actions update цей файл through PR. Step 5 (ActionRegistry impl) verifies runtime registration matches expected hashes.",
+
+  "format_version": 1,
+  "hash_algorithm": "djb2_hash16",
+
+  "actions": {
+    "log": {
+      "hash": 36103,
+      "param_min": 1,
+      "param_max": 1,
+      "params": {
+        "msg": {"type": "string", "required": true}
+      },
+      "description": "Log diagnostic message via ESP_LOG_INFO. Always returns OK."
+    },
+    "set_state": {
+      "hash": 12273,
+      "param_min": 3,
+      "param_max": 3,
+      "params": {
+        "key": {"type": "string", "required": true, "max_len": 32},
+        "type": {"type": "enum", "values": ["i32", "f32", "bool"], "required": true},
+        "value": {"type": "scalar", "required": true}
+      },
+      "description": "Write SharedState key. Returns OK on success, FAILED_RECOVERABLE if key write rejected."
+    },
+    "wait_ms": {
+      "hash": 35737,
+      "param_min": 1,
+      "param_max": 1,
+      "params": {
+        "ms": {"type": "i32", "required": true, "min": 0, "max": 86400000}
+      },
+      "description": "Wait specified ms. Returns PENDING until elapsed; OK once reached."
+    }
+  },
+
+  "conditions": {
+    "time_elapsed_ms": {
+      "hash": 18192,
+      "description": "True when phase elapsed >= specified ms.",
+      "params_inline": "integer (ms)"
+    },
+    "state_key_eq": {"hash": 13443, "description": "Equality comparison.", "params_inline": "{key, value}"},
+    "state_key_ne": {"hash": 13728, "description": "Not-equal comparison.", "params_inline": "{key, value}"},
+    "state_key_lt": {"hash": 13677, "description": "Less-than comparison.", "params_inline": "{key, value}"},
+    "state_key_gt": {"hash": 13512, "description": "Greater-than comparison.", "params_inline": "{key, value}"},
+    "state_key_le": {"hash": 13662, "description": "Less-or-equal comparison.", "params_inline": "{key, value}"},
+    "state_key_ge": {"hash": 13497, "description": "Greater-or-equal comparison.", "params_inline": "{key, value}"},
+    "state_key_in_range": {"hash": 63376, "description": "True if min <= key <= max.", "params_inline": "{key, min, max}"},
+    "state_key_changed": {"hash": 62807, "description": "Edge detect — true on first eval after key changes value.", "params_inline": "{key}"},
+    "time_of_day_eq": {"hash": 40122, "description": "Wall-clock match (HH:MM). Requires SNTP synced.", "params_inline": "{hh, mm}"},
+    "all_of": {"hash": 39922, "description": "Boolean AND of nested conditions.", "params_inline": "[cond, cond, ...]"},
+    "any_of": {"hash": 60897, "description": "Boolean OR of nested conditions.", "params_inline": "[cond, cond, ...]"},
+    "not":    {"hash": 38294, "description": "Boolean NOT.", "params_inline": "cond"}
+  }
+}
