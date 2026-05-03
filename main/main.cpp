@@ -250,6 +250,7 @@ extern "C" void app_main(void)
     http_service.set_persist(&persist_service);
     http_service.set_hal(&hal);
     http_service.set_datalogger(&datalogger);
+    http_service.set_sequence_engine(&sequence_engine);
 
     ws_service.set_state(&app.state());
 
