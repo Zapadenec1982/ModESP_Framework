@@ -39,6 +39,10 @@
 #include "modesp/net/ws_service.h"
 #include "modesp/services/nvs_helper.h"
 
+// Phase 5b: Sequence engine (track-based time-dependent algorithms)
+#include "modesp/sequence/sequence_engine.h"
+#include "modesp/sequence/builtin_actions.h"
+
 // Cloud backend (compile-time Kconfig choice)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
   #include "modesp/net/aws_iot_service.h"
@@ -80,6 +84,10 @@ static modesp::DriverManager   driver_manager;
 static modesp::WiFiService     wifi_service;
 static modesp::HttpService     http_service;
 static modesp::WsService       ws_service;
+
+// Sequence engine (BaseModule, track-based scenario runtime).
+// SharedState pointer wired у app_main after app.state() construction.
+static modesp::sequence::SequenceEngine sequence_engine;
 
 // Cloud backend (compile-time Kconfig choice)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
@@ -199,6 +207,14 @@ extern "C" void app_main(void)
 
     // ── Step 7: Register all modules (auto-generated from project.json) ──
     equipment.bind_drivers(driver_manager);
+
+    // Register sequence engine BEFORE business modules (some може call into
+    // engine during their on_init — e.g. preload а recipe). Built-in actions/
+    // conditions registered ONCE before any module init runs.
+    sequence_engine.set_state(&app.state());
+    modesp::sequence::builtins::register_builtins();
+    app.modules().register_module(sequence_engine);
+
     modesp_register_modules(app);
 
     ESP_LOGI(TAG, "Phase 2: Initializing WiFi + business modules...");

@@ -27,6 +27,7 @@
 #include "modesp/sequence/resource_arbiter.h"
 #include "modesp/sequence/engine_error.h"
 #include "modesp/sequence/modr_format.h"   // MODR_MAX_SIZE
+#include "modesp/base_module.h"
 
 #include <cstdint>
 
@@ -58,15 +59,21 @@ constexpr size_t MAX_SEQUENCES = MODESP_MAX_SEQUENCES;
  *   engine.start(h);
  *   // engine.on_update(10) called by ModuleManager at 100 Hz
  */
-class SequenceEngine {
+class SequenceEngine : public modesp::BaseModule {
 public:
-    explicit SequenceEngine(modesp::SharedState* state = nullptr) : state_(state) {}
+    explicit SequenceEngine(modesp::SharedState* state = nullptr)
+        : modesp::BaseModule("scenario", modesp::ModulePriority::HIGH)
+        , state_(state) {}
 
-    // ── Lifecycle (typically via BaseModule overrides; Step 16 integration) ──
+    /// Inject SharedState pointer post-construction (для main.cpp wiring after
+    /// app.state() is available).
+    void set_state(modesp::SharedState* s) { state_ = s; }
 
-    bool on_init();
-    void on_update(uint32_t dt_ms);
-    void on_stop();
+    // ── BaseModule interface ──
+
+    bool on_init() override;
+    void on_update(uint32_t dt_ms) override;
+    void on_stop() override;
 
     // ── Public C++ API (per plan Q2) ──
 

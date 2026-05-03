@@ -1,0 +1,109 @@
+{
+  "manifest_version": 1,
+  "module": "abs_test",
+  "module_type": "recipe",
+  "version": "1.0.0",
+  "priority": 5,
+  "description": "Stage 1 reference recipe — abstract universal test scenario. Two parallel tracks (main writes outputs and counter; watcher reads main's phase_name mirror to verify cross-track sync). Exercises: entry actions, time-based transitions, conditional transitions з all_of composite, $complete, completion_rule=all_tracks_complete. Recipe name 8 chars to fit 32-char mirror key budget.",
+
+  "state": {
+    "abs_test.scenario_state":     {"type": "string", "access": "read"},
+    "abs_test.scenario_elapsed_s": {"type": "int",    "access": "read"},
+    "abs_test.last_error":         {"type": "int",    "access": "read"},
+
+    "abs_test.main_state":         {"type": "string", "access": "read"},
+    "abs_test.main_phase_name":    {"type": "string", "access": "read"},
+    "abs_test.main_phase_idx":     {"type": "int",    "access": "read"},
+    "abs_test.main_elapsed_s":     {"type": "int",    "access": "read"},
+
+    "abs_test.watcher_state":      {"type": "string", "access": "read"},
+    "abs_test.watcher_phase_name": {"type": "string", "access": "read"},
+    "abs_test.watcher_phase_idx":  {"type": "int",    "access": "read"},
+    "abs_test.watcher_elapsed_s":  {"type": "int",    "access": "read"}
+  },
+
+  "ui": {
+    "page": "Тест",
+    "icon": "play",
+    "cards": [{
+      "title": "Abstract test scenario",
+      "layout": "single",
+      "visible_when": {"abs_test.scenario_state": ["running", "paused", "completed", "failed"]},
+      "widgets": [
+        {"key": "abs_test.scenario_state",     "widget": "value"},
+        {"key": "abs_test.scenario_elapsed_s", "widget": "value"},
+        {"key": "abs_test.main_phase_name",    "widget": "value"},
+        {"key": "abs_test.watcher_phase_name", "widget": "value"}
+      ]
+    }]
+  },
+
+  "scenario": {
+    "default_phase_timeout_ms": 30000,
+    "scenario_timeout_max_ms": 120000,
+    "completion_rule": "all_tracks_complete",
+    "tracks": [
+      {
+        "name": "main",
+        "flags": ["main_track"],
+        "phases": [
+          {
+            "name": "phase_a",
+            "timeout_ms": 10000,
+            "entry": [
+              {"action": "log", "params": {"msg": "main: phase_a"}},
+              {"action": "set_state", "params": {"key": "test.output_a", "type": "bool", "value": true}}
+            ],
+            "transitions": [
+              {"to": "phase_b", "when": {"time_elapsed_ms": 1000}}
+            ]
+          },
+          {
+            "name": "phase_b",
+            "timeout_ms": 30000,
+            "entry": [
+              {"action": "set_state", "params": {"key": "test.output_a", "type": "bool", "value": false}},
+              {"action": "set_state", "params": {"key": "test.output_b", "type": "bool", "value": true}},
+              {"action": "set_state", "params": {"key": "test.counter",  "type": "i32",  "value": 1}}
+            ],
+            "transitions": [
+              {"to": "phase_c", "when": {"all_of": [
+                {"state_key_gt": {"key": "test.input_a", "value": 10}},
+                {"time_elapsed_ms": 500}
+              ]}},
+              {"to": "phase_c", "when": {"time_elapsed_ms": 5000}}
+            ]
+          },
+          {
+            "name": "phase_c",
+            "timeout_ms": 5000,
+            "entry": [
+              {"action": "log", "params": {"msg": "main: completing"}},
+              {"action": "set_state", "params": {"key": "test.output_b", "type": "bool", "value": false}}
+            ],
+            "transitions": [
+              {"to": "$complete", "when": {"time_elapsed_ms": 500}}
+            ]
+          }
+        ]
+      },
+      {
+        "name": "watcher",
+        "phases": [
+          {
+            "name": "watching",
+            "timeout_ms": 60000,
+            "entry": [
+              {"action": "log", "params": {"msg": "watcher: started"}}
+            ],
+            "transitions": [
+              {"to": "$complete", "when": {"state_key_eq": {
+                "key": "abs_test.main_phase_name", "value": "phase_c"
+              }}}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
