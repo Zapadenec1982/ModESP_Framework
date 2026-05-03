@@ -96,6 +96,24 @@ TEST_CONFIG = {
             REPO_ROOT / "generated",
         ],
     },
+    "test_sequence_engine": {
+        # Engine integration test: full stack including sequence_engine.cpp.
+        # Same fixture (sync_two_tracks.modr) used; engine wraps все вище.
+        "extra_sources": [
+            COMPONENT / "src" / "builtin_actions.cpp",
+            COMPONENT / "src" / "modr_loader.cpp",
+            COMPONENT / "src" / "resource_arbiter.cpp",
+            COMPONENT / "src" / "sequence_track.cpp",
+            COMPONENT / "src" / "sequence_instance.cpp",
+            COMPONENT / "src" / "sequence_engine.cpp",
+            REPO_ROOT / "tests" / "host" / "shared_state_host.cpp",
+        ],
+        "extra_includes": [
+            REPO_ROOT / "tests" / "host",
+            REPO_ROOT / "tests" / "host" / "mocks",
+            REPO_ROOT / "generated",
+        ],
+    },
 }
 
 
@@ -290,3 +308,11 @@ def test_track_synchronization_host(gpp, etl_include):
     track 1 transitions when state_key_eq fires. Validates that the writer
     track's update is visible to the watcher track within reasonable tick budget."""
     _run_host_test("test_track_synchronization", gpp, etl_include)
+
+
+def test_sequence_engine_host(gpp, etl_include):
+    """SequenceEngine multi-instance dispatcher: load_buffer/load_path lifecycle,
+    start/pause/resume/abort transitions, on_update tick driving scenario до
+    COMPLETED, slot exhaustion (NO_SLOT), unload-then-reload, multi-instance
+    independence, diagnostic accessors. ~16 sub-tests."""
+    _run_host_test("test_sequence_engine", gpp, etl_include)

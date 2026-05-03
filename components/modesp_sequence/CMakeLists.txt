@@ -21,6 +21,7 @@ idf_component_register(
         "src/resource_arbiter.cpp"
         "src/sequence_track.cpp"
         "src/sequence_instance.cpp"
+        "src/sequence_engine.cpp"
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"
