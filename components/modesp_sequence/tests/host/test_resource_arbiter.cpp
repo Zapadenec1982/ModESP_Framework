@@ -266,24 +266,63 @@ TEST(clear_for_tests_resets_all_state) {
 // (idempotent re-grant) ownerships. Previous bug: rollback iterated всі j<i
 // і erased any matching handle, including resources що were no-op skipped
 // because already owned by ця same handle.
-TEST(rollback_preserves_preexisting_idempotent_ownerships) {
+//
+// Test setup: fill arbiter to MAX_RESOURCES-1 (31 з 32) із handle 1 ownerships.
+// Then attempt а 3-resource batch acquire from handle 1: [pre_existing, new_a,
+// new_b]. Expected behavior:
+//   - Iter 0 (pre_existing): continue (idempotent), inserted[0]=false
+//   - Iter 1 (new_a): inserts, fills last slot, inserted[1]=true
+//   - Iter 2 (new_b): owners_.full() → rollback
+// Old code: rollback erased resources[0].hash → silent ownership loss.
+// New code: skips inserted[0]==false → preserves pre-existing. Erases only new_a.
+TEST(rollback_preserves_preexisting_when_capacity_exhausted) {
     ResourceArbiter ra;
-    // Step 1: handle 1 owns 0xAAAA scenario-scope
-    auto d1 = decl(0xAAAA, true);
-    assert(ra.acquire_scenario(1, &d1, 1) == EngineError::OK);
-    assert(ra.is_owned(0xAAAA));
+    constexpr uint16_t PRE_EXISTING_HASH = 0x1000;
 
-    // Step 2: simulate handle 1 attempting larger acquire that includes
-    // already-owned 0xAAAA + new 0xBBBB. Without capacity exhaustion це
-    // succeeds idempotently. We need to force the rollback path though —
-    // skip it й directly verify не-rollback case preserves ownership.
-    modr_resource_decl request[] = { decl(0xAAAA, true), decl(0xBBBB, true) };
-    assert(ra.acquire_scenario(1, request, 2) == EngineError::OK);
-    // 0xAAAA still owned by handle 1
-    assert(ra.owner_of(0xAAAA)->handle == 1);
-    assert(ra.is_owned(0xBBBB));
-    // count should be 2 (one pre-existing + one new)
-    assert(ra.count() == 2);
+    // Fill arbiter to MAX_RESOURCES-1 (31 entries) — last slot kept open
+    // для controlled rollback trigger.
+    for (uint16_t i = 0; i < MAX_RESOURCES - 1; ++i) {
+        auto d = decl(static_cast<uint16_t>(0x2000 + i), true);
+        assert(ra.acquire_scenario(1, &d, 1) == EngineError::OK);
+    }
+    // Plus one pre-existing target hash що ми будемо re-granting through batch
+    auto pre = decl(PRE_EXISTING_HASH, true);
+    // Wait — це вже at capacity. Let me re-do: fill to MAX_RESOURCES-2, then
+    // add pre_existing → у total MAX_RESOURCES-1 entries. One slot free.
+    ra.clear_for_tests();
+    for (uint16_t i = 0; i < MAX_RESOURCES - 2; ++i) {
+        auto d = decl(static_cast<uint16_t>(0x2000 + i), true);
+        assert(ra.acquire_scenario(1, &d, 1) == EngineError::OK);
+    }
+    assert(ra.acquire_scenario(1, &pre, 1) == EngineError::OK);
+    assert(ra.count() == MAX_RESOURCES - 1);  // 31 of 32
+    assert(ra.is_owned(PRE_EXISTING_HASH));
+
+    // Batch acquire that triggers rollback at iter 2:
+    //   iter 0: pre_existing — continue (idempotent)
+    //   iter 1: new_a — fills last slot (32 of 32)
+    //   iter 2: new_b — owners_.full() → rollback path
+    modr_resource_decl batch[] = {
+        decl(PRE_EXISTING_HASH, true),
+        decl(0xBEEF, true),  // new_a
+        decl(0xCAFE, true),  // new_b — triggers rollback
+    };
+    auto err = ra.acquire_scenario(1, batch, 3);
+    assert(err == EngineError::RESOURCE_CONTENDED);
+
+    // Critical assertion: pre_existing MUST still be owned.
+    // Old buggy code erased це during rollback. New code preserves.
+    assert(ra.is_owned(PRE_EXISTING_HASH));
+    assert(ra.owner_of(PRE_EXISTING_HASH)->handle == 1);
+
+    // new_a (inserted then rolled back) should NOT be owned
+    assert(!ra.is_owned(0xBEEF));
+    // new_b never inserted (failed at full() check)
+    assert(!ra.is_owned(0xCAFE));
+
+    // Total count must be unchanged from before the failed batch:
+    // 30 originals + pre_existing = 31
+    assert(ra.count() == MAX_RESOURCES - 1);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
