@@ -5,7 +5,8 @@
   "modules": [
     "equipment",
     "datalogger",
-    "simple_thermo"
+    "simple_thermo",
+    "recipe_smoke"
   ],
   "system": {
     "device_name": "ModESP",

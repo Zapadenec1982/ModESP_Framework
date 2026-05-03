@@ -1,0 +1,29 @@
+{
+  "manifest_version": 1,
+  "module": "recipe_smoke",
+  "module_type": "recipe",
+  "version": "1.0.0",
+  "priority": 5,
+  "description": "Smoke test recipe для Step 4 generate_ui.py extension verification",
+  "state": {
+    "recipe_smoke.scenario_state":     {"type": "string", "access": "read"},
+    "recipe_smoke.scenario_elapsed_s": {"type": "int",    "access": "read"},
+    "recipe_smoke.last_error":         {"type": "int",    "access": "read"},
+    "recipe_smoke.main_state":         {"type": "string", "access": "read"},
+    "recipe_smoke.main_phase_name":    {"type": "string", "access": "read"},
+    "recipe_smoke.main_phase_idx":     {"type": "int",    "access": "read"},
+    "recipe_smoke.main_elapsed_s":     {"type": "int",    "access": "read"}
+  },
+  "scenario": {
+    "default_phase_timeout_ms": 60000,
+    "completion_rule": "all_tracks_complete",
+    "tracks": [{
+      "name": "main",
+      "flags": ["main_track"],
+      "phases": [{
+        "name": "p",
+        "transitions": [{"to": "$complete"}]
+      }]
+    }]
+  }
+}

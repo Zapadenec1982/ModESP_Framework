@@ -1739,6 +1739,20 @@ def main():
     # Convention: module "thermostat" → ThermostatModule in thermostat_module.h
     module_names = project.get("modules", [])
 
+    # Step 4 (Q-discussion): Filter recipes for C++ binding generation.
+    # Recipe modules (`module_type: "recipe"`) — manifest-only, no C++ class.
+    # State keys / UI widgets / MQTT topics still processed via existing pipeline
+    # (their manifests are у `manifests` list and contribute normally).
+    # But module_includes.h, module_instances.h, module_register.h, modules.cmake
+    # MUST exclude recipes (no _module.h файлу, no class to instantiate).
+    recipe_module_names: set[str] = {
+        m["module"] for m in manifests
+        if m.get("module_type") == "recipe"
+    }
+    cpp_module_names = [m for m in module_names if m not in recipe_module_names]
+    if recipe_module_names:
+        print(f"  (recipes excluded from C++ binding: {sorted(recipe_module_names)})")
+
     # Class name overrides for modules that don't follow simple convention
     # (e.g. "datalogger" → "DataLoggerModule", not "DataloggerModule")
     _class_overrides = {}
@@ -1757,14 +1771,14 @@ def main():
         """thermostat → thermostat_module.h"""
         return f"{mod_name}_module.h"
 
-    # 6a. module_includes.h
+    # 6a. module_includes.h (recipes excluded — no .h file)
     inc_lines = [
         "#pragma once",
         "// Auto-generated from project.json — DO NOT EDIT",
-        f"// Modules: {', '.join(module_names)}",
+        f"// C++ modules: {', '.join(cpp_module_names)}",
         "",
     ]
-    for mod in module_names:
+    for mod in cpp_module_names:
         inc_lines.append(f'#include "{_to_header(mod)}"')
 
     inc_path = gen_dir / "module_includes.h"
@@ -1773,13 +1787,13 @@ def main():
     print(f"  + {inc_path}")
     files_written += 1
 
-    # 6b. module_instances.h
+    # 6b. module_instances.h (recipes excluded — no class)
     inst_lines = [
         "#pragma once",
         "// Auto-generated from project.json — DO NOT EDIT",
         "",
     ]
-    for mod in module_names:
+    for mod in cpp_module_names:
         inst_lines.append(f"static {_to_class_name(mod)}  {mod};")
 
     inst_path = gen_dir / "module_instances.h"
@@ -1788,10 +1802,10 @@ def main():
     print(f"  + {inst_path}")
     files_written += 1
 
-    # 6c. module_register.h
+    # 6c. module_register.h (recipes excluded — no register call)
     # Sort by priority from manifest (lower = earlier)
     mod_priorities = []
-    for mod in module_names:
+    for mod in cpp_module_names:
         prio = 2  # default
         for m in manifests:
             if m.get("module") == mod:
@@ -1820,9 +1834,10 @@ def main():
     files_written += 1
 
     # 6d. modules.cmake — PRIV_REQUIRES list for main/CMakeLists.txt
+    # Recipes excluded — they're not ESP-IDF components (no CMakeLists.txt)
     cmake_lines = [
         "# Auto-generated from project.json — DO NOT EDIT",
-        f"set(PRODUCT_MODULES {' '.join(module_names)})",
+        f"set(PRODUCT_MODULES {' '.join(cpp_module_names)})",
     ]
     cmake_path = gen_dir / "modules.cmake"
     with open(cmake_path, "w", encoding="utf-8") as f:
