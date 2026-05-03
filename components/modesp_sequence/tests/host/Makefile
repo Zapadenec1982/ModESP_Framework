@@ -42,10 +42,10 @@ INCLUDES := \
     -I$(ETL_INCLUDE)
 
 # ── Sources ──
-COMPONENT_SRCS := $(COMPONENT)/src/action_registry.cpp
+COMPONENT_SRCS := $(COMPONENT)/src/action_registry.cpp $(COMPONENT)/src/continuous_registry.cpp
 
 # ── Test targets ──
-TESTS := test_action_registry
+TESTS := test_action_registry test_continuous_registry
 
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 EXEEXT :=

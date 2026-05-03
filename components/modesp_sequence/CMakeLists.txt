@@ -15,6 +15,7 @@
 idf_component_register(
     SRCS
         "src/action_registry.cpp"
+        "src/continuous_registry.cpp"
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"

@@ -28,6 +28,7 @@ COMPONENT = REPO_ROOT / "components" / "modesp_sequence"
 HOST_TEST_DIR = COMPONENT / "tests" / "host"
 SOURCES = [
     COMPONENT / "src" / "action_registry.cpp",
+    COMPONENT / "src" / "continuous_registry.cpp",
 ]
 INCLUDES = [
     COMPONENT / "include",
@@ -122,15 +123,24 @@ def etl_include():
 # ── Tests ──
 
 
-def test_action_registry_host(gpp, etl_include):
-    """Compile і run components/modesp_sequence/tests/host/test_action_registry.cpp.
-    Тестує singleton, register/find для actions і conditions, collision detection,
-    djb2 invariants. ~12 internal test cases у one binary."""
-    binary = _compile_test("test_action_registry", gpp, etl_include)
+def _run_host_test(name: str, gpp: str, etl_include: Path):
+    """Helper: compile і run a host test binary, assert success."""
+    binary = _compile_test(name, gpp, etl_include)
     result = subprocess.run([str(binary)], capture_output=True, text=True)
     assert result.returncode == 0, (
-        f"Host test FAILED:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        f"Host test {name} FAILED:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
-    # Verify expected output pattern
     assert "passed" in result.stdout
     assert "0 failed" in result.stdout, f"Some sub-tests failed:\n{result.stdout}"
+
+
+def test_action_registry_host(gpp, etl_include):
+    """ActionRegistry singleton, register/find для actions і conditions, collision
+    detection, djb2 invariants. ~12 internal test cases у one binary."""
+    _run_host_test("test_action_registry", gpp, etl_include)
+
+
+def test_continuous_registry_host(gpp, etl_include):
+    """ContinuousRegistry singleton, factory registration, create() invocation,
+    collision detection, null factory rejection. ~11 internal test cases."""
+    _run_host_test("test_continuous_registry", gpp, etl_include)
