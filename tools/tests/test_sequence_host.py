@@ -97,8 +97,8 @@ TEST_CONFIG = {
         ],
     },
     "test_sequence_engine": {
-        # Engine integration test: full stack including sequence_engine.cpp.
-        # Same fixture (sync_two_tracks.modr) used; engine wraps все вище.
+        # Engine integration test: full stack including sequence_engine.cpp
+        # AND nvs_token.cpp (engine now uses serialize_token у persist_scan).
         "extra_sources": [
             COMPONENT / "src" / "builtin_actions.cpp",
             COMPONENT / "src" / "modr_loader.cpp",
@@ -106,6 +106,7 @@ TEST_CONFIG = {
             COMPONENT / "src" / "sequence_track.cpp",
             COMPONENT / "src" / "sequence_instance.cpp",
             COMPONENT / "src" / "sequence_engine.cpp",
+            COMPONENT / "src" / "nvs_token.cpp",
             REPO_ROOT / "tests" / "host" / "shared_state_host.cpp",
         ],
         "extra_includes": [

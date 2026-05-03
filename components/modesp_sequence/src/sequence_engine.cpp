@@ -6,6 +6,7 @@
 #include "modesp/sequence/sequence_engine.h"
 #include "modesp/sequence/sequence_instance.h"
 #include "modesp/sequence/modr_loader.h"
+#include "modesp/sequence/nvs_token.h"
 #include "modesp/shared_state.h"
 
 #ifndef HOST_BUILD
@@ -86,6 +87,108 @@ void SequenceEngine::on_update(uint32_t dt_ms) {
         // (COMPLETED/FAILED/PAUSED) so WebUI shows correct final state.
         publish_mirror_keys(s);
     }
+
+    // Persist scan: detect changes since last persist, throttle non-urgent
+    // writes. Skipped silently якщо callbacks not configured.
+    if (nvs_write_fn_ != nullptr) {
+        persist_scan(dt_ms);
+    }
+}
+
+void SequenceEngine::persist_scan(uint32_t dt_ms) {
+    for (auto& s : slots_) {
+        if (s.buffer_size == 0) continue;
+
+        // Saturating counter (matches phase_elapsed_ms convention)
+        if (UINT32_MAX - dt_ms < s.time_since_persist_ms) {
+            s.time_since_persist_ms = UINT32_MAX;
+        } else {
+            s.time_since_persist_ms += dt_ms;
+        }
+
+        // Detect changes since last persist
+        bool state_changed = (s.runtime.state != s.last_persisted_state);
+        bool phase_changed = false;
+        const uint8_t track_count = s.runtime.scenario.header()->track_count;
+        for (uint8_t t = 0; t < track_count && t < 6; ++t) {
+            if (s.runtime.tracks[t].phase_idx != s.last_persisted_phase_idx[t]) {
+                phase_changed = true;
+                break;
+            }
+        }
+        if (!state_changed && !phase_changed) continue;  // nothing to persist
+
+        // Persist policy (per plan Q7):
+        //   - Scenario state changes: immediate (crash-critical events)
+        //   - Phase advances: throttled to ≥1s between writes (NVS wear)
+        //   - Main-track phase advance: immediate. Detected by checking if
+        //     the changed track has MODR_TRACK_FLAG_MAIN.
+        bool urgent = state_changed;
+        if (!urgent && phase_changed) {
+            const auto* tracks = s.runtime.scenario.tracks();
+            for (uint8_t t = 0; t < track_count && t < 6; ++t) {
+                if (s.runtime.tracks[t].phase_idx != s.last_persisted_phase_idx[t]
+                 && (tracks[t].flags & MODR_TRACK_FLAG_MAIN)) {
+                    urgent = true;
+                    break;
+                }
+            }
+        }
+        if (!urgent && s.time_since_persist_ms < 1000) continue;  // throttled
+
+        persist_slot(s);
+    }
+}
+
+void SequenceEngine::persist_slot(Slot& s) {
+    if (nvs_write_fn_ == nullptr) return;
+    uint8_t token[SEQ_TOKEN_SIZE];
+    uint16_t scenario_id = s.runtime.scenario.header()->scenario_id;
+    if (!serialize_token(s.runtime, scenario_id, /*wall_clock=*/0, token)) {
+        return;  // serialize failure shouldn't happen після validation, але defensive
+    }
+    uint8_t slot_idx = static_cast<uint8_t>(s.runtime.handle - 1);
+    if (!nvs_write_fn_(nvs_user_, slot_idx, token, SEQ_TOKEN_SIZE)) {
+        return;  // backend rejected; retry next opportunity (dirty fields preserved)
+    }
+
+    // Update last_persisted_* tracking
+    s.last_persisted_state = s.runtime.state;
+    const uint8_t track_count = s.runtime.scenario.header()->track_count;
+    for (uint8_t t = 0; t < track_count && t < 6; ++t) {
+        s.last_persisted_phase_idx[t] = s.runtime.tracks[t].phase_idx;
+    }
+    s.time_since_persist_ms = 0;
+}
+
+EngineError SequenceEngine::try_recover(SequenceHandle h) {
+    Slot* s = slot_for(h);
+    if (!s) return EngineError::INVALID_HANDLE;
+    if (s->runtime.state != SequenceRuntime::State::LOADED) {
+        return EngineError::NOT_LOADED;
+    }
+    if (nvs_read_fn_ == nullptr) return EngineError::NVS_ERROR;
+
+    uint8_t token[SEQ_TOKEN_SIZE];
+    size_t len = SEQ_TOKEN_SIZE;
+    uint8_t slot_idx = static_cast<uint8_t>(h - 1);
+    if (!nvs_read_fn_(nvs_user_, slot_idx, token, &len)) {
+        return EngineError::NVS_ERROR;  // no persisted token (fresh install / never persisted)
+    }
+    EngineError err = deserialize_token(token, len, s->runtime);
+    if (err != EngineError::OK) {
+        last_error_ = err;
+        return err;
+    }
+    // Sync persistence-tracking baseline to recovered state — без цього next
+    // tick would treat current state як changed і persist immediately.
+    s->last_persisted_state = s->runtime.state;
+    const uint8_t track_count = s->runtime.scenario.header()->track_count;
+    for (uint8_t t = 0; t < track_count && t < 6; ++t) {
+        s->last_persisted_phase_idx[t] = s->runtime.tracks[t].phase_idx;
+    }
+    s->time_since_persist_ms = 0;
+    return EngineError::OK;
 }
 
 void SequenceEngine::publish_mirror_keys(Slot& s) {

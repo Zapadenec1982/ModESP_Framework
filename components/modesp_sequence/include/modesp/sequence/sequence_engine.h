@@ -61,6 +61,20 @@ constexpr size_t MAX_SEQUENCES = MODESP_MAX_SEQUENCES;
  */
 class SequenceEngine : public modesp::BaseModule {
 public:
+    /// Persist write callback. Called by engine коли slot's runtime state
+    /// warrants saving (per-tick epilogue logic in on_update). Caller writes
+    /// bytes to backing store (typically ESP-IDF nvs_flash).
+    /// @return true on success; false aborts persist attempt for цей slot
+    /// (engine retries next opportunity).
+    using NvsWriteFn = bool (*)(void* user, uint8_t slot,
+                                const uint8_t* token, size_t len);
+
+    /// Persist read callback. Called by engine у try_recover() для loading
+    /// persisted token. Caller fills `token_buf` із NVS contents AND sets
+    /// `*in_out_len` to actual bytes read. Returns false on no-data або error.
+    using NvsReadFn = bool (*)(void* user, uint8_t slot,
+                               uint8_t* token_buf, size_t* in_out_len);
+
     explicit SequenceEngine(modesp::SharedState* state = nullptr)
         : modesp::BaseModule("scenario", modesp::ModulePriority::HIGH)
         , state_(state) {}
@@ -68,6 +82,23 @@ public:
     /// Inject SharedState pointer post-construction (для main.cpp wiring after
     /// app.state() is available).
     void set_state(modesp::SharedState* s) { state_ = s; }
+
+    /// Wire NVS persistence callbacks. Both can be nullptr to disable persist
+    /// (engine functions normally без recovery support). Pointer ownership
+    /// remains із caller; callbacks invoked from on_update task only.
+    void set_nvs_callbacks(NvsWriteFn write_fn, NvsReadFn read_fn, void* user) {
+        nvs_write_fn_ = write_fn;
+        nvs_read_fn_ = read_fn;
+        nvs_user_ = user;
+    }
+
+    /// Attempt to recover persisted state for an already-loaded slot. Caller
+    /// must call load_buffer/load_path first (recipe must match the persisted
+    /// token's scenario_id). On success, slot's runtime state restored AND
+    /// scenario state set to PAUSED (manual resume required).
+    /// Returns OK, INVALID_HANDLE, NOT_LOADED, NVS_ERROR (callback returned
+    /// false), або deserialize errors (CRC_MISMATCH, INVALID_FILE etc.).
+    EngineError try_recover(SequenceHandle h);
 
     // ── BaseModule interface ──
 
@@ -138,12 +169,31 @@ private:
         uint8_t         buffer[MODR_MAX_SIZE];
         size_t          buffer_size = 0;  // 0 = unused slot
         bool            name_warn_logged = false;  ///< dedup для long-name warning
+
+        // ── Persistence dirty tracking ──
+        SequenceRuntime::State last_persisted_state = SequenceRuntime::State::IDLE;
+        uint8_t                last_persisted_phase_idx[6] = {};
+        uint32_t               time_since_persist_ms = 0;
     };
 
     modesp::SharedState* state_;
     Slot                 slots_[MAX_SEQUENCES];
     ResourceArbiter      arbiter_;
     EngineError          last_error_ = EngineError::OK;
+
+    // Persistence callbacks (target wires до ESP-IDF nvs_flash; tests use
+    // in-memory mocks). Both nullable; engine functions normally без them.
+    NvsWriteFn nvs_write_fn_ = nullptr;
+    NvsReadFn  nvs_read_fn_  = nullptr;
+    void*      nvs_user_     = nullptr;
+
+    /// Per-tick persist scan: detect changes, apply throttling policy, invoke
+    /// write callback. Called from on_update epilogue для all loaded slots.
+    void persist_scan(uint32_t dt_ms);
+
+    /// Persist а single slot: serialize current runtime AND invoke callback.
+    /// Updates last_persisted_* tracking on success.
+    void persist_slot(Slot& s);
 
     /// Find first unused slot index (buffer_size == 0). Returns -1 if все full.
     int find_free_slot() const;

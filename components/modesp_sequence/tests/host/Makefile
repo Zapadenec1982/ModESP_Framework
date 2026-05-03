@@ -79,8 +79,10 @@ SYNC_SRCS := $(COMPONENT)/src/action_registry.cpp \
              $(COMPONENT)/src/sequence_instance.cpp \
              $(SS_HOST_SRC)
 
-# Sources for sequence_engine test (full stack + engine class)
-ENGINE_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/sequence_engine.cpp
+# Sources for sequence_engine test (full stack + engine class + nvs_token
+# для persist_scan path).
+ENGINE_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/sequence_engine.cpp \
+               $(COMPONENT)/src/nvs_token.cpp
 
 # Sources for nvs_token test (full stack + nvs_token impl)
 NVS_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/nvs_token.cpp

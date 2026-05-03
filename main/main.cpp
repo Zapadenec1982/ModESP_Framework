@@ -213,6 +213,27 @@ extern "C" void app_main(void)
     // conditions registered ONCE before any module init runs.
     sequence_engine.set_state(&app.state());
     modesp::sequence::builtins::register_builtins();
+
+    // Wire NVS persistence callbacks. Engine writes 96-byte tokens to NVS
+    // namespace "seqstate" із key "t<slot>" per plan Q7.
+    static auto seq_nvs_write = [](void* /*user*/, uint8_t slot,
+                                    const uint8_t* token, size_t len) -> bool {
+        char key[8];
+        std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
+        return modesp::nvs_helper::write_blob("seqstate", key, token, len);
+    };
+    static auto seq_nvs_read = [](void* /*user*/, uint8_t slot,
+                                   uint8_t* buf, size_t* in_out_len) -> bool {
+        char key[8];
+        std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
+        size_t out_len = 0;
+        bool ok = modesp::nvs_helper::read_blob("seqstate", key, buf,
+                                                 *in_out_len, out_len);
+        if (ok) *in_out_len = out_len;
+        return ok;
+    };
+    sequence_engine.set_nvs_callbacks(seq_nvs_write, seq_nvs_read, nullptr);
+
     app.modules().register_module(sequence_engine);
 
     modesp_register_modules(app);

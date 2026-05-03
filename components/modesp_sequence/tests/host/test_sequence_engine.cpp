@@ -357,6 +357,156 @@ TEST(mirror_keys_update_to_completed_after_completion) {
     assert(sv && std::strcmp(sv->c_str(), "completed") == 0);
 }
 
+// ── NVS persist + recovery ────────────────────────────────────────────
+//
+// In-memory mock backend: single 96-byte slot per handle. Tests configure
+// callbacks pointing to the slot и verify persistence + recovery semantics.
+
+struct MockNvsBackend {
+    static constexpr size_t MAX_SLOTS = 4;
+    uint8_t slots[MAX_SLOTS][96];
+    bool    has_data[MAX_SLOTS] = {};
+    int     write_count = 0;
+
+    void reset() {
+        std::memset(has_data, 0, sizeof(has_data));
+        write_count = 0;
+    }
+
+    static bool write(void* user, uint8_t slot, const uint8_t* token, size_t len) {
+        auto* self = static_cast<MockNvsBackend*>(user);
+        if (slot >= MAX_SLOTS || len != 96) return false;
+        std::memcpy(self->slots[slot], token, 96);
+        self->has_data[slot] = true;
+        self->write_count++;
+        return true;
+    }
+
+    static bool read(void* user, uint8_t slot, uint8_t* buf, size_t* in_out_len) {
+        auto* self = static_cast<MockNvsBackend*>(user);
+        if (slot >= MAX_SLOTS || !self->has_data[slot]) return false;
+        if (*in_out_len < 96) return false;
+        std::memcpy(buf, self->slots[slot], 96);
+        *in_out_len = 96;
+        return true;
+    }
+};
+
+TEST(persist_callback_invoked_on_scenario_state_change) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    MockNvsBackend nvs{};
+    fx.engine.set_nvs_callbacks(&MockNvsBackend::write,
+                                 &MockNvsBackend::read, &nvs);
+
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+    // After first tick, scenario state went LOADED → RUNNING (state change)
+    fx.engine.on_update(10);
+    assert(nvs.has_data[h - 1]);
+    assert(nvs.write_count >= 1);
+}
+
+TEST(persist_callback_throttled_for_side_track_phase_changes) {
+    // Side-track phase changes are throttled to ≥1 sec between writes.
+    // sync_two_tracks recipe має track 1 (watch) without main_track flag —
+    // its phase advance triggers throttled persist.
+    // Hard to deterministically force without manipulating internals; instead
+    // we verify що write_count doesn't grow unboundedly per tick.
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    MockNvsBackend nvs{};
+    fx.engine.set_nvs_callbacks(&MockNvsBackend::write,
+                                 &MockNvsBackend::read, &nvs);
+
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+
+    // Drive scenario через completion. Throttled write = 1 per second; recipe
+    // completes у ~30ms (one тіck). Reasonable upper bound on writes is
+    // ~few (one per state transition: LOADED→RUNNING→COMPLETED, plus phase
+    // advances). Definitely < 100 even якщо we tick 200 times.
+    for (int i = 0; i < 200; ++i) fx.engine.on_update(10);
+    assert(nvs.write_count < 100);
+}
+
+TEST(try_recover_restores_state_from_persisted_token) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    MockNvsBackend nvs{};
+    fx.engine.set_nvs_callbacks(&MockNvsBackend::write,
+                                 &MockNvsBackend::read, &nvs);
+
+    // Step 1: load + start + drive scenarios а bit, persist happens
+    SequenceHandle h1 = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h1);
+    fx.engine.on_update(10);
+    fx.engine.on_update(10);
+    assert(nvs.has_data[h1 - 1]);  // persisted
+
+    // Capture state at persist point — tick а few more times що persist happens
+    fx.engine.on_update(10);
+    fx.engine.on_update(10);
+
+    // Step 2: simulate restart — fresh engine, load same recipe, recover
+    SharedState ss2;
+    SequenceEngine engine2(&ss2);
+    engine2.set_nvs_callbacks(&MockNvsBackend::write,
+                               &MockNvsBackend::read, &nvs);
+    engine2.on_init();
+
+    SequenceHandle h2 = engine2.load_buffer(fx.blob.data(), fx.blob.size());
+    assert(h2 == h1);  // same slot index reused
+    assert(engine2.state(h2) == SequenceRuntime::State::LOADED);
+
+    // Recover from persisted token
+    EngineError err = engine2.try_recover(h2);
+    assert(err == EngineError::OK);
+    // Recovery sets state to PAUSED per plan Q7
+    assert(engine2.state(h2) == SequenceRuntime::State::PAUSED);
+}
+
+TEST(try_recover_without_persisted_data_returns_nvs_error) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    MockNvsBackend nvs{};  // empty — no data
+    fx.engine.set_nvs_callbacks(&MockNvsBackend::write,
+                                 &MockNvsBackend::read, &nvs);
+
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    EngineError err = fx.engine.try_recover(h);
+    assert(err == EngineError::NVS_ERROR);  // backend returned false (no data)
+}
+
+TEST(try_recover_without_callbacks_returns_nvs_error) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    // No set_nvs_callbacks call — нema persistence configured
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    EngineError err = fx.engine.try_recover(h);
+    assert(err == EngineError::NVS_ERROR);
+}
+
+TEST(try_recover_invalid_handle_returns_invalid_handle) {
+    EngineFixture fx;
+    MockNvsBackend nvs{};
+    fx.engine.set_nvs_callbacks(&MockNvsBackend::write,
+                                 &MockNvsBackend::read, &nvs);
+    EngineError err = fx.engine.try_recover(99);
+    assert(err == EngineError::INVALID_HANDLE);
+}
+
+TEST(persist_skipped_when_callbacks_not_configured) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    // Don't call set_nvs_callbacks — persist_scan should no-op.
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+    // Drive а tick; should not crash і not invoke callbacks (none set)
+    fx.engine.on_update(10);
+    assert(fx.engine.state(h) == SequenceRuntime::State::RUNNING);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
