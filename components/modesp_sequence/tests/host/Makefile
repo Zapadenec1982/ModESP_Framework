@@ -67,8 +67,12 @@ LOADER_SRCS := $(COMPONENT)/src/action_registry.cpp \
                $(COMPONENT)/src/modr_loader.cpp \
                $(SS_HOST_SRC)
 
+# Sources for resource_arbiter test (no SharedState dependency).
+ARBITER_SRCS := $(COMPONENT)/src/resource_arbiter.cpp
+
 # ── Test targets ──
-TESTS := test_action_registry test_continuous_registry test_builtin_actions test_modr_loader
+TESTS := test_action_registry test_continuous_registry test_builtin_actions \
+         test_modr_loader test_resource_arbiter
 
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 EXEEXT :=
@@ -95,6 +99,10 @@ $(BUILD)/test_builtin_actions$(EXEEXT): $(THIS_DIR)test_builtin_actions.cpp $(BU
 # Loader test: registry + builtins + loader + real SharedState (deps via builtins)
 $(BUILD)/test_modr_loader$(EXEEXT): $(THIS_DIR)test_modr_loader.cpp $(LOADER_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(LOADER_SRCS)
+
+# ResourceArbiter test: standalone (no SharedState, no registry needed)
+$(BUILD)/test_resource_arbiter$(EXEEXT): $(THIS_DIR)test_resource_arbiter.cpp $(ARBITER_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(ARBITER_SRCS)
 
 # ── Build dir ──
 $(BUILD):

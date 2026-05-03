@@ -69,6 +69,14 @@ TEST_CONFIG = {
             REPO_ROOT / "generated",
         ],
     },
+    "test_resource_arbiter": {
+        # ResourceArbiter is standalone — no SharedState, no registry needed.
+        # Sources: just resource_arbiter.cpp (default action_registry і
+        # continuous_registry from SOURCES are also linked but unused, harmless).
+        "extra_sources": [
+            COMPONENT / "src" / "resource_arbiter.cpp",
+        ],
+    },
 }
 
 
@@ -224,3 +232,10 @@ def test_modr_loader_host(gpp, etl_include):
     UNSUPPORTED_VERSION, CRC_MISMATCH, BUFFER_OVERFLOW, INVALID_TRANSITION,
     TOO_MANY_TRACKS). Includes CRC32 ISO-HDLC golden vector."""
     _run_host_test("test_modr_loader", gpp, etl_include)
+
+
+def test_resource_arbiter_host(gpp, etl_include):
+    """ResourceArbiter ISA-88 §5.3: scenario-scope acquire/release atomicity,
+    phase-scope try-acquire з rollback, cross-instance contention, mixed-scope
+    coexistence, idempotent re-grant. ~17 sub-tests."""
+    _run_host_test("test_resource_arbiter", gpp, etl_include)

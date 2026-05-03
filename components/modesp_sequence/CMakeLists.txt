@@ -18,6 +18,7 @@ idf_component_register(
         "src/continuous_registry.cpp"
         "src/builtin_actions.cpp"
         "src/modr_loader.cpp"
+        "src/resource_arbiter.cpp"
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"
