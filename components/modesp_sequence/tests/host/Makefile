@@ -41,11 +41,26 @@ INCLUDES := \
     -I$(ROOT)/components/modesp_core/include \
     -I$(ETL_INCLUDE)
 
+# Includes для tests що потребують SharedState (real implementation з host mocks).
+# Adds project-level test mocks (freertos_mock.h, esp_log_mock.h, etc.) і
+# generated/state_meta.h required by shared_state.h.
+SS_INCLUDES := \
+    $(INCLUDES) \
+    -I$(ROOT)/tests/host \
+    -I$(ROOT)/tests/host/mocks \
+    -I$(ROOT)/generated
+
 # ── Sources ──
 COMPONENT_SRCS := $(COMPONENT)/src/action_registry.cpp $(COMPONENT)/src/continuous_registry.cpp
+SS_HOST_SRC := $(ROOT)/tests/host/shared_state_host.cpp
+
+# Sources for builtin_actions test (registry + builtins + real SharedState)
+BUILTIN_SRCS := $(COMPONENT)/src/action_registry.cpp \
+                $(COMPONENT)/src/builtin_actions.cpp \
+                $(SS_HOST_SRC)
 
 # ── Test targets ──
-TESTS := test_action_registry test_continuous_registry
+TESTS := test_action_registry test_continuous_registry test_builtin_actions
 
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 EXEEXT :=
@@ -57,9 +72,17 @@ endif
 .PHONY: all test clean
 all: $(TEST_BINS)
 
-# ── Per-test build rule ──
-$(BUILD)/%$(EXEEXT): $(THIS_DIR)%.cpp $(COMPONENT_SRCS) | $(BUILD)
+# ── Per-test build rules ──
+# Default rule (registry-only tests): action_registry + continuous_registry sources
+$(BUILD)/test_action_registry$(EXEEXT): $(THIS_DIR)test_action_registry.cpp $(COMPONENT_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(COMPONENT_SRCS)
+
+$(BUILD)/test_continuous_registry$(EXEEXT): $(THIS_DIR)test_continuous_registry.cpp $(COMPONENT_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(COMPONENT_SRCS)
+
+# Builtin actions test: needs real SharedState + freertos/esp_log mocks
+$(BUILD)/test_builtin_actions$(EXEEXT): $(THIS_DIR)test_builtin_actions.cpp $(BUILTIN_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(BUILTIN_SRCS)
 
 # ── Build dir ──
 $(BUILD):

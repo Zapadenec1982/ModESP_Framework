@@ -26,6 +26,9 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent.parent
 COMPONENT = REPO_ROOT / "components" / "modesp_sequence"
 HOST_TEST_DIR = COMPONENT / "tests" / "host"
+
+# Default sources/includes — used by registry-only tests (test_action_registry,
+# test_continuous_registry). Per-test overrides у TEST_CONFIG below.
 SOURCES = [
     COMPONENT / "src" / "action_registry.cpp",
     COMPONENT / "src" / "continuous_registry.cpp",
@@ -34,6 +37,23 @@ INCLUDES = [
     COMPONENT / "include",
     REPO_ROOT / "components" / "modesp_core" / "include",
 ]
+
+# Per-test build overrides. Test name → {extra_sources, extra_includes}.
+# Used когда test потребує SharedState (real impl + freertos/log mocks),
+# або інші cross-component sources beyond default.
+TEST_CONFIG = {
+    "test_builtin_actions": {
+        "extra_sources": [
+            COMPONENT / "src" / "builtin_actions.cpp",
+            REPO_ROOT / "tests" / "host" / "shared_state_host.cpp",
+        ],
+        "extra_includes": [
+            REPO_ROOT / "tests" / "host",
+            REPO_ROOT / "tests" / "host" / "mocks",
+            REPO_ROOT / "generated",
+        ],
+    },
+}
 
 
 def _find_gpp() -> str | None:
@@ -81,6 +101,10 @@ def _compile_test(name: str, gpp: str, etl_include: Path) -> Path:
     if not src.exists():
         raise FileNotFoundError(f"Test source not found: {src}")
 
+    cfg = TEST_CONFIG.get(name, {})
+    sources = list(SOURCES) + list(cfg.get("extra_sources", []))
+    includes = list(INCLUDES) + list(cfg.get("extra_includes", []))
+
     output = HOST_TEST_DIR / f"{name}.exe"
     cmd = [
         gpp,
@@ -88,16 +112,31 @@ def _compile_test(name: str, gpp: str, etl_include: Path) -> Path:
         "-DETL_NO_PROFILE_HEADER", "-DHOST_BUILD=1",
         "-O0", "-g",
     ]
-    for inc in INCLUDES:
+    for inc in includes:
         cmd.extend(["-I", str(inc)])
     cmd.extend(["-I", str(etl_include)])
     cmd.append(str(src))
-    cmd.extend(str(s) for s in SOURCES)
+    cmd.extend(str(s) for s in sources)
     cmd.extend(["-o", str(output)])
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # IMPORTANT (Windows MSYS2 toolchain): cc1plus.exe (g++ child) needs runtime
+    # DLLs (libstdc++-6.dll, libgcc_s_seh-1.dll, ...) from the same bin folder
+    # as g++.exe. If that dir isn't on PATH, the child loads zero DLLs, exits
+    # silently, and parent g++ reports nothing (returncode 1, no stderr).
+    # Discovered empirically Step 7. We prepend g++'s directory to PATH for
+    # subprocess invocation so DLL resolution succeeds.
+    env = os.environ.copy()
+    gpp_dir = str(Path(gpp).parent)
+    env["PATH"] = gpp_dir + os.pathsep + env.get("PATH", "")
+
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env
+    )
     if result.returncode != 0:
-        raise RuntimeError(f"Compilation failed:\nstdout: {result.stdout}\nstderr: {result.stderr}")
+        raise RuntimeError(
+            f"Compilation failed (returncode={result.returncode}):\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
     return output
 
 
@@ -124,9 +163,18 @@ def etl_include():
 
 
 def _run_host_test(name: str, gpp: str, etl_include: Path):
-    """Helper: compile і run a host test binary, assert success."""
+    """Helper: compile і run a host test binary, assert success.
+
+    Test binary також needs MSYS2 runtime DLLs on PATH (linked dynamically
+    against libstdc++-6.dll, libgcc_s_seh-1.dll, etc.). Without DLLs available,
+    the binary fails to start (exit 0xC0000139 STATUS_ENTRYPOINT_NOT_FOUND or
+    silent abort) — we propagate g++'s bin dir into PATH for runs."""
     binary = _compile_test(name, gpp, etl_include)
-    result = subprocess.run([str(binary)], capture_output=True, text=True)
+    env = os.environ.copy()
+    env["PATH"] = str(Path(gpp).parent) + os.pathsep + env.get("PATH", "")
+    result = subprocess.run(
+        [str(binary)], capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env
+    )
     assert result.returncode == 0, (
         f"Host test {name} FAILED:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
@@ -144,3 +192,11 @@ def test_continuous_registry_host(gpp, etl_include):
     """ContinuousRegistry singleton, factory registration, create() invocation,
     collision detection, null factory rejection. ~11 internal test cases."""
     _run_host_test("test_continuous_registry", gpp, etl_include)
+
+
+def test_builtin_actions_host(gpp, etl_include):
+    """Built-in actions (log, set_state, wait_ms) і conditions (time_elapsed_ms,
+    state_key_eq/ne/lt/gt/le/ge, state_key_in_range, state_key_changed,
+    time_of_day_eq). ~30 internal test cases. Uses real SharedState із host
+    mocks (freertos_mock.h, esp_log_mock.h)."""
+    _run_host_test("test_builtin_actions", gpp, etl_include)
