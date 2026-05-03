@@ -139,7 +139,13 @@ void instance_tick(SequenceRuntime& sr, uint32_t dt_ms,
     using TS = TrackRuntime::State;
     if (sr.state != SS::RUNNING && sr.state != SS::ABORTING) return;
 
-    sr.scenario_elapsed_ms += dt_ms;
+    // Saturating increment: clamp to UINT32_MAX instead of wrapping at
+    // ~49.7 days. Same rationale as track_tick's phase_elapsed_ms.
+    if (UINT32_MAX - dt_ms < sr.scenario_elapsed_ms) {
+        sr.scenario_elapsed_ms = UINT32_MAX;
+    } else {
+        sr.scenario_elapsed_ms += dt_ms;
+    }
     auto* hdr = sr.scenario.header();
 
     // 1. Global transitions

@@ -180,6 +180,32 @@ TEST(buffer_smaller_than_total_size_returns_invalid_file) {
     assert(modr_validate(buf.data(), 100, ls) == EngineError::INVALID_FILE);
 }
 
+// Regression: defense-in-depth — public modr_validate must reject buffers
+// whose claimed total_size exceeds MODR_MAX_SIZE, even якщо the actual
+// caller-provided buffer is large enough. Без цього, downstream uint16
+// truncations у LoadedScenario accessors would silently shrink computed
+// extents (e.g. string_pool_size) instead of failing fast.
+TEST(total_size_exceeding_max_size_rejected) {
+    // Reset registry first (golden test relies on builtins for cond_pool
+    // resolution — empty fixture has 0 conds so не actually used here, але
+    // we keep clean setup for parallel runs).
+    auto& reg = ActionRegistry::instance();
+    reg.clear_for_tests();
+    builtins::register_builtins();
+
+    // Buffer larger than MODR_MAX_SIZE + 4. Header overlay; bytes after
+    // header don't matter — total_size check fires before CRC validation.
+    std::vector<uint8_t> buf(MODR_MAX_SIZE + 1024, 0);
+    auto* hdr = reinterpret_cast<modr_header*>(buf.data());
+    hdr->magic = MODR_MAGIC;
+    hdr->format_version = MODR_FORMAT_VERSION;
+    hdr->total_size = MODR_MAX_SIZE + 100;  // > MODR_MAX_SIZE — should reject
+    hdr->track_count = 1;
+
+    LoadedScenario ls;
+    assert(modr_validate(buf.data(), buf.size(), ls) == EngineError::INVALID_FILE);
+}
+
 TEST(null_buffer_returns_invalid_file) {
     auto buf = setup_with_golden();
     (void)buf;  // setup ensures registry initialized

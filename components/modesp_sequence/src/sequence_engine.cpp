@@ -8,6 +8,10 @@
 #include "modesp/sequence/modr_loader.h"
 #include "modesp/shared_state.h"
 
+#ifndef HOST_BUILD
+#include "esp_log.h"
+#endif
+
 #include <cstdio>
 #include <cstring>
 
@@ -84,14 +88,31 @@ void SequenceEngine::on_update(uint32_t dt_ms) {
     }
 }
 
-void SequenceEngine::publish_mirror_keys(const Slot& s) {
+void SequenceEngine::publish_mirror_keys(Slot& s) {
     if (state_ == nullptr) return;
     auto* hdr = s.runtime.scenario.header();
 
     // Resolve recipe name from string pool
     char recipe_name[16] = {0};
     if (!s.runtime.scenario.read_string(hdr->name_str_idx, recipe_name, sizeof(recipe_name))) {
-        return;  // bad string pool offset — skip publish (validated by loader, але defensive)
+        // Name fits у pool but exceeds our 15-char buffer (recipe author used
+        // longer name than mirror-key budget allows). Warn once per slot —
+        // мирні key publishing then skipped silently (mirrors won't appear у
+        // SharedState/WebUI). Recipe authors hit це when they exceed the
+        // documented ≤12-char budget.
+        if (!s.name_warn_logged) {
+#ifdef HOST_BUILD
+            std::fprintf(stderr, "[scenario] recipe name too long (>15 chars)"
+                                  " — mirror keys disabled for slot %u\n",
+                         static_cast<unsigned>(s.runtime.handle));
+#else
+            ESP_LOGW("scenario", "recipe name too long (>15 chars) — "
+                                  "mirror keys disabled for slot %u",
+                     static_cast<unsigned>(s.runtime.handle));
+#endif
+            s.name_warn_logged = true;
+        }
+        return;
     }
 
     char keybuf[32];

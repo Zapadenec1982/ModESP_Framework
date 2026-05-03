@@ -217,10 +217,16 @@ void track_tick(SequenceRuntime& sr, TrackIdx track_idx, uint32_t dt_ms,
     const modr_phase& phase = sr.scenario.phases(track_idx)[tr.phase_idx];
 
     // Single-source increment of phase_elapsed_ms — applied once per tick
-    // regardless of state transitions within the tick. Previous structure
-    // had two increments (WAITING branch + RUNNING fall-through), which
-    // double-counted dt_ms коли WAITING→RUNNING happened same tick.
-    tr.phase_elapsed_ms += dt_ms;
+    // regardless of state transitions within the tick. Saturating add prevents
+    // uint32 wrap at ~49.7 days: коли phase_elapsed_ms approaches UINT32_MAX,
+    // clamp instead of wrapping to 0 (що would unstick time-based transitions
+    // in а phase running multi-month). Time-condition firing remains correct
+    // because thresholds are also < UINT32_MAX.
+    if (UINT32_MAX - dt_ms < tr.phase_elapsed_ms) {
+        tr.phase_elapsed_ms = UINT32_MAX;
+    } else {
+        tr.phase_elapsed_ms += dt_ms;
+    }
 
     // ── WAITING_FOR_RESOURCE: retry phase claim ──
     if (tr.state == TS::WAITING_FOR_RESOURCE) {

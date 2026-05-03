@@ -292,6 +292,23 @@ TEST(on_update_writes_track_phase_name_mirror) {
     assert(sv && std::strcmp(sv->c_str(), "signal") == 0);
 }
 
+// Sanity: phase_elapsed_ms must be incremented exactly once per tick.
+// Previous bug had two paths (WAITING branch + RUNNING fall-through) що both
+// added dt_ms коли а track transitioned WAITING→RUNNING same tick — doubling
+// elapsed time. This test locks in the single-source contract for the common
+// path (no WAITING). Specific WAITING→RUNNING coverage requires а recipe з
+// phase resources, deferred to integration test fixture.
+TEST(phase_elapsed_ms_single_increment_per_tick) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+    fx.engine.on_update(50);
+    // Both tracks: 1 tick of 50ms → 50ms elapsed (not 100, not 0)
+    assert(fx.engine.track_phase_elapsed_ms(h, 0) == 50);
+    assert(fx.engine.track_phase_elapsed_ms(h, 1) == 50);
+}
+
 // Regression: scenario-level abort must release ANY phase-scope resources
 // held by tracks before forcing them to FAILED. Previous bug: abort jumped
 // tracks straight to FAILED і never called release_phase, leaking resources

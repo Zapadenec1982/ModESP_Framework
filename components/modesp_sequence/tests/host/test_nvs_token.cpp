@@ -188,6 +188,36 @@ TEST(deserialize_without_loaded_scenario_returns_not_loaded) {
     assert(deserialize_token(buf, sizeof(buf), fresh) == EngineError::NOT_LOADED);
 }
 
+// Regression: phase_idx у token must be validated проти recipe's phase_count.
+// Previous bug: blind copy of token's phase_idx into runtime; коли recipe
+// schema changed (same scenario_id, fewer phases) NVS token із old phase_idx
+// caused OOB read on first track_tick after resume.
+TEST(deserialize_rejects_phase_idx_beyond_recipe) {
+    Fixture fx;
+    if (!fx.ok) return;
+
+    uint8_t buf[SEQ_TOKEN_SIZE];
+    serialize_token(fx.sr, fx.sr.scenario.header()->scenario_id, 0, buf);
+
+    // Per seq_token layout: tracks[0] starts at byte 20, з phase_idx at offset
+    // +1 (after state). sync_two_tracks recipe має 1 phase per track, тож
+    // valid phase_idx ∈ {0}. Set phase_idx = 99 — way out of range.
+    buf[21] = 99;
+
+    // Recompute CRC so це faux-valid token. Без recompute, CRC mismatch fires
+    // first і ми б не дійшли до phase_idx check.
+    uint16_t crc = crc16_ccitt(buf, 92);
+    std::memcpy(buf + 92, &crc, sizeof(crc));
+
+    SequenceRuntime fresh{};
+    fresh.handle = 1;
+    assert(modr_validate(fx.blob.data(), fx.blob.size(), fresh.scenario)
+           == EngineError::OK);
+
+    // Must reject — це is the regression target.
+    assert(deserialize_token(buf, sizeof(buf), fresh) == EngineError::INVALID_FILE);
+}
+
 TEST(deserialize_wrong_size_rejected) {
     Fixture fx;
     if (!fx.ok) return;

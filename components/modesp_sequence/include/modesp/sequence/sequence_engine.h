@@ -137,6 +137,7 @@ private:
         SequenceRuntime runtime;
         uint8_t         buffer[MODR_MAX_SIZE];
         size_t          buffer_size = 0;  // 0 = unused slot
+        bool            name_warn_logged = false;  ///< dedup для long-name warning
     };
 
     modesp::SharedState* state_;
@@ -155,7 +156,8 @@ private:
     /// Keys: <recipe>.scenario_state, scenario_elapsed_s, AND per-track
     /// <track>_state, _phase_idx, _phase_name, _elapsed_s. Values dedupe
     /// internally у SharedState (no version bump for unchanged values).
-    void publish_mirror_keys(const Slot& s);
+    /// Mutates `s.name_warn_logged` коли а name overflow happens (logs once).
+    void publish_mirror_keys(Slot& s);
 };
 
 }  // namespace modesp::sequence
