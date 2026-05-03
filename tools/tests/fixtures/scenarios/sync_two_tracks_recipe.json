@@ -1,0 +1,53 @@
+{
+  "manifest_version": 1,
+  "module": "sync_test",
+  "module_type": "recipe",
+  "version": "1.0.0",
+  "priority": 5,
+  "description": "Cross-track sync fixture for Step 13 host test. Track 0 writes test.signal=true; track 1 transitions on state_key_eq{test.signal, true}. Validates ADR-0003 tick-order semantics.",
+  "state": {
+    "sync_test.scenario_state":     {"type": "string", "access": "read"},
+    "sync_test.scenario_elapsed_s": {"type": "int",    "access": "read"},
+    "sync_test.last_error":         {"type": "int",    "access": "read"},
+    "sync_test.main_state":         {"type": "string", "access": "read"},
+    "sync_test.main_phase_name":    {"type": "string", "access": "read"},
+    "sync_test.main_phase_idx":     {"type": "int",    "access": "read"},
+    "sync_test.main_elapsed_s":     {"type": "int",    "access": "read"},
+    "sync_test.watch_state":        {"type": "string", "access": "read"},
+    "sync_test.watch_phase_name":   {"type": "string", "access": "read"},
+    "sync_test.watch_phase_idx":    {"type": "int",    "access": "read"},
+    "sync_test.watch_elapsed_s":    {"type": "int",    "access": "read"}
+  },
+  "scenario": {
+    "default_phase_timeout_ms": 60000,
+    "completion_rule": "all_tracks_complete",
+    "tracks": [
+      {
+        "name": "main",
+        "flags": ["main_track"],
+        "phases": [
+          {
+            "name": "signal",
+            "entry": [
+              {"action": "set_state", "params": {"key": "test.signal", "type": "bool", "value": true}}
+            ],
+            "transitions": [
+              {"to": "$complete"}
+            ]
+          }
+        ]
+      },
+      {
+        "name": "watch",
+        "phases": [
+          {
+            "name": "wait",
+            "transitions": [
+              {"to": "$complete", "when": {"state_key_eq": {"key": "test.signal", "value": true}}}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
