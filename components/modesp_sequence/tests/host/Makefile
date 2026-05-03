@@ -82,10 +82,13 @@ SYNC_SRCS := $(COMPONENT)/src/action_registry.cpp \
 # Sources for sequence_engine test (full stack + engine class)
 ENGINE_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/sequence_engine.cpp
 
+# Sources for nvs_token test (full stack + nvs_token impl)
+NVS_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/nvs_token.cpp
+
 # ── Test targets ──
 TESTS := test_action_registry test_continuous_registry test_builtin_actions \
          test_modr_loader test_resource_arbiter test_track_synchronization \
-         test_sequence_engine
+         test_sequence_engine test_nvs_token
 
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 EXEEXT :=
@@ -125,6 +128,10 @@ $(BUILD)/test_track_synchronization$(EXEEXT): $(THIS_DIR)test_track_synchronizat
 # SequenceEngine integration test: full stack + engine class wrapping it
 $(BUILD)/test_sequence_engine$(EXEEXT): $(THIS_DIR)test_sequence_engine.cpp $(ENGINE_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(ENGINE_SRCS)
+
+# NVS token persistence test: full stack + nvs_token impl
+$(BUILD)/test_nvs_token$(EXEEXT): $(THIS_DIR)test_nvs_token.cpp $(NVS_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(NVS_SRCS)
 
 # ── Build dir ──
 $(BUILD):

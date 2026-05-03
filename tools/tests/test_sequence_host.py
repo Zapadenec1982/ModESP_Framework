@@ -114,6 +114,25 @@ TEST_CONFIG = {
             REPO_ROOT / "generated",
         ],
     },
+    "test_nvs_token": {
+        # Persistence token: needs builtins (registered conditions used by
+        # any cond_pool entries в loaded scenario), modr_loader (validate fixture),
+        # sequence_instance (instance_start to populate runtime), nvs_token impl.
+        "extra_sources": [
+            COMPONENT / "src" / "builtin_actions.cpp",
+            COMPONENT / "src" / "modr_loader.cpp",
+            COMPONENT / "src" / "resource_arbiter.cpp",
+            COMPONENT / "src" / "sequence_track.cpp",
+            COMPONENT / "src" / "sequence_instance.cpp",
+            COMPONENT / "src" / "nvs_token.cpp",
+            REPO_ROOT / "tests" / "host" / "shared_state_host.cpp",
+        ],
+        "extra_includes": [
+            REPO_ROOT / "tests" / "host",
+            REPO_ROOT / "tests" / "host" / "mocks",
+            REPO_ROOT / "generated",
+        ],
+    },
 }
 
 
@@ -316,3 +335,11 @@ def test_sequence_engine_host(gpp, etl_include):
     COMPLETED, slot exhaustion (NO_SLOT), unload-then-reload, multi-instance
     independence, diagnostic accessors. ~16 sub-tests."""
     _run_host_test("test_sequence_engine", gpp, etl_include)
+
+
+def test_nvs_token_host(gpp, etl_include):
+    """Persistence token: serialize/deserialize round-trip restores phase_idx +
+    elapsed_ms (final state PAUSED per plan Q7), magic/version/CRC corruption →
+    specific EngineError codes, scenario_id mismatch rejected (stale token from
+    previous recipe), CRC16-CCITT golden vector. ~10 sub-tests."""
+    _run_host_test("test_nvs_token", gpp, etl_include)
