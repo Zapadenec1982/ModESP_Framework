@@ -54,29 +54,32 @@ EngineError ResourceArbiter::acquire_scenario(SequenceHandle handle,
         }
     }
 
-    // Phase 2: commit all
+    // Phase 2: commit all. Track which iterations actually inserted (vs.
+    // skipped because of pre-existing same-owner ownership) so rollback на
+    // capacity exhaustion only erases newly-inserted records, not pre-grants.
+    bool inserted[MAX_RESOURCES] = {};
     for (uint8_t i = 0; i < count; ++i) {
         const auto& d = resources[i];
-        // Якщо already owned by це same handle (idempotent re-grant), skip insert
         auto existing = owners_.find(d.resource_hash);
         if (existing != owners_.end() && existing->second.handle == handle) {
-            continue;
+            continue;  // idempotent re-grant — pre-existing, do NOT mark inserted
         }
         if (owners_.full()) {
-            // Roll back already-inserted on this call. We tracked count
-            // insertions у first `i` iterations — release них by hash.
+            // Roll back ONLY iterations that actually inserted (inserted[j]==true)
             for (uint8_t j = 0; j < i; ++j) {
+                if (!inserted[j]) continue;
                 auto it = owners_.find(resources[j].resource_hash);
                 if (it != owners_.end() && it->second.handle == handle
                  && it->second.track_idx == TRACK_IDX_SCENARIO) {
                     owners_.erase(it);
                 }
             }
-            return EngineError::RESOURCE_CONTENDED;  // arbiter capacity exhausted
+            return EngineError::RESOURCE_CONTENDED;
         }
         OwnerInfo info{handle, TRACK_IDX_SCENARIO, phase_idx,
                        static_cast<uint8_t>(d.exclusive ? 1 : 0)};
         owners_.insert({d.resource_hash, info});
+        inserted[i] = true;
     }
     return EngineError::OK;
 }
@@ -111,16 +114,20 @@ bool ResourceArbiter::try_acquire_phase(SequenceHandle handle, TrackIdx track,
         }
     }
 
-    // Phase 2: commit, з rollback on capacity exhaustion
+    // Phase 2: commit. Track which iterations inserted (vs idempotent skip)
+    // so rollback erases only fresh inserts, not pre-existing same-owner
+    // entries. Mirror of the fix у acquire_scenario above.
+    bool inserted[MAX_RESOURCES] = {};
     for (uint8_t i = 0; i < count; ++i) {
         auto existing = owners_.find(claims[i].resource_hash);
         if (existing != owners_.end()
          && existing->second.handle == handle
          && existing->second.track_idx == track) {
-            continue;  // already owned by цим (handle, track) — idempotent
+            continue;  // pre-existing — do NOT mark inserted
         }
         if (owners_.full()) {
             for (uint8_t j = 0; j < i; ++j) {
+                if (!inserted[j]) continue;
                 auto it = owners_.find(claims[j].resource_hash);
                 if (it != owners_.end() && it->second.handle == handle
                  && it->second.track_idx == track) {
@@ -132,6 +139,7 @@ bool ResourceArbiter::try_acquire_phase(SequenceHandle handle, TrackIdx track,
         OwnerInfo info{handle, track, phase_idx,
                        static_cast<uint8_t>(claims[i].exclusive ? 1 : 0)};
         owners_.insert({claims[i].resource_hash, info});
+        inserted[i] = true;
     }
     return true;
 }

@@ -115,6 +115,12 @@ EngineError validate_header_preamble(const uint8_t* buf, size_t size,
     // total_size must include header + CRC trailer at minimum, AND match буфер size
     if (hdr->total_size < sizeof(modr_header) + 4u) return EngineError::INVALID_FILE;
     if (hdr->total_size > size) return EngineError::INVALID_FILE;
+    // Defense-in-depth: caller (load_buffer) limits інput buffer to MODR_MAX_SIZE,
+    // але public modr_validate API can be called із arbitrary buffer (tests, future
+    // integration). Reject claimed size that exceeds the format's hard cap so
+    // downstream uint16 truncations (e.g. string_pool_size cast у LoadedScenario)
+    // never happen.
+    if (hdr->total_size > MODR_MAX_SIZE) return EngineError::INVALID_FILE;
 
     out_hdr = hdr;
     return EngineError::OK;

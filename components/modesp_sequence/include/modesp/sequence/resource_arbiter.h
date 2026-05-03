@@ -75,8 +75,14 @@ public:
     /**
      * Atomically acquire all listed scenario-scope resources for `handle`.
      * Returns OK on success, RESOURCE_CONTENDED if ANY resource is already held
-     * AND the new acquire would conflict (same exclusive bit semantics як
-     * std::shared_mutex: shared+shared OK, shared+exclusive blocked, etc.).
+     * by а DIFFERENT (handle, track) pair.
+     *
+     * **MVP shared semantics caveat:** the underlying flat_map stores ONE owner
+     * per resource hash. Shared+shared between different scenarios is treated
+     * як conflict (returns false from can_grant). Same-owner re-grant IS
+     * idempotent. Multi-owner shared map (true shared+shared coexistence) is
+     * Stage 1.5. Recipes that declare `exclusive: 0` get the same behavior
+     * як `exclusive: 1` until then.
      *
      * On contention, NO resources are acquired (atomic all-or-nothing).
      *

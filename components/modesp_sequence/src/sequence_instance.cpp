@@ -83,14 +83,27 @@ void instance_start(SequenceRuntime& sr) {
     }
 }
 
-void instance_abort(SequenceRuntime& sr) {
+void instance_abort(SequenceRuntime& sr, ResourceArbiter* arbiter) {
+    // MVP-level abort: tracks transition straight to FAILED без running phase
+    // exit actions. Phase-scope resources released here so they don't leak
+    // (track_tick early-returns on FAILED і would never call release_phase).
+    //
+    // Recipe authors needing exit-on-abort safety shutdowns (close valve,
+    // de-energize heater) MUST implement це via global transitions to а
+    // dedicated cleanup phase, NOT через relying on the active phase's
+    // exit actions. Full exit-on-abort path (where instance_abort sets
+    // tracks to ABORTING і track_tick walks через phase exit actions
+    // before terminating) is а Stage 1.5 enhancement.
+    //
+    // Note: TrackRuntime::ABORTING docstring previously claimed exit actions
+    // run у це state. That's true ONLY when а transition fires з
+    // target=$abort (per-phase abort), NOT for scenario-level abort.
     sr.state = SequenceRuntime::State::ABORTING;
     for (uint8_t i = 0; i < sr.scenario.header()->track_count; ++i) {
         TrackRuntime& tr = sr.tracks[i];
         if (tr.state == TrackRuntime::State::COMPLETED
          || tr.state == TrackRuntime::State::FAILED) continue;
-        // Force tracks toward FAILED через ABORTING. Currently tracks already
-        // running exit actions of their phase — we force-skip і fail.
+        if (arbiter) arbiter->release_phase(sr.handle, i);
         tr.state = TrackRuntime::State::FAILED;
     }
 }
@@ -138,7 +151,7 @@ void instance_tick(SequenceRuntime& sr, uint32_t dt_ms,
                 sr.tracks[main].state = TS::FAILED;
                 if (arbiter) arbiter->release_phase(sr.handle, main);
             } else {
-                instance_abort(sr);
+                instance_abort(sr, arbiter);
             }
         }
     }

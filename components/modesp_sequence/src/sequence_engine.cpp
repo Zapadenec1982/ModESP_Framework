@@ -305,7 +305,7 @@ EngineError SequenceEngine::abort(SequenceHandle h, uint8_t /*reason_code*/) {
      && s->runtime.state != SequenceRuntime::State::PAUSED) {
         return EngineError::NOT_LOADED;
     }
-    instance_abort(s->runtime);
+    instance_abort(s->runtime, &arbiter_);
     return EngineError::OK;
 }
 

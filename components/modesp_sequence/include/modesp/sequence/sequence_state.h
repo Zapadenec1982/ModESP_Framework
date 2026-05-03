@@ -27,9 +27,13 @@ struct TrackRuntime {
         IDLE = 0,                ///< before scenario start
         RUNNING,                 ///< executing phase entry/dwell/transitions
         WAITING_FOR_RESOURCE,    ///< phase entry blocked by phase-scope claim
-        ABORTING,                ///< running exit actions of current phase, then → FAILED
+        ABORTING,                ///< per-phase $abort transition fired; running phase
+                                 ///< exit actions, then → FAILED. NOTE: scenario-level
+                                 ///< abort (instance_abort) does NOT enter це state —
+                                 ///< it transitions tracks straight to FAILED. Stage 1.5.
         COMPLETED,               ///< reached MODR_TARGET_COMPLETE
         FAILED,                  ///< triggered MODR_TARGET_ABORT або action FAILED_ABORT
+                                 ///< OR scenario-level abort
     };
 
     State state = State::IDLE;

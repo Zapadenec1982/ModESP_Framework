@@ -1846,6 +1846,17 @@ esp_err_t HttpService::handle_post_scenario_load(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
+    // Path validation: must live у LittleFS scenarios directory і contain no
+    // path traversal segments. Без цього, authenticated users could read
+    // arbitrary VFS-accessible files (oracle для filesystem layout, et al).
+    static constexpr const char* PREFIX = "/lfs/scenarios/";
+    if (std::strncmp(path, PREFIX, std::strlen(PREFIX)) != 0
+     || std::strstr(path, "..") != nullptr) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Path must start /lfs/scenarios/ і contain no '..'");
+        return ESP_FAIL;
+    }
+
     auto h = eng->load_path(path);
     if (h == 0) {
         send_error_json(req, eng->last_error());

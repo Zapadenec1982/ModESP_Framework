@@ -216,9 +216,14 @@ void track_tick(SequenceRuntime& sr, TrackIdx track_idx, uint32_t dt_ms,
 
     const modr_phase& phase = sr.scenario.phases(track_idx)[tr.phase_idx];
 
+    // Single-source increment of phase_elapsed_ms — applied once per tick
+    // regardless of state transitions within the tick. Previous structure
+    // had two increments (WAITING branch + RUNNING fall-through), which
+    // double-counted dt_ms коли WAITING→RUNNING happened same tick.
+    tr.phase_elapsed_ms += dt_ms;
+
     // ── WAITING_FOR_RESOURCE: retry phase claim ──
     if (tr.state == TS::WAITING_FOR_RESOURCE) {
-        tr.phase_elapsed_ms += dt_ms;
         if (phase.phase_resource_n > 0 && arbiter) {
             const modr_phase_resource_claim* claims = sr.scenario.phase_resources(
                 phase.phase_resources_off);
@@ -243,8 +248,6 @@ void track_tick(SequenceRuntime& sr, TrackIdx track_idx, uint32_t dt_ms,
 
     // ── RUNNING normal flow ──
     if (tr.state != TS::RUNNING && tr.state != TS::ABORTING) return;
-
-    tr.phase_elapsed_ms += dt_ms;
 
     // Exit actions in flight (transition latched, running exits in sequence)
     if (tr.running_exit_actions) {

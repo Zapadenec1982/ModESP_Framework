@@ -292,6 +292,38 @@ TEST(on_update_writes_track_phase_name_mirror) {
     assert(sv && std::strcmp(sv->c_str(), "signal") == 0);
 }
 
+// Regression: scenario-level abort must release ANY phase-scope resources
+// held by tracks before forcing them to FAILED. Previous bug: abort jumped
+// tracks straight to FAILED і never called release_phase, leaking resources
+// у the arbiter's flat_map until process restart.
+TEST(abort_releases_phase_scope_resources) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+
+    // Manually simulate а phase-scope ownership held by track 0 of handle h.
+    // We bypass try_acquire_phase since sync_two_tracks recipe doesn't declare
+    // phase resources — direct arbiter pokes verify the release chain.
+    ResourceArbiter& arb = fx.engine.arbiter();
+    modr_phase_resource_claim claim{};
+    claim.resource_hash = 0xCAFE;
+    claim.exclusive = 1;
+    bool ok = arb.try_acquire_phase(h, /*track=*/0, /*phase=*/0, &claim, 1);
+    assert(ok);
+    assert(arb.is_owned(0xCAFE));
+
+    // Trigger scenario abort
+    fx.engine.abort(h);
+
+    // Drive а tick so any residual instance_tick logic completes (е.g. abort
+    // path advances scenario state to FAILED on next tick).
+    fx.engine.on_update(10);
+
+    // Phase-scope resource MUST have been released by abort path
+    assert(!arb.is_owned(0xCAFE));
+}
+
 TEST(mirror_keys_update_to_completed_after_completion) {
     EngineFixture fx;
     if (fx.blob.empty()) return;

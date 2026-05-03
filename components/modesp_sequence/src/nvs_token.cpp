@@ -90,6 +90,18 @@ EngineError deserialize_token(const uint8_t* buf, size_t size,
         return EngineError::INVALID_FILE;
     }
 
+    // Validate per-track phase_idx fits у current recipe layout. Recipe schema
+    // changes (different phase_count з same scenario_id, e.g. firmware update
+    // shipped а new .modr that kept the same module name) leave NVS tokens
+    // valid by CRC але stale по schema. Без цього check, runtime would
+    // dereference phases(t)[phase_idx] OOB on first tick after resume.
+    auto* recipe_tracks = sr.scenario.tracks();
+    for (uint8_t i = 0; i < tok.track_count && i < 6; ++i) {
+        if (tok.tracks[i].phase_idx >= recipe_tracks[i].phase_count) {
+            return EngineError::INVALID_FILE;
+        }
+    }
+
     // Apply
     sr.scenario_elapsed_ms = tok.scenario_elapsed_ms;
     for (uint8_t i = 0; i < tok.track_count && i < 6; ++i) {
