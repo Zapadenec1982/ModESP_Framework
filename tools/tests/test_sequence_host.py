@@ -53,6 +53,22 @@ TEST_CONFIG = {
             REPO_ROOT / "generated",
         ],
     },
+    "test_modr_loader": {
+        # Loader needs builtins registered to resolve cond_pool entries against
+        # ActionRegistry. builtin_actions.cpp transitively pulls SharedState
+        # (set_state writes through it), so test також compiles real
+        # SharedState із same host mocks як test_builtin_actions.
+        "extra_sources": [
+            COMPONENT / "src" / "builtin_actions.cpp",
+            COMPONENT / "src" / "modr_loader.cpp",
+            REPO_ROOT / "tests" / "host" / "shared_state_host.cpp",
+        ],
+        "extra_includes": [
+            REPO_ROOT / "tests" / "host",
+            REPO_ROOT / "tests" / "host" / "mocks",
+            REPO_ROOT / "generated",
+        ],
+    },
 }
 
 
@@ -200,3 +216,11 @@ def test_builtin_actions_host(gpp, etl_include):
     time_of_day_eq). ~30 internal test cases. Uses real SharedState із host
     mocks (freertos_mock.h, esp_log_mock.h)."""
     _run_host_test("test_builtin_actions", gpp, etl_include)
+
+
+def test_modr_loader_host(gpp, etl_include):
+    """`.modr` binary loader: positive (golden minimal_v1 fixture) і ~20
+    corruption variants forcing each EngineError code (INVALID_FILE,
+    UNSUPPORTED_VERSION, CRC_MISMATCH, BUFFER_OVERFLOW, INVALID_TRANSITION,
+    TOO_MANY_TRACKS). Includes CRC32 ISO-HDLC golden vector."""
+    _run_host_test("test_modr_loader", gpp, etl_include)

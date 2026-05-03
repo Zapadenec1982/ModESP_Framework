@@ -18,6 +18,7 @@
 #pragma once
 
 #include "modesp/sequence/action_param.h"
+#include "modesp/sequence/modr_format.h"  // djb2_hash16 (single source of truth)
 #include "etl/flat_map.h"
 
 namespace modesp::sequence {
@@ -86,15 +87,7 @@ private:
     Map conditions_;
 };
 
-/// Compute djb2_hash16 у constexpr context. Useful для register-by-name patterns:
-///     reg.register_action({djb2_hash16_const("log"), "log", &my_log_fn, 1, 1});
-constexpr uint16_t djb2_hash16(const char* str) noexcept {
-    uint32_t hash = 5381u;
-    while (*str) {
-        hash = ((hash << 5) + hash) + static_cast<uint8_t>(*str);
-        ++str;
-    }
-    return static_cast<uint16_t>(hash & 0xFFFFu);
-}
+// djb2_hash16 lives in modr_format.h — included above. Single source of truth
+// avoids ODR violations when both headers are pulled into the same TU.
 
 }  // namespace modesp::sequence

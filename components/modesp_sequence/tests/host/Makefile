@@ -59,8 +59,16 @@ BUILTIN_SRCS := $(COMPONENT)/src/action_registry.cpp \
                 $(COMPONENT)/src/builtin_actions.cpp \
                 $(SS_HOST_SRC)
 
+# Sources for modr_loader test (registry + builtins + loader + real SharedState).
+# builtin_actions.cpp transitively requires SharedState; pull real impl з host
+# mocks to satisfy linker.
+LOADER_SRCS := $(COMPONENT)/src/action_registry.cpp \
+               $(COMPONENT)/src/builtin_actions.cpp \
+               $(COMPONENT)/src/modr_loader.cpp \
+               $(SS_HOST_SRC)
+
 # ── Test targets ──
-TESTS := test_action_registry test_continuous_registry test_builtin_actions
+TESTS := test_action_registry test_continuous_registry test_builtin_actions test_modr_loader
 
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 EXEEXT :=
@@ -83,6 +91,10 @@ $(BUILD)/test_continuous_registry$(EXEEXT): $(THIS_DIR)test_continuous_registry.
 # Builtin actions test: needs real SharedState + freertos/esp_log mocks
 $(BUILD)/test_builtin_actions$(EXEEXT): $(THIS_DIR)test_builtin_actions.cpp $(BUILTIN_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(BUILTIN_SRCS)
+
+# Loader test: registry + builtins + loader + real SharedState (deps via builtins)
+$(BUILD)/test_modr_loader$(EXEEXT): $(THIS_DIR)test_modr_loader.cpp $(LOADER_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(LOADER_SRCS)
 
 # ── Build dir ──
 $(BUILD):
