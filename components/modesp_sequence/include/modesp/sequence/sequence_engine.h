@@ -150,6 +150,12 @@ private:
     /// Validate handle і return slot pointer, або nullptr.
     Slot*       slot_for(SequenceHandle h);
     const Slot* slot_for(SequenceHandle h) const;
+
+    /// Write per-tick mirror keys for slot's runtime to SharedState.
+    /// Keys: <recipe>.scenario_state, scenario_elapsed_s, AND per-track
+    /// <track>_state, _phase_idx, _phase_name, _elapsed_s. Values dedupe
+    /// internally у SharedState (no version bump for unchanged values).
+    void publish_mirror_keys(const Slot& s);
 };
 
 }  // namespace modesp::sequence

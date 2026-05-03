@@ -262,6 +262,52 @@ TEST(active_count_excludes_loaded_and_completed) {
     assert(fx.engine.active_count() == 0);
 }
 
+// ── Mirror keys ───────────────────────────────────────────────────────
+
+TEST(on_update_writes_scenario_state_mirror) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    // Recipe is sync_test (8 chars), tracks "main" + "watch"
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+    fx.engine.on_update(10);  // first tick triggers publish
+
+    auto opt = fx.ss.get(modesp::StateKey("sync_test.scenario_state"));
+    assert(opt.has_value());
+    auto* sv = etl::get_if<modesp::StringValue>(&*opt);
+    assert(sv && std::strcmp(sv->c_str(), "running") == 0);
+}
+
+TEST(on_update_writes_track_phase_name_mirror) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+    fx.engine.on_update(10);
+
+    // sync_test recipe: track 0 name="main", phase 0 name="signal"
+    auto opt = fx.ss.get(modesp::StateKey("sync_test.main_phase_name"));
+    assert(opt.has_value());
+    auto* sv = etl::get_if<modesp::StringValue>(&*opt);
+    assert(sv && std::strcmp(sv->c_str(), "signal") == 0);
+}
+
+TEST(mirror_keys_update_to_completed_after_completion) {
+    EngineFixture fx;
+    if (fx.blob.empty()) return;
+    SequenceHandle h = fx.engine.load_buffer(fx.blob.data(), fx.blob.size());
+    fx.engine.start(h);
+    // Drive до completion
+    for (int i = 0; i < 200; ++i) fx.engine.on_update(10);
+    // Final on_update publishes mirror keys even for COMPLETED scenarios
+    fx.engine.on_update(10);
+
+    auto opt = fx.ss.get(modesp::StateKey("sync_test.scenario_state"));
+    assert(opt.has_value());
+    auto* sv = etl::get_if<modesp::StringValue>(&*opt);
+    assert(sv && std::strcmp(sv->c_str(), "completed") == 0);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {

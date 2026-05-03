@@ -1,16 +1,55 @@
 /**
  * @file sequence_engine.cpp
- * @brief SequenceEngine implementation (Step 14).
+ * @brief SequenceEngine implementation (Step 14 + mirror keys).
  */
 
 #include "modesp/sequence/sequence_engine.h"
 #include "modesp/sequence/sequence_instance.h"
 #include "modesp/sequence/modr_loader.h"
+#include "modesp/shared_state.h"
 
 #include <cstdio>
 #include <cstring>
 
 namespace modesp::sequence {
+
+// ── State stringifiers ────────────────────────────────────────────────
+//
+// Engine writes scenario state і per-track state to SharedState as strings
+// для WebUI consumption. WebUI's visible_when can match exact strings (e.g.
+// {"abs_test.scenario_state": ["running", "paused"]}). Recipe authors can
+// also use state_key_eq for cross-track sync via mirror keys.
+
+namespace {
+
+const char* scenario_state_str(SequenceRuntime::State s) {
+    using SS = SequenceRuntime::State;
+    switch (s) {
+        case SS::IDLE:      return "idle";
+        case SS::LOADED:    return "loaded";
+        case SS::RUNNING:   return "running";
+        case SS::PAUSED:    return "paused";
+        case SS::ABORTING:  return "aborting";
+        case SS::COMPLETED: return "completed";
+        case SS::FAILED:    return "failed";
+    }
+    return "unknown";
+}
+
+const char* track_state_str(TrackRuntime::State s) {
+    using TS = TrackRuntime::State;
+    switch (s) {
+        case TS::IDLE:                 return "idle";
+        case TS::RUNNING:              return "running";
+        case TS::WAITING_FOR_RESOURCE: return "waiting";
+        case TS::ABORTING:             return "aborting";
+        case TS::COMPLETED:            return "completed";
+        case TS::FAILED:               return "failed";
+    }
+    return "unknown";
+}
+
+}  // anonymous namespace
 
 bool SequenceEngine::on_init() {
     arbiter_.clear_for_tests();
@@ -34,9 +73,81 @@ void SequenceEngine::on_stop() {
 void SequenceEngine::on_update(uint32_t dt_ms) {
     for (auto& s : slots_) {
         if (s.buffer_size == 0) continue;
-        if (s.runtime.state != SequenceRuntime::State::RUNNING
-         && s.runtime.state != SequenceRuntime::State::ABORTING) continue;
-        instance_tick(s.runtime, dt_ms, state_, &arbiter_);
+        // Tick only if scenario is actively progressing.
+        if (s.runtime.state == SequenceRuntime::State::RUNNING
+         || s.runtime.state == SequenceRuntime::State::ABORTING) {
+            instance_tick(s.runtime, dt_ms, state_, &arbiter_);
+        }
+        // Publish mirror keys для ALL loaded slots — covers terminal states
+        // (COMPLETED/FAILED/PAUSED) so WebUI shows correct final state.
+        publish_mirror_keys(s);
+    }
+}
+
+void SequenceEngine::publish_mirror_keys(const Slot& s) {
+    if (state_ == nullptr) return;
+    auto* hdr = s.runtime.scenario.header();
+
+    // Resolve recipe name from string pool
+    char recipe_name[16] = {0};
+    if (!s.runtime.scenario.read_string(hdr->name_str_idx, recipe_name, sizeof(recipe_name))) {
+        return;  // bad string pool offset — skip publish (validated by loader, але defensive)
+    }
+
+    char keybuf[32];
+
+    // Scenario-level mirror keys
+    int n = std::snprintf(keybuf, sizeof(keybuf), "%s.scenario_state", recipe_name);
+    if (n > 0 && static_cast<size_t>(n) < sizeof(keybuf)) {
+        state_->set(keybuf, scenario_state_str(s.runtime.state));
+    }
+
+    n = std::snprintf(keybuf, sizeof(keybuf), "%s.scenario_elapsed_s", recipe_name);
+    if (n > 0 && static_cast<size_t>(n) < sizeof(keybuf)) {
+        state_->set(keybuf, static_cast<int32_t>(s.runtime.scenario_elapsed_ms / 1000));
+    }
+
+    // Per-track mirror keys
+    auto* tracks = s.runtime.scenario.tracks();
+    for (uint8_t t = 0; t < hdr->track_count && t < 6; ++t) {
+        char track_name[12] = {0};
+        if (!s.runtime.scenario.read_string(tracks[t].name_str_idx,
+                                             track_name, sizeof(track_name))) {
+            continue;
+        }
+        const TrackRuntime& tr = s.runtime.tracks[t];
+
+        // <recipe>.<track>_state
+        n = std::snprintf(keybuf, sizeof(keybuf), "%s.%s_state", recipe_name, track_name);
+        if (n > 0 && static_cast<size_t>(n) < sizeof(keybuf)) {
+            state_->set(keybuf, track_state_str(tr.state));
+        }
+
+        // <recipe>.<track>_phase_idx
+        n = std::snprintf(keybuf, sizeof(keybuf), "%s.%s_phase_idx", recipe_name, track_name);
+        if (n > 0 && static_cast<size_t>(n) < sizeof(keybuf)) {
+            state_->set(keybuf, static_cast<int32_t>(tr.phase_idx));
+        }
+
+        // <recipe>.<track>_elapsed_s
+        n = std::snprintf(keybuf, sizeof(keybuf), "%s.%s_elapsed_s", recipe_name, track_name);
+        if (n > 0 && static_cast<size_t>(n) < sizeof(keybuf)) {
+            state_->set(keybuf, static_cast<int32_t>(tr.phase_elapsed_ms / 1000));
+        }
+
+        // <recipe>.<track>_phase_name
+        if (tr.phase_idx < tracks[t].phase_count) {
+            auto* phases = s.runtime.scenario.phases(t);
+            char phase_name[24] = {0};
+            if (s.runtime.scenario.read_string(phases[tr.phase_idx].name_str_idx,
+                                                phase_name, sizeof(phase_name))) {
+                n = std::snprintf(keybuf, sizeof(keybuf), "%s.%s_phase_name",
+                                  recipe_name, track_name);
+                if (n > 0 && static_cast<size_t>(n) < sizeof(keybuf)) {
+                    state_->set(keybuf, phase_name);
+                }
+            }
+        }
     }
 }
 
