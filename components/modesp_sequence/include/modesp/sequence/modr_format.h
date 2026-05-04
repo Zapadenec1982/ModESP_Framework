@@ -69,8 +69,18 @@ constexpr uint32_t MODR_MAGIC = 0x52444F4D;  // 'M'(0x4D) 'O'(0x4F) 'D'(0x44) 'R
 constexpr uint16_t MODR_FORMAT_VERSION = 1;
 
 /// Maximum total `.modr` file size. Buffer pre-allocated у engine.
-/// 16 KB accommodates realistic recipes (greenhouse pilot ~2 KB; multicooker ~5 KB).
-constexpr size_t MODR_MAX_SIZE = 16 * 1024;
+/// Configured through Kconfig CONFIG_MODESP_MODR_MAX_SIZE (default 4 KB);
+/// можна override через -DMODESP_MODR_MAX_SIZE_OVERRIDE для host tests.
+/// Realistic recipes: minimal ~120B, 2-track sync ~250B, 3-phase abstract
+/// ~760B, complex 5×4 із many actions ~2-4 KB. Default 4 KB has headroom.
+/// Bump через menuconfig якщо recipe author needs larger.
+#ifdef CONFIG_MODESP_MODR_MAX_SIZE
+constexpr size_t MODR_MAX_SIZE = CONFIG_MODESP_MODR_MAX_SIZE;
+#elif defined(MODESP_MODR_MAX_SIZE_OVERRIDE)
+constexpr size_t MODR_MAX_SIZE = MODESP_MODR_MAX_SIZE_OVERRIDE;
+#else
+constexpr size_t MODR_MAX_SIZE = 4 * 1024;
+#endif
 
 // ── Header flags (modr_header.flags bitfield) ──
 

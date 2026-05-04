@@ -9,6 +9,7 @@
 #include "modesp/services/config_service.h"
 #include "esp_log.h"
 #include "esp_littlefs.h"
+#include "esp_heap_caps.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -20,11 +21,37 @@
 
 static const char* TAG = "ConfigSvc";
 
-// Спільний parse-буфер для board.json і bindings.json (boot-only, sequential calls)
-// Один набір замість двох static local — економія ~8 KB BSS
+// Phase 1.2 (з v4_max): парс-буфери на heap тільки на час on_init (~9.6 KB).
+// Раніше були static у BSS — ноукошлоштовно жерли RAM назавжди. Тепер
+// heap_caps_malloc(MALLOC_CAP_INTERNAL) для on_init, free після parse завершення.
+// Подальші reads ідуть через board_config_ / binding_table_ ETL containers.
 namespace {
-static char s_json_buf[4096];
-static jsmntok_t s_json_tokens[512];
+static constexpr size_t LOCAL_MAX_JSON_SIZE = 4096;
+static constexpr size_t LOCAL_MAX_TOKENS    = 512;
+
+static char*      s_json_buf    = nullptr;
+static jsmntok_t* s_json_tokens = nullptr;
+
+static bool allocate_parse_buffers() {
+    s_json_buf = static_cast<char*>(
+        heap_caps_malloc(LOCAL_MAX_JSON_SIZE,
+                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    s_json_tokens = static_cast<jsmntok_t*>(
+        heap_caps_malloc(LOCAL_MAX_TOKENS * sizeof(jsmntok_t),
+                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (!s_json_buf || !s_json_tokens) {
+        ESP_LOGE("ConfigSvc", "Parse buffer alloc failed (need ~9.6 KB free heap)");
+        if (s_json_buf)    { heap_caps_free(s_json_buf);    s_json_buf = nullptr; }
+        if (s_json_tokens) { heap_caps_free(s_json_tokens); s_json_tokens = nullptr; }
+        return false;
+    }
+    return true;
+}
+
+static void free_parse_buffers() {
+    if (s_json_buf)    { heap_caps_free(s_json_buf);    s_json_buf = nullptr; }
+    if (s_json_tokens) { heap_caps_free(s_json_tokens); s_json_tokens = nullptr; }
+}
 }  // namespace
 
 namespace modesp {
@@ -90,15 +117,26 @@ bool ConfigService::on_init() {
         return false;
     }
 
+    // Phase 1.2: парс-буфери на heap тільки на час on_init (~9.6 KB).
+    if (!allocate_parse_buffers()) {
+        return false;
+    }
+
     if (!parse_board_json()) {
         ESP_LOGE(TAG, "Failed to parse board.json");
+        free_parse_buffers();
         return false;
     }
 
     if (!parse_bindings_json()) {
         ESP_LOGE(TAG, "Failed to parse bindings.json");
+        free_parse_buffers();
         return false;
     }
+
+    // Парс завершено — звільняємо ~9.6 KB heap. Подальше читання config
+    // йде через board_config_ / binding_table_ (зкопійовані ETL-контейнери).
+    free_parse_buffers();
 
     ESP_LOGI(TAG, "Board: %s v%s (%d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_bus, %d i2c_exp)",
              board_config_.board_name.c_str(),

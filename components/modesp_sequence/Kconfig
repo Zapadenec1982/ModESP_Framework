@@ -1,0 +1,36 @@
+menu "ModESP Sequence Engine"
+
+    config MODESP_MAX_SEQUENCES
+        int "Maximum concurrent scenario instances"
+        range 1 8
+        default 2
+        help
+            Number of slots в SequenceEngine pool. Each slot holds one
+            loaded scenario (recipe). Per-slot static cost:
+              - Buffer: MODESP_MODR_MAX_SIZE bytes (default 4 KB)
+              - Runtime: ~600 bytes (state machine, dirty tracking)
+            Total per slot: ~MODESP_MODR_MAX_SIZE + 1 KB.
+
+            Default 2 = 2 concurrent scenarios. Bump only якщо ви маєте
+            real use case (e.g. multiple zones running independent recipes
+            у parallel). Each +1 slot costs ~5 KB RAM (із default sizes).
+
+    config MODESP_MODR_MAX_SIZE
+        int "Maximum .modr recipe binary size (bytes)"
+        range 1024 32768
+        default 4096
+        help
+            Pre-allocated buffer size per slot. Determines maximum recipe
+            complexity (phases × tracks × actions × params) що fits.
+
+            Typical sizes:
+              - Minimal recipe (1 track, 1 phase): ~120 bytes
+              - 2-track sync recipe: ~250 bytes
+              - 3-phase abstract test (2 tracks): ~760 bytes
+              - Complex 5-phase × 4-track із many actions: ~2-4 KB
+
+            Default 4 KB covers most realistic recipes із headroom. Bump
+            до 16 KB only якщо recipe author confirms size requirement.
+            Larger value = more RAM used (4 KB × MODESP_MAX_SEQUENCES static).
+
+endmenu

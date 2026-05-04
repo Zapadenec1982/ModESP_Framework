@@ -37,12 +37,17 @@ class SharedState;
 
 namespace modesp::sequence {
 
-/// Maximum concurrent scenario instances. Default матча plan Q2 (default 6,
-/// Kconfig 2-8). Per-slot memory ~16 KB buffer + ~600 B runtime, so 4 ≈ 66 KB.
-#ifndef MODESP_MAX_SEQUENCES
-#define MODESP_MAX_SEQUENCES 4
-#endif
+/// Maximum concurrent scenario instances. Configured через Kconfig
+/// CONFIG_MODESP_MAX_SEQUENCES (default 2). Per-slot static cost:
+///   buffer (MODR_MAX_SIZE bytes default 4K) + runtime (~600B + bool flags)
+/// So default 2 slots × ~5 KB = ~10 KB engine static cost.
+#ifdef CONFIG_MODESP_MAX_SEQUENCES
+constexpr size_t MAX_SEQUENCES = CONFIG_MODESP_MAX_SEQUENCES;
+#elif defined(MODESP_MAX_SEQUENCES)
 constexpr size_t MAX_SEQUENCES = MODESP_MAX_SEQUENCES;
+#else
+constexpr size_t MAX_SEQUENCES = 2;
+#endif
 
 /**
  * Multi-instance scenario engine. Owns slot pool, ResourceArbiter, і ticks
