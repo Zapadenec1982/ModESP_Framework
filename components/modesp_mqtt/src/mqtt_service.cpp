@@ -1041,32 +1041,18 @@ void MqttService::publish_ha_discovery() {
         const char* state_class;
     };
 
+    // Framework-generic HA discovery entities. Refrigeration-specific entries
+    // (compressor, defrost, evap/cond fans, thermostat alarms, protection.*)
+    // були removed at framework cleanup — це template project не has refrigeration
+    // bizlogic. Якщо ваш domain module exposes additional entities, або add them
+    // here або (better) drive це від manifest's `mqtt` section programmatically
+    // (Stage 1.5 — currently це table is hardcoded).
     static const EntityDef ENTITIES[] = {
-        // Температури
+        // Generic temperature sensor (якщо ваш bindings включає temp sensor)
         {"equipment.air_temp",          "Air Temperature",    "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        {"equipment.evap_temp",         "Evap Temperature",   "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        {"equipment.cond_temp",         "Cond Temperature",   "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        {"thermostat.setpoint",         "Setpoint",           "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        {"thermostat.effective_setpoint","Effective Setpoint", "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        // Бінарні стани обладнання
-        {"equipment.compressor",        "Compressor",         "binary_sensor", "",            "",            ""},
-        {"equipment.defrost_relay",     "Defrost Relay",      "binary_sensor", "",            "",            ""},
-        {"equipment.evap_fan",          "Evap Fan",           "binary_sensor", "",            "",            ""},
-        {"equipment.cond_fan",          "Cond Fan",           "binary_sensor", "",            "",            ""},
-        // Аварії
-        {"thermostat.alarm_active",     "Alarm Active",       "binary_sensor", "problem",     "",            ""},
-        {"protection.high_alarm",       "High Temp Alarm",    "binary_sensor", "problem",     "",            ""},
-        {"protection.low_alarm",        "Low Temp Alarm",     "binary_sensor", "problem",     "",            ""},
-        {"protection.rate_alarm",       "Rate-of-Change Alarm","binary_sensor","problem",     "",            ""},
-        {"protection.short_cycle_alarm","Short Cycle Alarm",  "binary_sensor", "problem",     "",            ""},
-        {"protection.rapid_cycle_alarm","Rapid Cycle Alarm",  "binary_sensor", "problem",     "",            ""},
-        // Текстові стани
-        {"thermostat.alarm_code",       "Alarm Code",         "sensor",        "",            "",            ""},
-        {"defrost.active",              "Defrost Active",     "binary_sensor", "",            "",            ""},
-        {"defrost.state",               "Defrost State",      "sensor",        "",            "",            ""},
-        // Діагностика
-        {"protection.compressor_hours", "Motor Hours",        "sensor",        "duration",    "h",           "total_increasing"},
-        {"protection.compressor_duty",  "Duty Cycle",         "sensor",        "",            "%",           "measurement"},
+        // Simple thermo setpoint (стандартний business module)
+        {"simple_thermo.setpoint",      "Setpoint",           "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
+        // Diagnostics
         {"system.uptime",               "Uptime",             "sensor",        "duration",    "s",           "total_increasing"},
         {"system.heap_free",            "Free Heap",          "sensor",        "",            "B",           "measurement"},
     };
