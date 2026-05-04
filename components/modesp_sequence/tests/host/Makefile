@@ -87,10 +87,15 @@ ENGINE_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/sequence_engine.cpp \
 # Sources for nvs_token test (full stack + nvs_token impl)
 NVS_SRCS := $(SYNC_SRCS) $(COMPONENT)/src/nvs_token.cpp
 
+# Sources for continuous primitives test (registry + primitives + SharedState)
+PRIMS_SRCS := $(COMPONENT)/src/continuous_registry.cpp \
+              $(COMPONENT)/src/continuous_primitives.cpp \
+              $(SS_HOST_SRC)
+
 # ── Test targets ──
 TESTS := test_action_registry test_continuous_registry test_builtin_actions \
          test_modr_loader test_resource_arbiter test_track_synchronization \
-         test_sequence_engine test_nvs_token
+         test_sequence_engine test_nvs_token test_continuous_primitives
 
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 EXEEXT :=
@@ -134,6 +139,10 @@ $(BUILD)/test_sequence_engine$(EXEEXT): $(THIS_DIR)test_sequence_engine.cpp $(EN
 # NVS token persistence test: full stack + nvs_token impl
 $(BUILD)/test_nvs_token$(EXEEXT): $(THIS_DIR)test_nvs_token.cpp $(NVS_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(NVS_SRCS)
+
+# Continuous primitives test: registry + primitives + SharedState (no engine)
+$(BUILD)/test_continuous_primitives$(EXEEXT): $(THIS_DIR)test_continuous_primitives.cpp $(PRIMS_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(SS_INCLUDES) -o $@ $< $(PRIMS_SRCS)
 
 # ── Build dir ──
 $(BUILD):

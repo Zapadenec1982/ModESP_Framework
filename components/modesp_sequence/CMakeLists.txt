@@ -23,6 +23,7 @@ idf_component_register(
         "src/sequence_instance.cpp"
         "src/sequence_engine.cpp"
         "src/nvs_token.cpp"
+        "src/continuous_primitives.cpp"
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"

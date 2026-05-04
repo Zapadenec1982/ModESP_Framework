@@ -115,6 +115,18 @@ TEST_CONFIG = {
             REPO_ROOT / "generated",
         ],
     },
+    "test_continuous_primitives": {
+        # Standalone primitives — need ContinuousRegistry і real SharedState.
+        "extra_sources": [
+            COMPONENT / "src" / "continuous_primitives.cpp",
+            REPO_ROOT / "tests" / "host" / "shared_state_host.cpp",
+        ],
+        "extra_includes": [
+            REPO_ROOT / "tests" / "host",
+            REPO_ROOT / "tests" / "host" / "mocks",
+            REPO_ROOT / "generated",
+        ],
+    },
     "test_nvs_token": {
         # Persistence token: needs builtins (registered conditions used by
         # any cond_pool entries в loaded scenario), modr_loader (validate fixture),
@@ -336,6 +348,15 @@ def test_sequence_engine_host(gpp, etl_include):
     COMPLETED, slot exhaustion (NO_SLOT), unload-then-reload, multi-instance
     independence, diagnostic accessors. ~16 sub-tests."""
     _run_host_test("test_sequence_engine", gpp, etl_include)
+
+
+def test_continuous_primitives_host(gpp, etl_include):
+    """ContinuousBehavior primitives: PidController, HysteresisController,
+    RampProfile. Algorithmic correctness — proportional response, output
+    clamping, integral anti-windup, hysteresis cooling/heating modes,
+    deactivate-forces-off safety, ramp linear interpolation, re-activate
+    resets, zero-duration clamping. ~12 sub-tests."""
+    _run_host_test("test_continuous_primitives", gpp, etl_include)
 
 
 def test_nvs_token_host(gpp, etl_include):
