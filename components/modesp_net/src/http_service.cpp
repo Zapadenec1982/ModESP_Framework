@@ -2043,7 +2043,12 @@ void HttpService::register_static_handler() {
 bool HttpService::start_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_uri_handlers = 48;
+    // Handler budget: 31 API endpoints + 1 OTA POST + ≤16 OPTIONS (CORS pre-
+    // flight) + 1 /ws + 2 MQTT + 1 static wildcard = ~52 currently. Bumped from
+    // 48 → 64 to accommodate scenario engine endpoints (Step 16b added 8) і
+    // leave headroom for future endpoints. Each handler slot costs ~24 bytes
+    // SRAM, so 64 = ~1.5 KB total (negligible).
+    config.max_uri_handlers = 64;
     config.max_open_sockets = 4;   // 3 WS + 1 HTTP; lwIP 10 total (1 listener + 4 sess + 1 MQTT = 6)
     config.stack_size = 8192;
 
