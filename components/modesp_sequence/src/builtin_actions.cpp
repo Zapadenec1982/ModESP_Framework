@@ -167,7 +167,16 @@ static ActionStatus do_time_elapsed_ms(ActionContext& ctx) {
 // Helper: compare StateValue to typed param value. Returns int analogous до
 // strcmp (negative, 0, positive) — simpler dispatch для cmp ops below.
 // Returns INT_MIN on type mismatch між state і param.
-static int compare_state_to_param(const StateValue& sv, const ActionParam& p) {
+//
+// String comparison branch (added post-HIL): когда state holds StringValue
+// AND param.type == STR, resolves param's string from the recipe's string
+// pool (passed through ctx pointers) і compares lexicographically through
+// strcmp. Без цього, recipes що read engine's string mirror keys (e.g.
+// state_key_eq{<recipe>.main_phase_name, "phase_c"}) silently failed
+// because all numeric branches fell through і returned INT32_MIN, causing
+// state_key_cmp_helper to return FAILED_ABORT — condition false forever.
+static int compare_state_to_param(const StateValue& sv, const ActionParam& p,
+                                  const char* string_pool, uint16_t pool_size) {
     // Determine variant active type
     if (auto pi = etl::get_if<int32_t>(&sv)) {
         if (p.type == static_cast<uint8_t>(ParamType::I32)) {
@@ -190,6 +199,21 @@ static int compare_state_to_param(const StateValue& sv, const ActionParam& p) {
     } else if (auto pb = etl::get_if<bool>(&sv)) {
         if (p.type == static_cast<uint8_t>(ParamType::BOOL)) {
             return (*pb == p.v.b) ? 0 : (*pb ? 1 : -1);
+        }
+    } else if (auto ps = etl::get_if<modesp::StringValue>(&sv)) {
+        if (p.type == static_cast<uint8_t>(ParamType::STR)) {
+            // Resolve param's string from the recipe's string pool.
+            uint16_t off = p.v.s_idx;
+            if (string_pool == nullptr || off >= pool_size) return INT32_MIN;
+            uint8_t len = static_cast<uint8_t>(string_pool[off]);
+            if (off + 1u + len > pool_size) return INT32_MIN;
+            // Inline strncmp із pool-bounded length
+            const char* state_str = ps->c_str();
+            int rc = std::strncmp(state_str, string_pool + off + 1, len);
+            if (rc != 0) return rc;
+            // Equal up to len chars; check state's length matches
+            return (state_str[len] == '\0') ? 0
+                 : (static_cast<unsigned char>(state_str[len]) > 0 ? 1 : -1);
         }
     }
     return INT32_MIN;  // type mismatch sentinel
@@ -216,7 +240,8 @@ static ActionStatus state_key_cmp_helper(ActionContext& ctx, CmpOp cmp_op) {
     if (!opt.has_value()) {
         return ActionStatus::FAILED_RECOVERABLE;  // key missing — condition false
     }
-    int cmp = compare_state_to_param(*opt, *val_p);
+    int cmp = compare_state_to_param(*opt, *val_p,
+                                      ctx.string_pool, ctx.string_pool_size);
     if (cmp == INT32_MIN) return ActionStatus::FAILED_ABORT;  // type mismatch
     return cmp_op(cmp) ? ActionStatus::OK : ActionStatus::FAILED_RECOVERABLE;
 }
@@ -258,8 +283,10 @@ static ActionStatus do_state_key_in_range(ActionContext& ctx) {
     auto opt = ctx.state->get(StateKey(keybuf));
     if (!opt.has_value()) return ActionStatus::FAILED_RECOVERABLE;
 
-    int cmp_min = compare_state_to_param(*opt, *min_p);
-    int cmp_max = compare_state_to_param(*opt, *max_p);
+    int cmp_min = compare_state_to_param(*opt, *min_p,
+                                          ctx.string_pool, ctx.string_pool_size);
+    int cmp_max = compare_state_to_param(*opt, *max_p,
+                                          ctx.string_pool, ctx.string_pool_size);
     if (cmp_min == INT32_MIN || cmp_max == INT32_MIN) return ActionStatus::FAILED_ABORT;
     return (cmp_min >= 0 && cmp_max <= 0) ? ActionStatus::OK : ActionStatus::FAILED_RECOVERABLE;
 }

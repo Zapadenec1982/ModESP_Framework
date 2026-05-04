@@ -408,6 +408,36 @@ TEST(state_key_eq_works_for_float) {
     assert(invoke_cond("state_key_eq", ctx) == ActionStatus::OK);
 }
 
+// Regression: state_key_eq must compare strings. Real-hardware HIL revealed
+// що recipes reading engine's string mirror keys (e.g. <recipe>.main_phase_name)
+// silently failed because compare_state_to_param treated string-vs-string as
+// type mismatch (INT32_MIN sentinel) → FAILED_ABORT → condition false forever.
+TEST(state_key_eq_works_for_string) {
+    setup();
+    SharedState ss;
+    // Engine writes mirror keys через SharedState::set(const char*) overload
+    // which stores etl::string<32> у the variant. Mirror this.
+    ss.set("a.phase", "phase_c");
+    StringPool pool;
+    uint16_t key_off = pool.add("a.phase");
+    uint16_t val_off = pool.add("phase_c");
+    ActionParam p_match[] = {
+        param_str("key", key_off),
+        param_str("value", val_off),
+    };
+    auto ctx_match = make_ctx(&ss, p_match, 2, pool.buf, pool.size);
+    assert(invoke_cond("state_key_eq", ctx_match) == ActionStatus::OK);
+
+    // Different value should NOT match
+    uint16_t val_diff = pool.add("phase_a");
+    ActionParam p_diff[] = {
+        param_str("key", key_off),
+        param_str("value", val_diff),
+    };
+    auto ctx_diff = make_ctx(&ss, p_diff, 2, pool.buf, pool.size);
+    assert(invoke_cond("state_key_eq", ctx_diff) == ActionStatus::FAILED_RECOVERABLE);
+}
+
 TEST(state_key_eq_works_for_bool) {
     setup();
     SharedState ss;
