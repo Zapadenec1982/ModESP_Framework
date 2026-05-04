@@ -44,19 +44,6 @@ static const ActionParam* find_param(ActionContext& ctx, uint16_t key_hash) {
     return nullptr;
 }
 
-// ── Helper: read string from pool by offset ──
-static const char* read_string(ActionContext& ctx, uint16_t offset) {
-    if (offset >= ctx.string_pool_size) return nullptr;
-    // String is length-prefixed (u8 length, then bytes). For action context,
-    // string_pool points до start of pool; offset 0 = first string.
-    uint8_t length = static_cast<uint8_t>(ctx.string_pool[offset]);
-    if (offset + 1 + length > ctx.string_pool_size) return nullptr;
-    // Return pointer past length byte. Caller must use length to bound reads.
-    // NOTE: returned pointer is NOT null-terminated within pool; caller
-    // должен copy or limit reads to declared length.
-    return &ctx.string_pool[offset + 1];
-}
-
 // Helper: copy interned string up to buffer size. Returns true on success.
 static bool copy_string(ActionContext& ctx, uint16_t offset, char* buf, size_t buf_size) {
     if (offset >= ctx.string_pool_size) return false;
