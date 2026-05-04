@@ -80,8 +80,8 @@ public:
     void set_engine(modesp::sequence::SequenceEngine* e) { engine_ = e; }
 
     bool on_init() override {
-        // Load recipe (engine resolves /lfs/scenarios/abs_test.modr)
-        handle_ = engine_->load_path("/lfs/scenarios/abs_test.modr");
+        // Load recipe (engine resolves /data/scenarios/abs_test.modr)
+        handle_ = engine_->load_path("/data/scenarios/abs_test.modr");
         if (handle_ == 0) {
             ESP_LOGE("biz", "load failed: %d",
                      static_cast<int>(engine_->last_error()));

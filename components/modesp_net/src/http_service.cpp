@@ -1847,13 +1847,14 @@ esp_err_t HttpService::handle_post_scenario_load(httpd_req_t* req) {
     }
 
     // Path validation: must live у LittleFS scenarios directory і contain no
-    // path traversal segments. Без цього, authenticated users could read
+    // path traversal segments. ModESP mounts LittleFS partition "data" at
+    // /data/ (per ConfigService). Без цього, authenticated users could read
     // arbitrary VFS-accessible files (oracle для filesystem layout, et al).
-    static constexpr const char* PREFIX = "/lfs/scenarios/";
+    static constexpr const char* PREFIX = "/data/scenarios/";
     if (std::strncmp(path, PREFIX, std::strlen(PREFIX)) != 0
      || std::strstr(path, "..") != nullptr) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                            "Path must start /lfs/scenarios/ і contain no '..'");
+                            "Path must start /data/scenarios/ і contain no '..'");
         return ESP_FAIL;
     }
 

@@ -36,7 +36,7 @@ manifest authoring до runtime execution.
 │  ├─ ResourceArbiter (ISA-88 §5.3 two-scope arbitration)               │
 │  ├─ ModrLoader (validates .modr blobs)                                │
 │  ├─ NvsToken (persist/recover state)                                  │
-│  └─ Loads .modr from /lfs/scenarios/<name>.modr                       │
+│  └─ Loads .modr from /data/scenarios/<name>.modr                       │
 │                                                                       │
 │  modules/<recipe_name>/  (no C++ code; recipe is manifest-only)       │
 │                                                                       │

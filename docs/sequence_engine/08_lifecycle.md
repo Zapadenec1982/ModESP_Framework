@@ -90,7 +90,7 @@ A business module triggers а recipe (typically on user action або system eve
 
 ```cpp
 // 1. Load
-SequenceHandle h = engine.load_path("/lfs/scenarios/abs_test.modr");
+SequenceHandle h = engine.load_path("/data/scenarios/abs_test.modr");
 if (h == 0) {
     ESP_LOGE(...); return;  // check engine.last_error()
 }
@@ -173,7 +173,7 @@ Power restored. Boot sequence runs normally up до Phase 2 init_all.
 A business module's `on_init` (або а dedicated recovery service) calls:
 
 ```cpp
-auto h = engine.load_path("/lfs/scenarios/abs_test.modr");
+auto h = engine.load_path("/data/scenarios/abs_test.modr");
 if (h == 0) return;
 
 EngineError err = engine.try_recover(h);

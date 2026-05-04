@@ -147,7 +147,7 @@ On firmware boot після reset:
 ```cpp
 // Step 1: Re-load recipe (recipe binary lives у LittleFS, persists
 // across reboots independent of NVS)
-auto handle = engine.load_path("/lfs/scenarios/abs_test.modr");
+auto handle = engine.load_path("/data/scenarios/abs_test.modr");
 if (handle == 0) { /* recipe missing */ return; }
 
 // Step 2: Attempt recovery

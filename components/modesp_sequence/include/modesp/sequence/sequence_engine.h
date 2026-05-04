@@ -115,7 +115,7 @@ public:
     /// Validates blob через modr_validate; rejects on any error.
     SequenceHandle load_buffer(const uint8_t* data, size_t size);
 
-    /// Load .modr from filesystem path (typically /lfs/scenarios/<name>.modr).
+    /// Load .modr from filesystem path (typically /data/scenarios/<name>.modr).
     /// Reads entire file into slot's buffer, then calls load_buffer's logic.
     /// Returns 0 on file-not-found, read-error, або validation failure.
     ///

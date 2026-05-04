@@ -8,7 +8,7 @@
  *
  * Authoring → JSON manifest section (`scenario`) у modules/<recipe>/manifest.json
  * Build-time → tools/compile_scenario.py emits .modr into data/scenarios/
- * Runtime    → SequenceEngine::load() reads .modr from /lfs/scenarios/
+ * Runtime    → SequenceEngine::load() reads .modr from /data/scenarios/
  *
  * **Specification reference:** docs/sequence_engine/02_binary_format.md
  * **ADR rationale:** docs/sequence_engine/adr/0001-binary-format-not-constexpr.md

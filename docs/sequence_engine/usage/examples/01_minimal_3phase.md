@@ -126,7 +126,7 @@ Result: small `.modr` (~250 bytes for це recipe). Verified by
 ### Run
 
 ```cpp
-auto h = engine.load_path("/lfs/scenarios/min_3p.modr");
+auto h = engine.load_path("/data/scenarios/min_3p.modr");
 engine.start(h);
 // ~7 seconds later: engine.state(h) == COMPLETED
 ```
