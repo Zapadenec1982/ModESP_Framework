@@ -36,9 +36,8 @@ class WiFiService;
 class PersistService;
 class HAL;
 
-namespace sequence {
-class SequenceEngine;  // forward
-}
+// Scenario engine forward decl removed during rebuild (Phase 0).
+// Returns у Phase 3 as `namespace scenario { class Engine; }`.
 
 class HttpService : public BaseModule {
 public:
@@ -55,8 +54,7 @@ public:
     void set_persist(PersistService* persist) { persist_ = persist; }
     void set_hal(HAL* hal) { hal_ = hal; }
     void set_datalogger(DataLoggerModule* dl) { datalogger_ = dl; }
-    void set_sequence_engine(sequence::SequenceEngine* eng) { sequence_engine_ = eng; }
-    sequence::SequenceEngine* sequence_engine() const { return sequence_engine_; }
+    // set_scenario_engine / scenario_engine() — added у Phase 3.
 
     // Server handle (needed by WsService)
     httpd_handle_t server() const { return server_; }
@@ -80,7 +78,7 @@ private:
     PersistService* persist_ = nullptr;
     HAL* hal_ = nullptr;
     DataLoggerModule* datalogger_ = nullptr;
-    sequence::SequenceEngine* sequence_engine_ = nullptr;
+    // scenario::Engine* scenario_engine_ — added у Phase 3.
 
     bool start_server();
     void register_api_handlers();
@@ -114,15 +112,8 @@ private:
     static esp_err_t handle_post_auth(httpd_req_t* req);
     static esp_err_t handle_static(httpd_req_t* req);
 
-    // Scenario engine API (Step 16b)
-    static esp_err_t handle_get_scenario_list(httpd_req_t* req);
-    static esp_err_t handle_get_scenario_info(httpd_req_t* req);
-    static esp_err_t handle_post_scenario_load(httpd_req_t* req);
-    static esp_err_t handle_post_scenario_start(httpd_req_t* req);
-    static esp_err_t handle_post_scenario_pause(httpd_req_t* req);
-    static esp_err_t handle_post_scenario_resume(httpd_req_t* req);
-    static esp_err_t handle_post_scenario_abort(httpd_req_t* req);
-    static esp_err_t handle_post_scenario_unload(httpd_req_t* req);
+    // Scenario engine API handlers — removed during rebuild (Phase 0).
+    // Return у Phase 3 з namespace modesp::scenario types.
 
     // CORS
     static esp_err_t handle_options(httpd_req_t* req);

@@ -1,5 +1,0 @@
-# Build artifacts from host tests
-build/
-*.exe
-*.o
-*.obj

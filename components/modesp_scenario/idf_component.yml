@@ -1,0 +1,12 @@
+## Track-based scenario orchestration engine for ModESP v4.
+##
+## Rebuild from monolithic modesp_sequence into а cohesive single component
+## with internal subdirectory separation. ETL no-heap, dependency-injected
+## state backend, mirror writes direct, NVS persistence as observer.
+##
+## See docs/scenario_engine/ (post-rebuild) for architecture details.
+
+dependencies:
+  marcel-cd/etlcpp: "^1.0.1"
+  idf:
+    version: ">=5.0"
