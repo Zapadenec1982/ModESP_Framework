@@ -42,9 +42,9 @@ In order:
 | [writing-a-module.md](02-module-author-guide/writing-a-module.md) | ✅ | C++ class anatomy + lifecycle hooks. |
 | [writing-a-driver.md](02-module-author-guide/writing-a-driver.md) | ✅ | IDriver subclass, registration, sensor/actuator patterns. |
 | [shared-state.md](02-module-author-guide/shared-state.md) | ✅ | Read/write patterns, change tracking, type rules. |
-| ui-widgets.md | ⏳ planned | Declarative UI generation. |
-| mqtt.md | ⏳ planned | Pub/sub setup. |
-| persistence.md | ⏳ planned | NVS through PersistService. |
+| [ui-widgets.md](02-module-author-guide/ui-widgets.md) | ✅ | Full widget catalog, cards, visible_when, i18n. |
+| [mqtt.md](02-module-author-guide/mqtt.md) | ✅ | Publish/subscribe semantics, topic format, HA discovery. |
+| [persistence.md](02-module-author-guide/persistence.md) | ✅ | NVS through PersistService, debounce, migrations. |
 | recipe-authoring.md | ⏳ planned | Scenario recipe structure. |
 | recipe-actions.md | ⏳ planned | Built-in actions і custom registration. |
 | continuous-behaviors.md | ⏳ planned | PID, hysteresis, ramp; custom. |

@@ -43,9 +43,9 @@ LittleFS partitioning.
 | [writing-a-module.md](02-module-author-guide/writing-a-module.md) | ✅ | Анатомія C++ класу + lifecycle hooks. |
 | [writing-a-driver.md](02-module-author-guide/writing-a-driver.md) | ✅ | IDriver subclass, реєстрація, sensor/actuator патерни. |
 | [shared-state.md](02-module-author-guide/shared-state.md) | ✅ | Read/write патерни, change tracking, type rules. |
-| ui-widgets.md | ⏳ planned | Декларативна генерація UI. |
-| mqtt.md | ⏳ planned | Налаштування pub/sub. |
-| persistence.md | ⏳ planned | NVS через PersistService. |
+| [ui-widgets.md](02-module-author-guide/ui-widgets.md) | ✅ | Повний каталог widgets, cards, visible_when, i18n. |
+| [mqtt.md](02-module-author-guide/mqtt.md) | ✅ | Publish/subscribe семантика, topic format, HA discovery. |
+| [persistence.md](02-module-author-guide/persistence.md) | ✅ | NVS через PersistService, debounce, migrations. |
 | recipe-authoring.md | ⏳ planned | Структура scenario рецептів. |
 | recipe-actions.md | ⏳ planned | Built-in actions і кастомна реєстрація. |
 | continuous-behaviors.md | ⏳ planned | PID, hysteresis, ramp; кастомні. |
