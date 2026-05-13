@@ -66,7 +66,7 @@ LittleFS partitioning.
 | components/modesp_json.md | ⏳ planned | JSON parsing і serialization. |
 | components/modesp_scenario.md | ⏳ planned | High-level огляд scenario engine. |
 | scenario-engine/ | ⏳ planned | Engine deep dive (буде link на migrated content). |
-| modules/equipment.md | ⏳ planned | Equipment Manager — bridge між sensor/actuator HAL. |
+| [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — bridge між sensor/actuator HAL. |
 | modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
 | modules/simple_thermo.md | ⏳ planned | Reference ON/OFF thermostat. |
 | modules/abs_test.md | ⏳ planned | Reference recipe з двома паралельними tracks. |
@@ -82,8 +82,8 @@ LittleFS partitioning.
 
 | Документ | Статус | Призначення |
 |---|---|---|
-| board-config.md | ⏳ planned | Схема `board.json` і приклади. |
-| bindings.md | ⏳ planned | `bindings.json` — driver↔GPIO mapping. |
+| [board-config.md](04-hardware/board-config.md) | ✅ | Схема `board.json` і приклади. |
+| [bindings.md](04-hardware/bindings.md) | ✅ | `bindings.json` — driver↔role mapping. |
 | ota.md | ⏳ planned | OTA flow, rollback, partition layout. |
 | deployment.md | ⏳ planned | Flash, monitor, factory reset. |
 

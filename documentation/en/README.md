@@ -65,7 +65,7 @@ In order:
 | components/modesp_json.md | ⏳ planned | JSON parsing і serialization utilities. |
 | components/modesp_scenario.md | ⏳ planned | Scenario engine high-level overview. |
 | scenario-engine/ | ⏳ planned | Engine deep dive (will link to migrated content as bridge). |
-| modules/equipment.md | ⏳ planned | Equipment Manager — sensor/actuator HAL bridge. |
+| [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — sensor/actuator HAL bridge. |
 | modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
 | modules/simple_thermo.md | ⏳ planned | Reference ON/OFF thermostat. |
 | modules/abs_test.md | ⏳ planned | Reference recipe з two parallel tracks. |
@@ -81,8 +81,8 @@ In order:
 
 | Document | Status | Purpose |
 |---|---|---|
-| board-config.md | ⏳ planned | `board.json` schema і examples. |
-| bindings.md | ⏳ planned | `bindings.json` — driver-to-GPIO mapping. |
+| [board-config.md](04-hardware/board-config.md) | ✅ | `board.json` schema і examples. |
+| [bindings.md](04-hardware/bindings.md) | ✅ | `bindings.json` — driver-to-role mapping. |
 | ota.md | ⏳ planned | OTA flow, rollback, partition layout. |
 | deployment.md | ⏳ planned | Flash, monitor, factory reset. |
 
