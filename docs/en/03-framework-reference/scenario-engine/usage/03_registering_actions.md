@@ -27,15 +27,15 @@ The plan calls `register_builtins()` once у `main.cpp` before module init —
 your module's registrations happen після that, у `on_init()`.
 
 ```cpp
-#include "modesp/sequence/action_registry.h"
-#include "modesp/sequence/action_param.h"
+#include "modesp/scenario/action_registry.h"
+#include "modesp/scenario/action_param.h"
 
 class MulticookerModule : public modesp::BaseModule {
 public:
     MulticookerModule() : BaseModule("mc", modesp::ModulePriority::NORMAL) {}
 
     bool on_init() override {
-        using namespace modesp::sequence;
+        using namespace modesp::scenario;
         auto& reg = ActionRegistry::instance();
 
         bool ok = true;
@@ -66,12 +66,12 @@ public:
     }
 
 private:
-    static modesp::sequence::ActionStatus action_set_target_temp(
-        modesp::sequence::ActionContext& ctx);
-    static modesp::sequence::ActionStatus action_start_pid(
-        modesp::sequence::ActionContext& ctx);
-    static modesp::sequence::ActionStatus cond_temp_within(
-        modesp::sequence::ActionContext& ctx);
+    static modesp::scenario::ActionStatus action_set_target_temp(
+        modesp::scenario::ActionContext& ctx);
+    static modesp::scenario::ActionStatus action_start_pid(
+        modesp::scenario::ActionContext& ctx);
+    static modesp::scenario::ActionStatus cond_temp_within(
+        modesp::scenario::ActionContext& ctx);
 };
 ```
 
@@ -115,8 +115,8 @@ Action handler looks up by hash:
 
 ```cpp
 ActionStatus MulticookerModule::action_set_target_temp(
-    modesp::sequence::ActionContext& ctx) {
-    using namespace modesp::sequence;
+    modesp::scenario::ActionContext& ctx) {
+    using namespace modesp::scenario;
 
     // Validate param count (also enforced by registry's param_min/max)
     if (ctx.param_count != 1) return ActionStatus::FAILED_ABORT;
@@ -230,8 +230,8 @@ action).
 ```cpp
 #include "modesp/base_module.h"
 #include "modesp/shared_state.h"
-#include "modesp/sequence/action_registry.h"
-#include "modesp/sequence/action_param.h"
+#include "modesp/scenario/action_registry.h"
+#include "modesp/scenario/action_param.h"
 #include "esp_log.h"
 
 class McDemoModule : public modesp::BaseModule {
@@ -239,7 +239,7 @@ public:
     McDemoModule() : BaseModule("mc_demo", modesp::ModulePriority::NORMAL) {}
 
     bool on_init() override {
-        using namespace modesp::sequence;
+        using namespace modesp::scenario;
         auto& reg = ActionRegistry::instance();
 
         bool ok = true;
@@ -259,10 +259,10 @@ public:
     }
 
 private:
-    using AS = modesp::sequence::ActionStatus;
-    using AC = modesp::sequence::ActionContext;
-    using AP = modesp::sequence::ActionParam;
-    using PT = modesp::sequence::ParamType;
+    using AS = modesp::scenario::ActionStatus;
+    using AC = modesp::scenario::ActionContext;
+    using AP = modesp::scenario::ActionParam;
+    using PT = modesp::scenario::ParamType;
 
     static const AP* find_param(AC& ctx, uint16_t key_hash) {
         for (uint8_t i = 0; i < ctx.param_count; ++i) {
@@ -272,7 +272,7 @@ private:
     }
 
     static AS action_set_target_temp(AC& ctx) {
-        const AP* p = find_param(ctx, modesp::sequence::djb2_hash16("temp"));
+        const AP* p = find_param(ctx, modesp::scenario::djb2_hash16("temp"));
         if (!p || p->type != static_cast<uint8_t>(PT::F32)) return AS::FAILED_ABORT;
         if (p->v.f < 0.0f || p->v.f > 200.0f) {
             ESP_LOGW("mc_demo", "target_temp %.1f° out of range", p->v.f);
@@ -284,7 +284,7 @@ private:
 
     /// Condition: true якщо |current - target| < tolerance (param "tol")
     static AS cond_temp_reached(AC& ctx) {
-        const AP* p = find_param(ctx, modesp::sequence::djb2_hash16("tol"));
+        const AP* p = find_param(ctx, modesp::scenario::djb2_hash16("tol"));
         if (!p || p->type != static_cast<uint8_t>(PT::F32)) return AS::FAILED_ABORT;
         auto cur = ctx.state->get("mc.current_temp");
         auto tgt = ctx.state->get("mc.target_temp");
@@ -363,7 +363,7 @@ elevates to error у CI.
 ## See also
 
 - [02_writing_recipes.md](02_writing_recipes.md) — recipe authoring side
-- `components/modesp_sequence/include/modesp/sequence/action_registry.h` —
+- `components/modesp_scenario/include/modesp/scenario/action_registry.h` —
   full API reference
-- `components/modesp_sequence/src/builtin_actions.cpp` — built-in actions
+- `components/modesp_scenario/src/builtin_actions.cpp` — built-in actions
   source (good template для your own implementations)

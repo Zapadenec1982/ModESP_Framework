@@ -1,12 +1,12 @@
 # 04 — State Machines
 
 The engine has two layered state machines: **per-scenario** (instance-level)
-і **per-track** (within а scenario). Both are implemented у `sequence_track.cpp`
-і `sequence_instance.cpp`.
+і **per-track** (within а scenario). Both are implemented у `track.cpp`
+і `instance.cpp`.
 
 ## Scenario state machine
 
-`SequenceRuntime::State` (defined у `sequence_state.h`):
+`SequenceRuntime::State` (defined у `runtime_types.h`):
 
 ```
                                   ┌──────────────────────────┐
@@ -121,7 +121,7 @@ main track failure is always terminal для scenario).
 
 ### Per-tick algorithm (track_tick)
 
-Pseudocode матча `sequence_track.cpp::track_tick`:
+Pseudocode матча `track.cpp::track_tick`:
 
 ```
 if state ∈ {IDLE, COMPLETED, FAILED}: return  # terminal або dormant
@@ -216,5 +216,5 @@ tick, useful для one-shot abort triggers controlled by SharedState flags.
 - [10_error_model.md](10_error_model.md#action-failure-policy-machine) — action failure policy details
 - [adr/0003-tick-order-sync-semantics.md](adr/0003-tick-order-sync-semantics.md) — design rationale
 - [adr/0007-mandatory-phase-timeouts.md](adr/0007-mandatory-phase-timeouts.md) — why timeouts are required
-- Source: `components/modesp_sequence/src/sequence_track.cpp`,
-  `sequence_instance.cpp`
+- Source: `components/modesp_scenario/src/track.cpp`,
+  `instance.cpp`

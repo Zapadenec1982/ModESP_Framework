@@ -4,7 +4,7 @@
 
 ## Що це
 
-`components/modesp_sequence/` — це **переюзабельна бібліотека для побудови довільних часозалежних алгоритмів**, яку C++ business modules ModESP_v4 викликають програмно для виконання phased timeline scenarios.
+`components/modesp_scenario/` — це **переюзабельна бібліотека для побудови довільних часозалежних алгоритмів**, яку C++ business modules ModESP_v4 викликають програмно для виконання phased timeline scenarios.
 
 Engine вирішує одну конкретну проблему: **сьогодні business modules дублюють timeline logic вручну** (state machines, phase counters, transition guards) і змушені складно синхронізувати кілька паралельних процесів. Engine надає composable примітиви.
 

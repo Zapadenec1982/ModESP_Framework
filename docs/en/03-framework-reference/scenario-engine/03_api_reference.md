@@ -1,12 +1,12 @@
 # 03 — C++ API Reference
 
-Authoritative reference для public C++ API surface of `modesp::sequence`
-namespace. Source: `components/modesp_sequence/include/modesp/sequence/`.
+Authoritative reference для public C++ API surface of `modesp::scenario`
+namespace. Source: `components/modesp_scenario/include/modesp/scenario/`.
 
 ## Constants
 
 ```cpp
-namespace modesp::sequence {
+namespace modesp::scenario {
 
 // Slot pool — configurable via Kconfig MODESP_MAX_SEQUENCES
 constexpr size_t   MAX_SEQUENCES = 4;            // default; range 2..8
@@ -170,14 +170,14 @@ struct ActionDescriptor {
 
 ## `SequenceEngine` — public API
 
-`class SequenceEngine : public modesp::BaseModule`. Default constructor:
+`class Engine : public modesp::BaseModule`. Default constructor:
 `SequenceEngine(SharedState* state = nullptr)`.
 
 ### Construction і wiring
 
 ```cpp
 // Static instance
-static modesp::sequence::SequenceEngine engine;
+static modesp::scenario::SequenceEngine engine;
 
 // In main.cpp post-construction:
 engine.set_state(&app.state());
@@ -186,7 +186,7 @@ engine.set_state(&app.state());
 engine.set_nvs_callbacks(&write_fn, &read_fn, user_ctx);
 
 // Register builtins ONCE before any module init
-modesp::sequence::builtins::register_builtins();
+modesp::scenario::builtins::register_builtins();
 
 // Register engine з ModuleManager
 app.modules().register_module(engine);

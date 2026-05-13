@@ -69,15 +69,15 @@ Output `.modr` automatically bundled into LittleFS partition image.
 ## 3. Trigger from your business module
 
 ```cpp
-#include "modesp/sequence/sequence_engine.h"
-#include "modesp/sequence/builtin_actions.h"
+#include "modesp/scenario/engine.h"
+#include "modesp/scenario/builtin_actions.h"
 
 class MyBusinessModule : public modesp::BaseModule {
-    modesp::sequence::SequenceEngine* engine_;
-    modesp::sequence::SequenceHandle handle_ = 0;
+    modesp::scenario::SequenceEngine* engine_;
+    modesp::scenario::SequenceHandle handle_ = 0;
 
 public:
-    void set_engine(modesp::sequence::SequenceEngine* e) { engine_ = e; }
+    void set_engine(modesp::scenario::SequenceEngine* e) { engine_ = e; }
 
     bool on_init() override {
         // Load recipe (engine resolves /data/scenarios/abs_test.modr)
@@ -92,7 +92,7 @@ public:
 
     void on_some_event() {
         if (handle_ != 0
-         && engine_->state(handle_) == modesp::sequence::SequenceRuntime::State::LOADED) {
+         && engine_->state(handle_) == modesp::scenario::SequenceRuntime::State::LOADED) {
             engine_->start(handle_);
         }
     }
@@ -102,15 +102,15 @@ public:
 `main.cpp` integration (один раз при boot — see Step 16):
 
 ```cpp
-#include "modesp/sequence/sequence_engine.h"
-#include "modesp/sequence/builtin_actions.h"
+#include "modesp/scenario/engine.h"
+#include "modesp/scenario/builtin_actions.h"
 
-static modesp::sequence::SequenceEngine sequence_engine(&app.state());
+static modesp::scenario::SequenceEngine sequence_engine(&app.state());
 static MyBusinessModule biz_module;
 biz_module.set_engine(&sequence_engine);
 
 // Register builtins ONCE before any module init runs
-modesp::sequence::builtins::register_builtins();
+modesp::scenario::builtins::register_builtins();
 
 // Register engine before business modules що залежать від нього
 app.modules().register_module(sequence_engine);

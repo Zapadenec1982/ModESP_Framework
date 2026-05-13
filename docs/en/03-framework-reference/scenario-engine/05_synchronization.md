@@ -229,5 +229,5 @@ for це).
   — design rationale (why tick-order, not snapshot)
 - [usage/examples/02_dual_track_sync.md](usage/examples/02_dual_track_sync.md)
   — runnable cross-track sync example
-- Source test: `components/modesp_sequence/tests/host/test_track_synchronization.cpp`
+- Source test: `components/modesp_scenario/tests/host/test_track_synchronization.cpp`
 - [04_state_machines.md](04_state_machines.md) — track tick algorithm

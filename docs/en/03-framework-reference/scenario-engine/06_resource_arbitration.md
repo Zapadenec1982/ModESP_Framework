@@ -222,4 +222,4 @@ hung), instance B's phase eventually fails, scenario aborts.
 - [03_api_reference.md](03_api_reference.md#resourcearbiter--isa-88-53)
   — public API
 - [04_state_machines.md](04_state_machines.md) — WAITING_FOR_RESOURCE state behavior
-- Source: `components/modesp_sequence/src/resource_arbiter.cpp`
+- Source: `components/modesp_scenario/src/resource_arbiter.cpp`

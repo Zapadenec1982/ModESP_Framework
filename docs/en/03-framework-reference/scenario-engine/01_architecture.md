@@ -29,7 +29,7 @@ manifest authoring до runtime execution.
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        RUNTIME (ESP32)                                │
 │                                                                       │
-│  components/modesp_sequence/                                          │
+│  components/modesp_scenario/                                          │
 │  ├─ SequenceEngine (BaseModule, multi-instance, multi-track)          │
 │  ├─ ActionRegistry (domain modules register actions/conditions)       │
 │  ├─ ContinuousRegistry (Stage 2 — PID, hysteresis, ramp)              │

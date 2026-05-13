@@ -1,7 +1,7 @@
 # 02 — `.modr` Binary Format (v1)
 
 **Status:** Complete (Step 1).
-**Source of truth:** [`components/modesp_sequence/include/modesp/sequence/modr_format.h`](../../components/modesp_sequence/include/modesp/sequence/modr_format.h)
+**Source of truth:** [`components/modesp_scenario/include/modesp/scenario/modr_format.h`](../../components/modesp_scenario/include/modesp/scenario/modr_format.h)
 **Test invariants:** [`tools/tests/test_modr_format.py`](../../tools/tests/test_modr_format.py)
 **Golden binary:** [`tools/tests/fixtures/scenarios/minimal_v1.modr`](../../tools/tests/fixtures/scenarios/minimal_v1.modr) (114 bytes)
 

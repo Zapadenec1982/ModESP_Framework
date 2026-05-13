@@ -31,7 +31,7 @@ recipe.
      ↓ data/scenarios/<recipe>.modr   (file size 100B-16KB typical)
 
 3. ESP-IDF build:
-   - C++ компонент modesp_sequence builds engine code
+   - C++ компонент modesp_scenario builds engine code
    - LittleFS partition image bundles data/* (включно з data/scenarios/*.modr)
    - Final firmware: ELF + LFS image
 ```
@@ -59,7 +59,7 @@ Phase 1 modules init: ErrorService, LoggerService, ConfigService, ...
   ▼
 Phase 2 module preparation:
   - sequence_engine.set_state(&app.state())
-  - modesp::sequence::builtins::register_builtins()      ← built-in actions/conditions
+  - modesp::scenario::builtins::register_builtins()      ← built-in actions/conditions
   - sequence_engine.set_nvs_callbacks(write, read, ...)  ← persistence wiring
   - app.modules().register_module(sequence_engine)
   - modesp_register_modules(app)                          ← business modules incl.

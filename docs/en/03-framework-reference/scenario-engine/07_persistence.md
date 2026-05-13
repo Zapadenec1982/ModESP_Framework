@@ -216,5 +216,5 @@ bump, accept loss of in-progress scenarios. Document як known constraint.
 - [03_api_reference.md](03_api_reference.md#persistence-stage-1) — public callback API
 - [10_error_model.md](10_error_model.md) — recovery error codes
 - [adr/0001-binary-format-not-constexpr.md](adr/0001-binary-format-not-constexpr.md) — token format design
-- Source: `components/modesp_sequence/src/nvs_token.cpp`,
-  `sequence_engine.cpp::persist_scan` і `try_recover`
+- Source: `components/modesp_scenario/src/nvs_token.cpp`,
+  `engine.cpp::persist_scan` і `try_recover`

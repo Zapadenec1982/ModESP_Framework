@@ -163,5 +163,5 @@ HTTP status: 400 для recipe/caller errors, 500 для engine misconfiguration
   authoring mistakes that produce E02XX errors
 - [usage/03_registering_actions.md](usage/03_registering_actions.md) —
   W0220 / E0220 mitigation (registration timing)
-- `components/modesp_sequence/include/modesp/sequence/engine_error.h`
+- `components/modesp_scenario/include/modesp/scenario/engine_error.h`
   — authoritative source

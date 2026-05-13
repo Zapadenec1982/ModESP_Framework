@@ -1,6 +1,6 @@
 # Sequence Engine Documentation
 
-`components/modesp_sequence/` — track-based time-dependent algorithm engine для ModESP_v4.
+`components/modesp_scenario/` — track-based time-dependent algorithm engine для ModESP_v4.
 
 > **Status:** Stage 0 (specifications + skeleton) — implementation in progress. Most files are placeholders that fill out incrementally per implementation step. See plan at `.claude/plans/quirky-imagining-lake.md`.
 

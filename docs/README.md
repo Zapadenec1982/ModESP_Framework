@@ -1,37 +1,47 @@
-# ModESP v4 — Документація
+# ModESP v4 — Documentation / Документація
 
-## Архітектурна документація
+This is the documentation root. Pick а language:
 
-| Файл | Що описує |
-|------|-----------|
-| [01_architecture.md](01_architecture.md) | Шари системи, залежності, потік даних |
-| [02_core.md](02_core.md) | SharedState, BaseModule, ModuleManager, types.h |
-| [03_services.md](03_services.md) | Error, Watchdog, Config, Persist, Logger, SystemMonitor |
-| [04_best_practices.md](04_best_practices.md) | Правила коду: пам'ять, потоки, помилки, іменування |
-| [05_cooling_defrost.md](05_cooling_defrost.md) | Thermostat + Defrost: state machines, фази, параметри |
-| [06_roadmap.md](06_roadmap.md) | Дорожня карта: завершені та заплановані фази |
-| [07_equipment.md](07_equipment.md) | Equipment Manager + Protection module |
-| [08_webui.md](08_webui.md) | Svelte 4 WebUI: stores, widgets, pages, theme, i18n |
-| [09_datalogger.md](09_datalogger.md) | DataLogger: 6-channel logging, ChartWidget, API |
-| [10_manifest_standard.md](10_manifest_standard.md) | Стандарт маніфестів: Board, Driver, Module, Bindings |
+- 📖 **[English](en/README.md)** — full table of contents.
+- 📖 **[Українська](uk/README.md)** — повний зміст.
 
-## Інше
+## Structure / Структура
 
-| Файл | Що описує |
-|------|-----------|
-| [CHANGELOG.md](CHANGELOG.md) | Повний changelog проекту (з 2026-02-16) |
-| [archive/](archive/) | Історичні документи: audit, bugfixes, ранні специфікації |
+```
+docs/
+├── en/                              ← English documentation
+│   ├── 01-getting-started/
+│   ├── 02-module-author-guide/      ← Primary audience: module authors
+│   ├── 03-framework-reference/
+│   │   ├── components/              ← Per-component refs
+│   │   ├── modules/                 ← Per-module refs
+│   │   └── scenario-engine/         ← Scenario engine deep dive
+│   ├── 04-hardware/
+│   ├── 05-tools/
+│   ├── 06-contributing/
+│   └── adr/                         ← Architecture Decision Records
+└── uk/                              ← Дзеркало українською
+    └── (та сама структура)
+```
 
-## Робочі документи (корінь проекту)
+## Notes / Примітки
 
-| Файл | Призначення |
-|------|-------------|
-| `README.md` | Огляд проекту для GitHub |
-| `ARCHITECTURE.md` | Архітектурний огляд системи |
-| `LICENSE` | PolyForm Noncommercial License 1.0.0 |
+- **Project-level files stay at repo root:** [`README.md`](../README.md),
+  [`CHANGELOG.md`](CHANGELOG.md), [`CLAUDE.md`](../CLAUDE.md).
+- **Bilingual mirror:** every page у `en/` has а UK twin у `uk/` (and vice
+  versa) at the same relative path. Translations are independent — update
+  both when content changes.
+- **Format:** plain Markdown. No build step. Edit files і send PR.
+- **Stale references:** if you find leftover `modesp_sequence` references
+  (renamed → `modesp_scenario` у Phase 0 rebuild), please fix them — see
+  CHANGELOG entries under "Phase 0..4" для context.
 
-## Changelog
-- 2026-03-01 — Рефакторинг: повернено посилання на archive/, додано WISHLIST
-- 2026-02-24 — Переписано як індекс. Додано docs 07-09, CHANGELOG
-- 2026-02-20 — Оновлено: додано ревью/аудит файли
-- 2026-02-17 — Створено
+## Quick links / Швидкі посилання
+
+| Topic | EN | UK |
+|---|---|---|
+| Quickstart / Швидкий старт | [link](en/01-getting-started/quickstart.md) | [link](uk/01-getting-started/quickstart.md) |
+| Module Author Guide | [link](en/02-module-author-guide/overview.md) | [link](uk/02-module-author-guide/overview.md) |
+| Manifest reference | [link](en/02-module-author-guide/manifest.md) | [link](uk/02-module-author-guide/manifest.md) |
+| Scenario Engine | [link](en/03-framework-reference/scenario-engine/) | [link](uk/03-framework-reference/scenario-engine/) |
+| Architecture | [link](en/03-framework-reference/architecture.md) | [link](uk/03-framework-reference/architecture.md) |
