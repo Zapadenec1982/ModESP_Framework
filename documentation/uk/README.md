@@ -42,7 +42,7 @@ LittleFS partitioning.
 | [manifest.md](02-module-author-guide/manifest.md) | ✅ | Усі секції маніфесту з reference (module/recipe/driver). |
 | [writing-a-module.md](02-module-author-guide/writing-a-module.md) | ✅ | Анатомія C++ класу + lifecycle hooks. |
 | [writing-a-driver.md](02-module-author-guide/writing-a-driver.md) | ✅ | IDriver subclass, реєстрація, sensor/actuator патерни. |
-| shared-state.md | ⏳ planned | Read/write патерни, change tracking. |
+| [shared-state.md](02-module-author-guide/shared-state.md) | ✅ | Read/write патерни, change tracking, type rules. |
 | ui-widgets.md | ⏳ planned | Декларативна генерація UI. |
 | mqtt.md | ⏳ planned | Налаштування pub/sub. |
 | persistence.md | ⏳ planned | NVS через PersistService. |

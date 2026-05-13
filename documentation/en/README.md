@@ -41,7 +41,7 @@ In order:
 | [manifest.md](02-module-author-guide/manifest.md) | ✅ | All manifest sections referenced і explained (module/recipe/driver). |
 | [writing-a-module.md](02-module-author-guide/writing-a-module.md) | ✅ | C++ class anatomy + lifecycle hooks. |
 | [writing-a-driver.md](02-module-author-guide/writing-a-driver.md) | ✅ | IDriver subclass, registration, sensor/actuator patterns. |
-| shared-state.md | ⏳ planned | Read/write patterns, change tracking. |
+| [shared-state.md](02-module-author-guide/shared-state.md) | ✅ | Read/write patterns, change tracking, type rules. |
 | ui-widgets.md | ⏳ planned | Declarative UI generation. |
 | mqtt.md | ⏳ planned | Pub/sub setup. |
 | persistence.md | ⏳ planned | NVS through PersistService. |
