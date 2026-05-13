@@ -36,8 +36,9 @@ class WiFiService;
 class PersistService;
 class HAL;
 
-// Scenario engine forward decl removed during rebuild (Phase 0).
-// Returns у Phase 3 as `namespace scenario { class Engine; }`.
+namespace scenario {
+class Engine;  // forward — full include only у http_service.cpp
+}
 
 class HttpService : public BaseModule {
 public:
@@ -54,7 +55,8 @@ public:
     void set_persist(PersistService* persist) { persist_ = persist; }
     void set_hal(HAL* hal) { hal_ = hal; }
     void set_datalogger(DataLoggerModule* dl) { datalogger_ = dl; }
-    // set_scenario_engine / scenario_engine() — added у Phase 3.
+    void set_scenario_engine(scenario::Engine* eng) { scenario_engine_ = eng; }
+    scenario::Engine* scenario_engine() const { return scenario_engine_; }
 
     // Server handle (needed by WsService)
     httpd_handle_t server() const { return server_; }
@@ -78,7 +80,7 @@ private:
     PersistService* persist_ = nullptr;
     HAL* hal_ = nullptr;
     DataLoggerModule* datalogger_ = nullptr;
-    // scenario::Engine* scenario_engine_ — added у Phase 3.
+    scenario::Engine* scenario_engine_ = nullptr;
 
     bool start_server();
     void register_api_handlers();
@@ -112,8 +114,15 @@ private:
     static esp_err_t handle_post_auth(httpd_req_t* req);
     static esp_err_t handle_static(httpd_req_t* req);
 
-    // Scenario engine API handlers — removed during rebuild (Phase 0).
-    // Return у Phase 3 з namespace modesp::scenario types.
+    // Scenario engine API (Phase 3 — modesp::scenario types)
+    static esp_err_t handle_get_scenario_list(httpd_req_t* req);
+    static esp_err_t handle_get_scenario_info(httpd_req_t* req);
+    static esp_err_t handle_post_scenario_load(httpd_req_t* req);
+    static esp_err_t handle_post_scenario_start(httpd_req_t* req);
+    static esp_err_t handle_post_scenario_pause(httpd_req_t* req);
+    static esp_err_t handle_post_scenario_resume(httpd_req_t* req);
+    static esp_err_t handle_post_scenario_abort(httpd_req_t* req);
+    static esp_err_t handle_post_scenario_unload(httpd_req_t* req);
 
     // CORS
     static esp_err_t handle_options(httpd_req_t* req);

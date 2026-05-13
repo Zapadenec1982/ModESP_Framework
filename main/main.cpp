@@ -39,8 +39,15 @@
 #include "modesp/net/ws_service.h"
 #include "modesp/services/nvs_helper.h"
 
-// Phase 5b: Scenario engine — temporarily removed during rebuild (Phase 0).
-// Restored у Phase 3 with namespace modesp::scenario.
+// Phase 5b: Scenario engine — track-based time-dependent algorithm runtime
+// (rebuilt у Phase 1-3 as modesp::scenario; replaces old modesp_sequence).
+#include "modesp/scenario/engine.h"
+#include "modesp/scenario/action_registry.h"
+#include "modesp/scenario/continuous_behavior.h"   // ContinuousRegistry
+#include "modesp/scenario/builtin_actions.h"
+#include "modesp/scenario/continuous_primitives.h"
+#include "modesp/scenario/nvs_observer.h"
+#include "shared_state_backend.h"  // local adapter (main/)
 
 // Cloud backend (compile-time Kconfig choice)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
@@ -84,8 +91,11 @@ static modesp::WiFiService     wifi_service;
 static modesp::HttpService     http_service;
 static modesp::WsService       ws_service;
 
-// Scenario engine — temporarily removed during rebuild (Phase 0).
-// Restored у Phase 3 with namespace modesp::scenario.
+// Scenario engine instances — registries owned at file scope (so они survive
+// outside app_main). Engine, backend, observer are static-local inside app_main
+// because they need app.state() reference at construction time.
+static modesp::scenario::ActionRegistry     scenario_actions;
+static modesp::scenario::ContinuousRegistry scenario_continuous;
 
 // Cloud backend (compile-time Kconfig choice)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
@@ -206,9 +216,60 @@ extern "C" void app_main(void)
     // ── Step 7: Register all modules (auto-generated from project.json) ──
     equipment.bind_drivers(driver_manager);
 
-    // Scenario engine wiring temporarily removed during rebuild (Phase 0).
-    // Restored у Phase 3 with namespace modesp::scenario + Engine ctor injection
-    // of ActionRegistry, ContinuousRegistry, NvsObserver.
+    // ── Step 7a: Scenario engine wiring (Phase 3 rebuild) ──
+    //
+    // Stack (constexpr-known у static locals, lifetime = program):
+    //   shared_state_backend  IStateBackend adapter wrapping app.state()
+    //   nvs_obs               IEngineObserver — edge-triggered NVS persistence
+    //   obs_list              etl::span<IEngineObserver*> passed to Engine ctor
+    //   scenario_engine       Engine instance — owns slot pool + arbiter
+    //
+    // Engine takes references to registries (action/continuous), backend, and
+    // observers span. No singletons; constexpr-known set of observers.
+    static SharedStateBackend shared_state_backend(app.state());
+
+    // NVS persistence callbacks (block I/O — observer batches writes per
+    // throttle policy).
+    static auto seq_nvs_write = [](void* /*user*/, uint8_t slot,
+                                    const uint8_t* token, size_t len) -> bool {
+        char key[8];
+        std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
+        return modesp::nvs_helper::write_blob("scnstate", key, token, len);
+    };
+    static auto seq_nvs_read = [](void* /*user*/, uint8_t slot,
+                                   uint8_t* buf, size_t* in_out_len) -> bool {
+        char key[8];
+        std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
+        size_t out_len = 0;
+        bool ok = modesp::nvs_helper::read_blob("scnstate", key, buf,
+                                                 *in_out_len, out_len);
+        if (ok) *in_out_len = out_len;
+        return ok;
+    };
+
+    static modesp::scenario::NvsObserver scenario_nvs_obs(
+        seq_nvs_write, seq_nvs_read, /*user=*/nullptr);
+
+    // Observer span — pointer array stored у static array, span wraps it.
+    static modesp::scenario::IEngineObserver* scenario_obs_list[] = {
+        &scenario_nvs_obs,
+    };
+
+    static modesp::scenario::Engine scenario_engine(
+        shared_state_backend,
+        scenario_actions,
+        scenario_continuous,
+        scenario_obs_list);
+
+    // Observer needs engine pointer to read runtime state for serialization.
+    scenario_nvs_obs.bind_engine(scenario_engine);
+
+    // Populate registries — built-in actions/conditions + continuous primitives.
+    modesp::scenario::builtins::register_builtins(scenario_actions);
+    modesp::scenario::primitives::register_primitives(scenario_continuous);
+
+    // Register engine as а BaseModule (HIGH priority — ticks before NORMAL business).
+    app.modules().register_module(scenario_engine);
 
     modesp_register_modules(app);
 
@@ -245,7 +306,7 @@ extern "C" void app_main(void)
     http_service.set_persist(&persist_service);
     http_service.set_hal(&hal);
     http_service.set_datalogger(&datalogger);
-    // http_service.set_scenario_engine — wired у Phase 3.
+    http_service.set_scenario_engine(&scenario_engine);
 
     ws_service.set_state(&app.state());
 

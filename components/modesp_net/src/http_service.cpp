@@ -13,8 +13,7 @@
 #include "modesp/types.h"
 #include "ds18b20_driver.h"
 #include "datalogger_module.h"
-// modesp/sequence/sequence_engine.h removed during scenario rebuild (Phase 0).
-// Will return as modesp/scenario/engine.h у Phase 3.
+#include "modesp/scenario/engine.h"  // Phase 3: restored з modesp::scenario types
 
 #include "esp_log.h"
 #include "esp_system.h"
@@ -1621,6 +1620,326 @@ esp_err_t HttpService::handle_post_auth(httpd_req_t* req) {
     httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
+// ─────────────────────────────────────────────────────────────────
+// Scenario engine API handlers (Phase 3 restore — new modesp::scenario namespace)
+// ─────────────────────────────────────────────────────────────────
+//
+// REST surface для Engine:
+//   POST /api/scenario/load    {"path": "/lfs/scenarios/<recipe>.modr"} → {"handle": N}
+//   POST /api/scenario/start   {"handle": N}                          → {"ok": true}
+//   POST /api/scenario/pause   {"handle": N}                          → {"ok": true}
+//   POST /api/scenario/resume  {"handle": N}                          → {"ok": true}
+//   POST /api/scenario/abort   {"handle": N, "reason": M (opt)}       → {"ok": true}
+//   POST /api/scenario/unload  {"handle": N}                          → {"ok": true}
+//   GET  /api/scenario/list                                            → {"active": N, "count": ...}
+//   GET  /api/scenario/info?handle=N                                   → {"state": "...", "tracks": [...]}
+//
+// /api/scenario/upload (multipart .modr upload + server-side validation)
+// deferred to Stage 1.5 — needs multipart form parser.
+
+namespace {
+
+// Helper: extract integer "handle" з JSON body. Returns false якщо missing
+// або out of valid range. Body must be already null-terminated.
+bool extract_handle(const char* buf, int len, modesp::scenario::SequenceHandle& out) {
+    jsmn_parser p;
+    jsmntok_t tokens[16];
+    jsmn_init(&p);
+    int r = jsmn_parse(&p, buf, len, tokens, 16);
+    if (r < 1 || tokens[0].type != JSMN_OBJECT) return false;
+    for (int i = 1; i + 1 < r; i += 2) {
+        if (tokens[i].type != JSMN_STRING) continue;
+        const int klen = tokens[i].end - tokens[i].start;
+        if (klen == 6 && std::strncmp(buf + tokens[i].start, "handle", 6) == 0) {
+            const int vlen = tokens[i+1].end - tokens[i+1].start;
+            char vbuf[8] = {0};
+            if (vlen >= (int)sizeof(vbuf)) return false;
+            std::memcpy(vbuf, buf + tokens[i+1].start, vlen);
+            int v = std::atoi(vbuf);
+            if (v < 1 || v > 255) return false;
+            out = static_cast<modesp::scenario::SequenceHandle>(v);
+            return true;
+        }
+    }
+    return false;
+}
+
+const char* engine_error_str(modesp::scenario::EngineError e) {
+    using EE = modesp::scenario::EngineError;
+    switch (e) {
+        case EE::OK:                    return "ok";
+        case EE::INVALID_FILE:          return "invalid_file";
+        case EE::UNSUPPORTED_VERSION:   return "unsupported_version";
+        case EE::CRC_MISMATCH:          return "crc_mismatch";
+        case EE::BUFFER_OVERFLOW:       return "buffer_overflow";
+        case EE::UNKNOWN_ACTION:        return "unknown_action";
+        case EE::UNKNOWN_CONDITION:     return "unknown_condition";
+        case EE::INVALID_TRANSITION:    return "invalid_transition";
+        case EE::TOO_MANY_TRACKS:       return "too_many_tracks";
+        case EE::NAME_TOO_LONG:         return "name_too_long";
+        case EE::NO_SLOT:               return "no_slot";
+        case EE::NOT_LOADED:            return "not_loaded";
+        case EE::INVALID_HANDLE:        return "invalid_handle";
+        case EE::INVALID_TRACK:         return "invalid_track";
+        case EE::PARAM_OUT_OF_RANGE:    return "param_out_of_range";
+        case EE::PARAM_NOT_OVERRIDABLE: return "param_not_overridable";
+        case EE::RESOURCE_CONTENDED:    return "resource_contended";
+        case EE::NVS_ERROR:             return "nvs_error";
+        case EE::ABORTED_BY_SAFETY:     return "aborted_by_safety";
+    }
+    return "unknown";
+}
+
+const char* state_str(modesp::scenario::SequenceRuntime::State s) {
+    using SS = modesp::scenario::SequenceRuntime::State;
+    switch (s) {
+        case SS::IDLE:      return "idle";
+        case SS::LOADED:    return "loaded";
+        case SS::RUNNING:   return "running";
+        case SS::PAUSED:    return "paused";
+        case SS::ABORTING:  return "aborting";
+        case SS::COMPLETED: return "completed";
+        case SS::FAILED:    return "failed";
+    }
+    return "unknown";
+}
+
+void send_error_json(httpd_req_t* req, modesp::scenario::EngineError e) {
+    char body[96];
+    std::snprintf(body, sizeof(body),
+                  "{\"ok\":false,\"error\":\"%s\"}", engine_error_str(e));
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+}
+
+bool require_engine(httpd_req_t* req, modesp::scenario::Engine*& out) {
+    auto* self = static_cast<HttpService*>(req->user_ctx);
+    if (!self || !self->server()) return false;  // shouldn't happen
+    // Engine pointer access via friend-style helper. Since set_scenario_engine
+    // stores у private member, we expose через а getter-pattern below.
+    out = self->scenario_engine();
+    if (!out) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Engine not configured");
+        return false;
+    }
+    return true;
+}
+
+}  // anonymous namespace
+
+esp_err_t HttpService::handle_get_scenario_list(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
+    modesp::scenario::Engine* eng = nullptr;
+    if (!require_engine(req, eng)) return ESP_FAIL;
+
+    char buf[512];
+    int n = std::snprintf(buf, sizeof(buf), "{\"active\":%u,\"slots\":[",
+                          eng->active_count());
+    bool first = true;
+    for (uint8_t i = 1; i <= modesp::scenario::MAX_SEQUENCES; ++i) {
+        auto state = eng->state(i);
+        if (state == modesp::scenario::SequenceRuntime::State::IDLE) continue;
+        if (!first) n += std::snprintf(buf + n, sizeof(buf) - n, ",");
+        n += std::snprintf(buf + n, sizeof(buf) - n,
+                           "{\"handle\":%u,\"state\":\"%s\",\"tracks\":%u,"
+                           "\"elapsed_s\":%lu}",
+                           i, state_str(state), eng->track_count(i),
+                           static_cast<unsigned long>(eng->scenario_elapsed_ms(i) / 1000));
+        first = false;
+    }
+    n += std::snprintf(buf + n, sizeof(buf) - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buf, n);
+    return ESP_OK;
+}
+
+esp_err_t HttpService::handle_get_scenario_info(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
+    modesp::scenario::Engine* eng = nullptr;
+    if (!require_engine(req, eng)) return ESP_FAIL;
+
+    char qbuf[64];
+    if (httpd_req_get_url_query_str(req, qbuf, sizeof(qbuf)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing handle");
+        return ESP_FAIL;
+    }
+    char hstr[8] = {0};
+    if (httpd_query_key_value(qbuf, "handle", hstr, sizeof(hstr)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing handle");
+        return ESP_FAIL;
+    }
+    int handle = std::atoi(hstr);
+    if (handle < 1 || handle > 255) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid handle");
+        return ESP_FAIL;
+    }
+    auto h = static_cast<modesp::scenario::SequenceHandle>(handle);
+
+    char buf[512];
+    int n = std::snprintf(buf, sizeof(buf),
+                          "{\"handle\":%u,\"state\":\"%s\",\"elapsed_s\":%lu,\"tracks\":[",
+                          h, state_str(eng->state(h)),
+                          static_cast<unsigned long>(eng->scenario_elapsed_ms(h) / 1000));
+    uint8_t tc = eng->track_count(h);
+    for (uint8_t t = 0; t < tc; ++t) {
+        if (t > 0) n += std::snprintf(buf + n, sizeof(buf) - n, ",");
+        const char* ts = "unknown";
+        switch (eng->track_state(h, t)) {
+            case modesp::scenario::TrackRuntime::State::IDLE:      ts = "idle"; break;
+            case modesp::scenario::TrackRuntime::State::RUNNING:   ts = "running"; break;
+            case modesp::scenario::TrackRuntime::State::WAITING_FOR_RESOURCE: ts = "waiting"; break;
+            case modesp::scenario::TrackRuntime::State::ABORTING:  ts = "aborting"; break;
+            case modesp::scenario::TrackRuntime::State::COMPLETED: ts = "completed"; break;
+            case modesp::scenario::TrackRuntime::State::FAILED:    ts = "failed"; break;
+        }
+        n += std::snprintf(buf + n, sizeof(buf) - n,
+                           "{\"idx\":%u,\"state\":\"%s\",\"phase_idx\":%u,\"phase_elapsed_s\":%lu}",
+                           t, ts, eng->track_phase_idx(h, t),
+                           static_cast<unsigned long>(eng->track_phase_elapsed_ms(h, t) / 1000));
+    }
+    n += std::snprintf(buf + n, sizeof(buf) - n, "]}");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buf, n);
+    return ESP_OK;
+}
+
+esp_err_t HttpService::handle_post_scenario_load(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
+    modesp::scenario::Engine* eng = nullptr;
+    if (!require_engine(req, eng)) return ESP_FAIL;
+
+    char body[256];
+    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    body[len] = '\0';
+
+    // Parse {"path": "<lfs path>"}
+    jsmn_parser p;
+    jsmntok_t tokens[8];
+    jsmn_init(&p);
+    int r = jsmn_parse(&p, body, len, tokens, 8);
+    if (r < 1 || tokens[0].type != JSMN_OBJECT) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    char path[80] = {0};
+    for (int i = 1; i + 1 < r; i += 2) {
+        if (tokens[i].type != JSMN_STRING) continue;
+        const int klen = tokens[i].end - tokens[i].start;
+        if (klen == 4 && std::strncmp(body + tokens[i].start, "path", 4) == 0) {
+            const int vlen = tokens[i+1].end - tokens[i+1].start;
+            if (vlen <= 0 || vlen >= (int)sizeof(path)) {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad path");
+                return ESP_FAIL;
+            }
+            std::memcpy(path, body + tokens[i+1].start, vlen);
+            break;
+        }
+    }
+    if (path[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing path");
+        return ESP_FAIL;
+    }
+
+    // Path validation: must live у LittleFS scenarios directory і contain no
+    // path traversal segments. ModESP mounts LittleFS partition "data" at
+    // /data/ (per ConfigService). Без цього, authenticated users could read
+    // arbitrary VFS-accessible files (oracle для filesystem layout, et al).
+    static constexpr const char* PREFIX = "/data/scenarios/";
+    if (std::strncmp(path, PREFIX, std::strlen(PREFIX)) != 0
+     || std::strstr(path, "..") != nullptr) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Path must start /data/scenarios/ і contain no '..'");
+        return ESP_FAIL;
+    }
+
+    auto h = eng->load_path(path);
+    if (h == 0) {
+        send_error_json(req, eng->last_error());
+        return ESP_OK;
+    }
+    char resp[64];
+    int n = std::snprintf(resp, sizeof(resp), "{\"ok\":true,\"handle\":%u}", h);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp, n);
+    return ESP_OK;
+}
+
+namespace {
+
+// Shared helper для start/pause/resume/abort/unload — all take {"handle":N}
+// і call а method на engine, returning OK/error JSON.
+esp_err_t handle_post_lifecycle(httpd_req_t* req,
+                                modesp::scenario::EngineError (*op)(
+                                    modesp::scenario::Engine*,
+                                    modesp::scenario::SequenceHandle)) {
+    if (!HttpService::check_auth(req)) return ESP_OK;
+    modesp::scenario::Engine* eng = nullptr;
+    if (!require_engine(req, eng)) return ESP_FAIL;
+
+    char body[64];
+    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    body[len] = '\0';
+    modesp::scenario::SequenceHandle h = 0;
+    if (!extract_handle(body, len, h)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing handle");
+        return ESP_FAIL;
+    }
+    auto err = op(eng, h);
+    if (err != modesp::scenario::EngineError::OK) {
+        send_error_json(req, err);
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+}  // anonymous namespace
+
+esp_err_t HttpService::handle_post_scenario_start(httpd_req_t* req) {
+    return handle_post_lifecycle(req,
+        [](modesp::scenario::Engine* e, modesp::scenario::SequenceHandle h) {
+            return e->start(h);
+        });
+}
+
+esp_err_t HttpService::handle_post_scenario_pause(httpd_req_t* req) {
+    return handle_post_lifecycle(req,
+        [](modesp::scenario::Engine* e, modesp::scenario::SequenceHandle h) {
+            return e->pause(h);
+        });
+}
+
+esp_err_t HttpService::handle_post_scenario_resume(httpd_req_t* req) {
+    return handle_post_lifecycle(req,
+        [](modesp::scenario::Engine* e, modesp::scenario::SequenceHandle h) {
+            return e->resume(h);
+        });
+}
+
+esp_err_t HttpService::handle_post_scenario_abort(httpd_req_t* req) {
+    return handle_post_lifecycle(req,
+        [](modesp::scenario::Engine* e, modesp::scenario::SequenceHandle h) {
+            return e->abort(h, /*reason=*/0);
+        });
+}
+
+esp_err_t HttpService::handle_post_scenario_unload(httpd_req_t* req) {
+    return handle_post_lifecycle(req,
+        [](modesp::scenario::Engine* e, modesp::scenario::SequenceHandle h) {
+            return e->unload(h);
+        });
+}
+
 // ── Server setup ────────────────────────────────────────────────
 
 void HttpService::register_api_handlers() {
@@ -1654,8 +1973,15 @@ void HttpService::register_api_handlers() {
         {"/api/auth", HTTP_GET,  handle_get_auth},
         {"/api/auth", HTTP_POST, handle_post_auth},
 
-        // Scenario engine API — removed during rebuild (Phase 0).
-        // Returns у Phase 3 з namespace modesp::scenario.
+        // Scenario engine API (Phase 3 — modesp::scenario types)
+        {"/api/scenario/list",   HTTP_GET,  handle_get_scenario_list},
+        {"/api/scenario/info",   HTTP_GET,  handle_get_scenario_info},
+        {"/api/scenario/load",   HTTP_POST, handle_post_scenario_load},
+        {"/api/scenario/start",  HTTP_POST, handle_post_scenario_start},
+        {"/api/scenario/pause",  HTTP_POST, handle_post_scenario_pause},
+        {"/api/scenario/resume", HTTP_POST, handle_post_scenario_resume},
+        {"/api/scenario/abort",  HTTP_POST, handle_post_scenario_abort},
+        {"/api/scenario/unload", HTTP_POST, handle_post_scenario_unload},
     };
 
     // Реєструємо handlers + OPTIONS для CORS preflight
