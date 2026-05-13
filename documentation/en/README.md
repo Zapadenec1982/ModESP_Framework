@@ -38,8 +38,9 @@ In order:
 | Document | Status | Purpose |
 |---|---|---|
 | [overview.md](02-module-author-guide/overview.md) | ✅ | Module types, five core ideas, anatomy. |
-| manifest.md | ⏳ planned | All manifest sections referenced і explained. |
-| writing-a-module.md | ⏳ planned | C++ class anatomy + lifecycle hooks. |
+| [manifest.md](02-module-author-guide/manifest.md) | ✅ | All manifest sections referenced і explained (module/recipe/driver). |
+| [writing-a-module.md](02-module-author-guide/writing-a-module.md) | ✅ | C++ class anatomy + lifecycle hooks. |
+| [writing-a-driver.md](02-module-author-guide/writing-a-driver.md) | ✅ | IDriver subclass, registration, sensor/actuator patterns. |
 | shared-state.md | ⏳ planned | Read/write patterns, change tracking. |
 | ui-widgets.md | ⏳ planned | Declarative UI generation. |
 | mqtt.md | ⏳ planned | Pub/sub setup. |
@@ -68,6 +69,12 @@ In order:
 | modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
 | modules/simple_thermo.md | ⏳ planned | Reference ON/OFF thermostat. |
 | modules/abs_test.md | ⏳ planned | Reference recipe з two parallel tracks. |
+| drivers/ds18b20.md | ⏳ planned | Dallas OneWire temperature sensor. |
+| drivers/ntc.md | ⏳ planned | NTC thermistor via ADC. |
+| drivers/relay.md | ⏳ planned | GPIO relay actuator. |
+| drivers/pcf8574_relay.md | ⏳ planned | I2C-expanded relay (PCF8574). |
+| drivers/digital_input.md | ⏳ planned | GPIO contact input. |
+| drivers/pcf8574_input.md | ⏳ planned | I2C-expanded contact input. |
 | web-ui.md | ⏳ planned | Svelte SPA architecture, state stores. |
 
 ### 04 — Hardware

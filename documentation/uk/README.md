@@ -39,8 +39,9 @@ LittleFS partitioning.
 | Документ | Статус | Призначення |
 |---|---|---|
 | [overview.md](02-module-author-guide/overview.md) | ✅ | Типи модулів, п'ять core ідей, анатомія. |
-| manifest.md | ⏳ planned | Усі секції маніфесту з reference і поясненнями. |
-| writing-a-module.md | ⏳ planned | Анатомія C++ класу + lifecycle hooks. |
+| [manifest.md](02-module-author-guide/manifest.md) | ✅ | Усі секції маніфесту з reference (module/recipe/driver). |
+| [writing-a-module.md](02-module-author-guide/writing-a-module.md) | ✅ | Анатомія C++ класу + lifecycle hooks. |
+| [writing-a-driver.md](02-module-author-guide/writing-a-driver.md) | ✅ | IDriver subclass, реєстрація, sensor/actuator патерни. |
 | shared-state.md | ⏳ planned | Read/write патерни, change tracking. |
 | ui-widgets.md | ⏳ planned | Декларативна генерація UI. |
 | mqtt.md | ⏳ planned | Налаштування pub/sub. |
@@ -69,6 +70,12 @@ LittleFS partitioning.
 | modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
 | modules/simple_thermo.md | ⏳ planned | Reference ON/OFF thermostat. |
 | modules/abs_test.md | ⏳ planned | Reference recipe з двома паралельними tracks. |
+| drivers/ds18b20.md | ⏳ planned | Dallas OneWire температурний сенсор. |
+| drivers/ntc.md | ⏳ planned | NTC термістор через ADC. |
+| drivers/relay.md | ⏳ planned | GPIO реле-актуатор. |
+| drivers/pcf8574_relay.md | ⏳ planned | I2C-розширене реле (PCF8574). |
+| drivers/digital_input.md | ⏳ planned | GPIO контактний вхід. |
+| drivers/pcf8574_input.md | ⏳ planned | I2C-розширений контактний вхід. |
 | web-ui.md | ⏳ planned | Svelte SPA архітектура, state stores. |
 
 ### 04 — Hardware
