@@ -40,6 +40,7 @@ namespace modesp::scenario {
 class IStateBackend;
 class ActionRegistry;
 class ContinuousRegistry;
+class NvsObserver;
 
 /// Maximum concurrent scenario instances. Configured через Kconfig
 /// CONFIG_MODESP_MAX_SEQUENCES (default 2 — per-slot cost MODR_MAX_SIZE + ~600 B).
@@ -101,6 +102,13 @@ public:
 
     /// Force ABORTING state. Tracks transition straight to FAILED.
     EngineError abort(SequenceHandle h, uint8_t reason_code = 0);
+
+    /// Attempt to recover persisted state for already-loaded slot. Caller
+    /// passes the NvsObserver instance explicitly (engine doesn't ID-cast
+    /// observers — recovery is а round-trip operation that doesn't fit the
+    /// fire-and-forget observer event model). On success, slot's runtime
+    /// restored AND state set to PAUSED (manual resume required per plan Q8).
+    EngineError try_recover(SequenceHandle h, NvsObserver& nvs);
 
     // ── Diagnostic accessors ──
 

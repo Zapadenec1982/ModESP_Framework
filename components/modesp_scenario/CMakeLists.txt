@@ -27,6 +27,8 @@ idf_component_register(
         "src/arbiter/resource_arbiter.cpp"
         # observers
         "src/observers/mirror.cpp"
+        "src/observers/nvs_observer.cpp"
+        "src/observers/nvs_token.cpp"
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"
@@ -40,4 +42,5 @@ idf_component_register(
         esp_timer
         esp_system
         freertos
+        nvs_flash
 )

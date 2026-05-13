@@ -46,13 +46,30 @@ INCLUDES := \
 # ── Sources ──
 REG_SRCS := $(COMPONENT)/src/actions/action_registry.cpp
 
+NVS_TOKEN_SRCS := \
+    $(COMPONENT)/src/observers/nvs_token.cpp \
+    $(COMPONENT)/src/core/modr_loader.cpp \
+    $(COMPONENT)/src/actions/action_registry.cpp
+
+NVS_OBS_SRCS := \
+    $(COMPONENT)/src/observers/nvs_observer.cpp \
+    $(COMPONENT)/src/observers/nvs_token.cpp \
+    $(COMPONENT)/src/observers/mirror.cpp \
+    $(COMPONENT)/src/core/engine.cpp \
+    $(COMPONENT)/src/core/instance.cpp \
+    $(COMPONENT)/src/core/track.cpp \
+    $(COMPONENT)/src/core/modr_loader.cpp \
+    $(COMPONENT)/src/arbiter/resource_arbiter.cpp \
+    $(COMPONENT)/src/actions/action_registry.cpp \
+    $(COMPONENT)/src/continuous/continuous_registry.cpp
+
 # ── Test targets ──
 EXEEXT :=
 ifeq ($(OS),Windows_NT)
     EXEEXT := .exe
 endif
 
-TESTS := test_action_registry
+TESTS := test_action_registry test_nvs_token test_nvs_observer
 TEST_BINS := $(addprefix $(BUILD)/,$(addsuffix $(EXEEXT),$(TESTS)))
 
 # ── Default target ──
@@ -61,6 +78,12 @@ all: $(TEST_BINS)
 
 $(BUILD)/test_action_registry$(EXEEXT): $(THIS_DIR)test_action_registry.cpp $(REG_SRCS) | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(REG_SRCS)
+
+$(BUILD)/test_nvs_token$(EXEEXT): $(THIS_DIR)test_nvs_token.cpp $(NVS_TOKEN_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(NVS_TOKEN_SRCS)
+
+$(BUILD)/test_nvs_observer$(EXEEXT): $(THIS_DIR)test_nvs_observer.cpp $(NVS_OBS_SRCS) | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $< $(NVS_OBS_SRCS)
 
 $(BUILD):
 	@mkdir -p $(BUILD)

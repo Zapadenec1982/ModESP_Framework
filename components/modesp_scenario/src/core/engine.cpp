@@ -15,6 +15,7 @@
 #include "modesp/scenario/continuous_behavior.h"  // ContinuousRegistry
 #include "modesp/scenario/i_state_backend.h"
 #include "modesp/scenario/modr_loader.h"
+#include "modesp/scenario/nvs_observer.h"   // NvsObserver — recovery routing
 
 #include "instance.h"
 #include "track.h"
@@ -55,6 +56,12 @@ void Engine::on_stop() {
 
 void Engine::on_update(uint32_t dt_ms) {
     RegistryRefs regs{actions_, continuous_};
+
+    // Advance observer tick counters (throttle policies, etc.). Once per tick
+    // per observer — engine doesn't peek into observer internals.
+    for (auto* obs : observers_) {
+        if (obs) obs->on_tick(dt_ms);
+    }
 
     for (size_t idx = 0; idx < MAX_SEQUENCES; ++idx) {
         Slot& s = slots_[idx];
@@ -286,6 +293,26 @@ EngineError Engine::resume(SequenceHandle h) {
     }
     s->runtime.state = SequenceRuntime::State::RUNNING;
     return EngineError::OK;
+}
+
+EngineError Engine::try_recover(SequenceHandle h, NvsObserver& nvs) {
+    Slot* s = slot_for(h);
+    if (!s) return EngineError::INVALID_HANDLE;
+    if (s->runtime.state != SequenceRuntime::State::LOADED) {
+        return EngineError::NOT_LOADED;
+    }
+    EngineError err = nvs.try_recover(h, s->runtime);
+    if (err == EngineError::OK) {
+        // Sync mirror edge tracking to recovered values so observer dispatch
+        // doesn't re-emit on_phase_entered спам для restored phases.
+        size_t idx = static_cast<size_t>(h - 1);
+        last_emitted_state_[idx] = s->runtime.state;
+        for (uint8_t t = 0; t < 6 && t < s->runtime.scenario.header()->track_count; ++t) {
+            last_emitted_phase_[idx][t] = s->runtime.tracks[t].phase_idx;
+        }
+    }
+    last_error_ = err;
+    return err;
 }
 
 EngineError Engine::abort(SequenceHandle h, uint8_t /*reason*/) {

@@ -51,6 +51,12 @@ public:
     virtual void on_scenario_terminal(SequenceHandle h, SequenceRuntime::State final_state) {
         (void)h; (void)final_state;
     }
+
+    /// Tick advance hook. Engine calls це once per `on_update()` for every
+    /// observer. Empty default. NvsObserver uses це до accumulate throttle
+    /// counters. Generic enough для any observer that needs tick-driven
+    /// internal state without touching engine FSM.
+    virtual void on_tick(uint32_t dt_ms) { (void)dt_ms; }
 };
 
 }  // namespace modesp::scenario
