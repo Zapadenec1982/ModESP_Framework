@@ -294,7 +294,7 @@ data/
 
 Switch board → rebuild → same firmware runs on different hardware.
 
-**Full guide:** [docs/BOARD_SETUP.md](docs/BOARD_SETUP.md) — 3 board examples, field reference, driver table.
+**Full guide:** [docs/en/04-hardware/board-config.md](docs/en/04-hardware/board-config.md) — 3 board examples, field reference, driver table *(legacy — being rewritten under `documentation/`)*.
 
 ---
 
@@ -349,16 +349,29 @@ tests/host/             # C++ doctest (host-compiled)
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [**TUTORIAL.md**](docs/TUTORIAL.md) | **Step-by-step: create your first module** (simple thermostat demo) |
-| [**BOARD_SETUP.md**](docs/BOARD_SETUP.md) | Hardware configuration: board.json, bindings.json, drivers |
-| [01_architecture.md](docs/01_architecture.md) | System architecture deep-dive |
-| [02_core.md](docs/02_core.md) | Core components: SharedState, ModuleManager, BaseModule |
-| [03_services.md](docs/03_services.md) | Services: Config, Persist, Error, Watchdog, Logger |
-| [08_webui.md](docs/08_webui.md) | WebUI: Svelte components, widgets, theming |
-| [09_datalogger.md](docs/09_datalogger.md) | DataLogger: manifest-driven channels + events |
-| [10_manifest_standard.md](docs/10_manifest_standard.md) | Manifest specification v2.0 |
+> 📖 **Current docs:** [`documentation/`](documentation/README.md) — bilingual
+> (EN + UK), being progressively rewritten з а single quality standard
+> ([STYLE.md](documentation/STYLE.md)).
+>
+> 📚 **Legacy docs:** [`docs/`](docs/README.md) — pre-rebuild content,
+> remains accessible while sections are rewritten.
+
+**Start here:**
+
+| Path | What you get |
+|---|---|
+| [documentation/en/01-getting-started/quickstart.md](documentation/en/01-getting-started/quickstart.md) | Flash, configure, run reference scenario у under 10 min |
+| [documentation/en/02-module-author-guide/overview.md](documentation/en/02-module-author-guide/overview.md) | Module types, core ideas, anatomy of а module folder |
+| [documentation/uk/](documentation/uk/README.md) | Українська версія (mirror) |
+
+**Reference (until rewritten):**
+
+| Document | Description | Location |
+|----------|-------------|----------|
+| Manifest specification v2.0 | All manifest sections | [docs/uk/02-module-author-guide/manifest.md](docs/uk/02-module-author-guide/manifest.md) (UK only) |
+| System architecture | Layers, dependencies | [docs/en/03-framework-reference/architecture.md](docs/en/03-framework-reference/architecture.md) |
+| Scenario engine deep dive | Engine internals, ADRs | [docs/en/03-framework-reference/scenario-engine/](docs/en/03-framework-reference/scenario-engine/) |
+| Tutorial: first module | Step-by-step thermostat | [docs/en/01-getting-started/tutorial-legacy.md](docs/en/01-getting-started/tutorial-legacy.md) |
 
 ---
 

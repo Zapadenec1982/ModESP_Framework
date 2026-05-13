@@ -1,0 +1,118 @@
+# ModESP v4 — Документація
+
+> 📖 **English version:** [documentation/en/](../en/README.md)
+> 📋 **Style guide:** [STYLE.md](../STYLE.md)
+
+ModESP v4 — **manifest-driven framework прошивок для ESP32**. Закидаєте
+module manifests, запускаєте build, отримуєте production-ready прошивку з
+автогенерованою схемою стану, віджетами WebUI, MQTT topics, OTA і
+LittleFS partitioning.
+
+Документація орієнтована на **module authors** — інженерів які пишуть
+бізнес-модулі і scenario рецепти поверх фреймворку. Інші аудиторії
+(контриб'ютори core, hardware integrators, operators) мають окремі розділи.
+
+## Звідки почати
+
+У порядку:
+
+1. **[Швидкий старт](01-getting-started/quickstart.md)** — прошити пристрій,
+   запустити reference scenario, побачити live state у WebUI. Менш ніж 10
+   хвилин.
+2. **[Концепції](01-getting-started/concepts.md)** *(planned)* — чотири
+   ключові ідеї (manifest-driven, modules, scenarios, SharedState).
+3. **[Module Author Guide → Огляд](02-module-author-guide/overview.md)** —
+   починаєте писати ваш перший модуль.
+
+## Навігація
+
+### 01 — Початок роботи
+
+| Документ | Статус | Призначення |
+|---|---|---|
+| [quickstart.md](01-getting-started/quickstart.md) | ✅ | Flash, налаштування, запуск reference scenario. |
+| installation.md | ⏳ planned | Встановлення ESP-IDF, клонування репо, перший build. |
+| concepts.md | ⏳ planned | Ментальна модель. |
+
+### 02 — Module Author Guide (Основна аудиторія)
+
+| Документ | Статус | Призначення |
+|---|---|---|
+| [overview.md](02-module-author-guide/overview.md) | ✅ | Типи модулів, п'ять core ідей, анатомія. |
+| manifest.md | ⏳ planned | Усі секції маніфесту з reference і поясненнями. |
+| writing-a-module.md | ⏳ planned | Анатомія C++ класу + lifecycle hooks. |
+| shared-state.md | ⏳ planned | Read/write патерни, change tracking. |
+| ui-widgets.md | ⏳ planned | Декларативна генерація UI. |
+| mqtt.md | ⏳ planned | Налаштування pub/sub. |
+| persistence.md | ⏳ planned | NVS через PersistService. |
+| recipe-authoring.md | ⏳ planned | Структура scenario рецептів. |
+| recipe-actions.md | ⏳ planned | Built-in actions і кастомна реєстрація. |
+| continuous-behaviors.md | ⏳ planned | PID, hysteresis, ramp; кастомні. |
+| debugging.md | ⏳ planned | Логи, HTTP API для перегляду стану. |
+| best-practices.md | ⏳ planned | Патерни і анти-патерни. |
+
+### 03 — Reference фреймворку
+
+| Документ | Статус | Призначення |
+|---|---|---|
+| architecture.md | ⏳ planned | Шари системи, залежності, init phases. |
+| components/modesp_core.md | ⏳ planned | SharedState, BaseModule, ModuleManager, App. |
+| components/modesp_hal.md | ⏳ planned | HAL абстракції, IDriver, DriverManager. |
+| components/modesp_services.md | ⏳ planned | Logger, Watchdog, Persist, Config, Error. |
+| components/modesp_net.md | ⏳ planned | Wi-Fi, HTTP сервер, WebSocket. |
+| components/modesp_mqtt.md | ⏳ planned | MQTT client wrapper. |
+| components/modesp_aws.md | ⏳ planned | AWS IoT alternative backend. |
+| components/modesp_json.md | ⏳ planned | JSON parsing і serialization. |
+| components/modesp_scenario.md | ⏳ planned | High-level огляд scenario engine. |
+| scenario-engine/ | ⏳ planned | Engine deep dive (буде link на migrated content). |
+| modules/equipment.md | ⏳ planned | Equipment Manager — bridge між sensor/actuator HAL. |
+| modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
+| modules/simple_thermo.md | ⏳ planned | Reference ON/OFF thermostat. |
+| modules/abs_test.md | ⏳ planned | Reference recipe з двома паралельними tracks. |
+| web-ui.md | ⏳ planned | Svelte SPA архітектура, state stores. |
+
+### 04 — Hardware
+
+| Документ | Статус | Призначення |
+|---|---|---|
+| board-config.md | ⏳ planned | Схема `board.json` і приклади. |
+| bindings.md | ⏳ planned | `bindings.json` — driver↔GPIO mapping. |
+| ota.md | ⏳ planned | OTA flow, rollback, partition layout. |
+| deployment.md | ⏳ planned | Flash, monitor, factory reset. |
+
+### 05 — Tools
+
+| Документ | Статус | Призначення |
+|---|---|---|
+| generate_ui.md | ⏳ planned | Build-time генератор. |
+| compile_scenario.md | ⏳ planned | Компілятор рецептів і `.modr` формат. |
+| dump_modr.md | ⏳ planned | `.modr` інспектор / debugger. |
+
+### 06 — Контриб'ютори
+
+| Документ | Статус | Призначення |
+|---|---|---|
+| development-setup.md | ⏳ planned | Налаштування dev environment. |
+| testing.md | ⏳ planned | Host tests, HIL tests, fuzz. |
+| code-style.md | ⏳ planned | C++ конвенції. |
+| docs-style.md | ⏳ planned | Cross-references [STYLE.md](../STYLE.md). |
+
+### ADR — Architecture Decision Records
+
+У [adr/](adr/) коли будуть написані. Engine-specific decisions — у scenario
+engine section.
+
+## Статус
+
+Документація — **clean-slate strategic rewrite** після rebuild engine
+`modesp_sequence` → `modesp_scenario`. Сторінки позначені ⏳ **planned** —
+у плані на наступні сесії.
+
+Попередня директорія `docs/` залишається доступною як **legacy reference** —
+частина сторінок там все ще фактично коректна, частина застаріла. Жодна не
+авторитетна доки не переписана у `documentation/`.
+
+## Контриб'ютинг
+
+Прочитайте **[STYLE.md](../STYLE.md)** перед писанням або редагуванням
+будь-якої сторінки. Style guide фіксує quality bar для цієї директорії.
