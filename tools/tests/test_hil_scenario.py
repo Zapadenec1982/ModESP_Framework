@@ -33,6 +33,11 @@ except ImportError:
 DEFAULT_ESP_IP = "192.168.1.143"
 API_TIMEOUT = 5  # seconds
 
+# HTTP Basic Auth defaults (override via ESP_USER / ESP_PASS env vars).
+# Match http_service.cpp static defaults `admin` / `modesp`.
+DEFAULT_USER = "admin"
+DEFAULT_PASS = "modesp"
+
 
 @pytest.fixture(scope="session")
 def esp_ip():
@@ -48,6 +53,8 @@ def base_url(esp_ip):
 def session(base_url):
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    s.auth = (os.environ.get("ESP_USER", DEFAULT_USER),
+              os.environ.get("ESP_PASS", DEFAULT_PASS))
     try:
         r = s.get(f"{base_url}/api/state", timeout=API_TIMEOUT)
         r.raise_for_status()
