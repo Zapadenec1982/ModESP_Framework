@@ -14,7 +14,7 @@ multi-track, resources, global transitions), property tests з Hypothesis,
 round-trip tests vs Step 1 golden.
 
 Plan reference: Step 2 у .claude/plans/quirky-imagining-lake.md
-ADR reference: docs/sequence_engine/adr/0004-recipe-as-manifest.md
+ADR reference: documentation/en/03-framework-reference/scenario-engine/adr/0004-recipe-as-manifest.md
 """
 
 from __future__ import annotations

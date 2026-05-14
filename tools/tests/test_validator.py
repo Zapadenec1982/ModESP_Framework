@@ -1,7 +1,7 @@
 """
 test_validator.py — тести ManifestValidator
 
-Перевіряє всі валідації V1-V13 з docs/09_manifest_specification.md
+Перевіряє всі валідації V1-V13 з documentation/en/02-module-author-guide/manifest.md
 """
 import json
 from pathlib import Path

@@ -100,7 +100,7 @@ Compile-time alternative to Mosquitto via Kconfig `MODESP_CLOUD_BACKEND`.
 - **OTA:** IoT Jobs → ota_handler::start_ota() (provider-agnostic)
 - **HTTP:** GET/POST `/api/cloud` (endpoint, thing_name, cert upload)
 - **NVS:** 32KB partition, certs in namespace "awscert"
-- Docs: [docs/12_aws_iot.md](docs/12_aws_iot.md)
+- Docs: [documentation/en/03-framework-reference/components/modesp_aws.md](../../documentation/en/03-framework-reference/components/modesp_aws.md)
 
 ## Svelte WebUI
 

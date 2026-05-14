@@ -14,7 +14,7 @@ When `tools/compile_scenario.py` lands у Step 2, this golden becomes its first
 regression test — compiler emits identical bytes from JSON authoring source.
 
 Plan reference: Step 1 у .claude/plans/quirky-imagining-lake.md
-ADR reference: docs/sequence_engine/adr/0001-binary-format-not-constexpr.md
+ADR reference: documentation/en/03-framework-reference/scenario-engine/adr/0001-binary-format-not-constexpr.md
 """
 
 import struct

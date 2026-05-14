@@ -114,10 +114,6 @@ This documentation is а **clean-slate strategic rewrite** following the
 `modesp_sequence` → `modesp_scenario` engine rebuild. All pages in the
 index are now ✅ ready, written to a single quality standard ([STYLE.md](../STYLE.md)).
 
-The previous `docs/` directory remains accessible as **legacy reference** —
-some pages there are still factually correct, some are outdated. None are
-authoritative until rewritten under `documentation/`.
-
 ## Contributing
 
 Read **[STYLE.md](../STYLE.md)** перед writing or editing any page. The

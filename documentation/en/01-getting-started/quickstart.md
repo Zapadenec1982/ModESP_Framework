@@ -1,6 +1,6 @@
 # Quickstart
 
-> 📖 **Українською:** [docs/uk/01-getting-started/quickstart.md](../../uk/01-getting-started/quickstart.md)
+> 📖 **Українською:** [documentation/uk/01-getting-started/quickstart.md](../../uk/01-getting-started/quickstart.md)
 
 Goal: flash а ModESP-based firmware onto а real ESP32, see the WebUI live,
 load and run the reference scenario `abs_test` через HTTP API — all у under

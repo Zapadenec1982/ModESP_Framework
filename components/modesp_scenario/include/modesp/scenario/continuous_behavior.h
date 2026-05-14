@@ -12,8 +12,8 @@
  * This file defines the interface і registry; built-ins added через
  * domain-specific .cpp files (multicooker_pid.cpp, ferment_ramp.cpp, etc.).
  *
- * Specification: docs/sequence_engine/03_api_reference.md (Q5 у plan).
- * ADR rationale: docs/sequence_engine/adr/0006-no-builtin-continuous-behaviors.md
+ * Specification: documentation/en/03-framework-reference/scenario-engine/03_api_reference.md.
+ * ADR rationale: documentation/en/03-framework-reference/scenario-engine/adr/0006-no-builtin-continuous-behaviors.md
  */
 
 #pragma once

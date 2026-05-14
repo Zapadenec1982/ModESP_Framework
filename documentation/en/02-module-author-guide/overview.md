@@ -1,6 +1,6 @@
 # Module Author Guide — Overview
 
-> 📖 **Українською:** [docs/uk/02-module-author-guide/overview.md](../../uk/02-module-author-guide/overview.md)
+> 📖 **Українською:** [documentation/uk/02-module-author-guide/overview.md](../../uk/02-module-author-guide/overview.md)
 
 This guide is for engineers writing **business-logic modules** і **scenario
 recipes** on top of ModESP. By the end of this section you should be able to:

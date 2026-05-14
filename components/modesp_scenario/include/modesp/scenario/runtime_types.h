@@ -3,8 +3,8 @@
  * @brief Runtime state structs для tracks і instances. Pure POD types.
  *
  * Owned by Engine (multi-instance, fixed-capacity slot array). Track state +
- * scenario state machines per docs/scenario_engine/04_state_machines.md
- * (lift from old docs/sequence_engine/, paths renamed pending Stage 1.5).
+ * scenario state machines per
+ * documentation/en/03-framework-reference/scenario-engine/04_state_machines.md.
  *
  * Lift from `modesp_sequence/sequence_state.h` (Phase 1):
  *   - namespace `sequence` → `scenario`

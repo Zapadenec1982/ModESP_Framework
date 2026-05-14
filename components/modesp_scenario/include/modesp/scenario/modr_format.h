@@ -10,8 +10,8 @@
  * Build-time → tools/compile_scenario.py emits .modr into data/scenarios/
  * Runtime    → Engine::load() reads .modr from /data/scenarios/
  *
- * **Specification reference:** docs/sequence_engine/02_binary_format.md
- * **ADR rationale:** docs/sequence_engine/adr/0001-binary-format-not-constexpr.md
+ * **Specification reference:** documentation/en/03-framework-reference/scenario-engine/02_binary_format.md
+ * **ADR rationale:** documentation/en/03-framework-reference/scenario-engine/adr/0001-binary-format-not-constexpr.md
  *
  * ## Format Evolution Rules (Q11 — protobuf/flatbuffers convention)
  *

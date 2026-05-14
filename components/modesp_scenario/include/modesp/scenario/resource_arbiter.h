@@ -29,7 +29,7 @@
  * для user-actionable visibility. Cross-module arbiter integration з Equipment
  * Manager landed Stage 1.5.
  *
- * Reference: docs/sequence_engine/06_resource_arbitration.md, ADR-0005.
+ * Reference: documentation/en/03-framework-reference/scenario-engine/06_resource_arbitration.md, ADR-0005.
  */
 
 #pragma once

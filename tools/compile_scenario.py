@@ -7,9 +7,10 @@ filters those з `module_type: "recipe"` AND `scenario` key, validates against
 tools/scenario_schema.json, resolves action/condition names через
 tools/known_actions.json, emits compiled binary до data/scenarios/<name>.modr.
 
-Engine code reference: components/modesp_sequence/include/modesp/sequence/modr_format.h
-Spec reference: docs/sequence_engine/02_binary_format.md і 09_manifest_integration.md
-ADR: docs/sequence_engine/adr/0001-binary-format-not-constexpr.md
+Engine code reference: components/modesp_scenario/include/modesp/scenario/modr_format.h
+Spec reference: documentation/en/03-framework-reference/scenario-engine/02_binary_format.md
+              and 09_manifest_integration.md
+ADR: documentation/en/03-framework-reference/scenario-engine/adr/0001-binary-format-not-constexpr.md
 
 USAGE:
     python tools/compile_scenario.py --modules-dir modules --output-dir data/scenarios

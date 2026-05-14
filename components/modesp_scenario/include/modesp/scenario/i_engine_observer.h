@@ -20,7 +20,7 @@
  *  - Engine accepts observers as `etl::span<IEngineObserver*>` у constructor —
  *    constexpr-known set, no dynamic add/remove у runtime.
  *
- * Reference: docs/scenario_engine/01_architecture.md (observer pattern section).
+ * Reference: documentation/en/03-framework-reference/scenario-engine/01_architecture.md.
  */
 
 #pragma once

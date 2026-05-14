@@ -349,13 +349,12 @@ tests/host/             # C++ doctest (host-compiled)
 
 ## Documentation
 
-> 📖 **Primary docs:** [`documentation/`](documentation/README.md) — bilingual
+> 📖 **Docs:** [`documentation/`](documentation/README.md) — bilingual
 > (EN + UK), written to a single quality standard
-> ([STYLE.md](documentation/STYLE.md)). ~140 pages covering everything from
+> ([STYLE.md](documentation/STYLE.md)). ~150 pages covering everything from
 > the 10-minute quickstart to ADRs of the scenario engine.
 >
-> 📚 **Legacy:** [`docs/`](docs/README.md) — pre-rebuild content, kept for
-> reference. All authoritative content lives under `documentation/`.
+> 📜 **CHANGELOG:** [`documentation/CHANGELOG.md`](documentation/CHANGELOG.md).
 
 ### Start here
 

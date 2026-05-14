@@ -4,7 +4,7 @@
 ## with internal subdirectory separation. ETL no-heap, dependency-injected
 ## state backend, mirror writes direct, NVS persistence as observer.
 ##
-## See docs/scenario_engine/ (post-rebuild) for architecture details.
+## See documentation/en/03-framework-reference/scenario-engine/ for architecture details.
 
 dependencies:
   marcel-cd/etlcpp: "^1.0.1"

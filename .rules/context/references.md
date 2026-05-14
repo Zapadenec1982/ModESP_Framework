@@ -70,7 +70,7 @@ ModESP_v4/
 │   └── www/                   # Deployed WebUI
 ├── webui/                     # Svelte 4 source
 ├── generated/                 # GENERATED C++ headers (5 files)
-├── docs/                      # Architecture docs
+├── documentation/             # Architecture docs (EN + UK)
 ├── project.json               # Active modules list
 └── partitions.csv             # NVS(24K) + app(1.5MB) + data/LittleFS(384K)
 ```

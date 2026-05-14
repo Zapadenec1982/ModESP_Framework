@@ -39,12 +39,12 @@ modesp-v4/
 ├── main/               ← module wiring; touch when adding а new system service
 ├── tools/              ← build-time generators AND host test fixtures
 ├── data/               ← static assets (WebUI, recipes)
-├── documentation/      ← the docs you're reading
-└── docs/               ← legacy reference (read-only; do not modify)
+└── documentation/      ← the docs (EN + UK) you're reading
 ```
 
-**Don't add new files to `docs/`** — it's the pre-rewrite directory.
-All new documentation goes у `documentation/`.
+All documentation lives in `documentation/`. The previous `docs/`
+directory was removed during the post-rebuild cleanup; its content was
+migrated into `documentation/` under a single quality standard.
 
 ## Branching і PR workflow
 

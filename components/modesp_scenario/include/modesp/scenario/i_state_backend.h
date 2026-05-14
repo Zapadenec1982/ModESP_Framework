@@ -17,7 +17,7 @@
  * **Why not 7 virtuals (one per type)?** Interface gravity. Adding а new
  * `StateValue` variant case requires 4 places change instead of 1.
  *
- * Reference: docs/scenario_engine/03_api_reference.md (post-rebuild).
+ * Reference: documentation/en/03-framework-reference/scenario-engine/03_api_reference.md.
  */
 
 #pragma once

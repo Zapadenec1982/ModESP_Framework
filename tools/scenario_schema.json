@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://modesp.local/scenario_schema.json",
   "title": "ModESP Sequence Engine — scenario section schema",
-  "description": "Validates the optional `scenario` section inside modules/<recipe>/manifest.json. See docs/sequence_engine/09_manifest_integration.md.",
+  "description": "Validates the optional `scenario` section inside modules/<recipe>/manifest.json. See documentation/en/03-framework-reference/scenario-engine/09_manifest_integration.md.",
 
   "type": "object",
   "required": ["default_phase_timeout_ms", "completion_rule", "tracks"],

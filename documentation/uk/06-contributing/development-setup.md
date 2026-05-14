@@ -39,12 +39,12 @@ modesp-v4/
 ├── main/               ← module wiring; touch when adding а new system service
 ├── tools/              ← build-time generators AND host test fixtures
 ├── data/               ← static assets (WebUI, recipes)
-├── documentation/      ← the docs you're reading
-└── docs/               ← legacy reference (read-only; do not modify)
+└── documentation/      ← документація (EN + UK), яку ви читаєте
 ```
 
-**Не додавайте нових файлів до `docs/`** — це каталог до переписування.
-Уся нова документація йде в `documentation/`.
+Уся документація — у `documentation/`. Старий каталог `docs/` видалено
+під час чистки після перебудови рушія; його вміст перенесено у
+`documentation/` за єдиним стандартом якості.
 
 ## Робота з гілками й PR
 

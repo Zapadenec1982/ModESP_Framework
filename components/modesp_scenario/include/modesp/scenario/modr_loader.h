@@ -23,7 +23,7 @@
  *
  * Thread-safety: validation is read-only. Multiple concurrent validations OK.
  *
- * Reference: docs/sequence_engine/02_binary_format.md (validation rules table).
+ * Reference: documentation/en/03-framework-reference/scenario-engine/02_binary_format.md (validation rules table).
  */
 
 #pragma once

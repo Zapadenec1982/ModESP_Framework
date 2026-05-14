@@ -1,7 +1,7 @@
 """
 test_inputs_validation.py — тести валідації секції inputs
 
-Перевіряє 6 правил з docs/10_manifest_standard.md секція 3.2a:
+Перевіряє 6 правил із documentation/en/02-module-author-guide/manifest.md (секція inputs):
 1. Ключ в inputs НЕ МОЖЕ бути одночасно в state цього ж модуля
 2. source_module повинен існувати в project.json АБО optional=true
 3. source_module повинен мати цей ключ в своїй state

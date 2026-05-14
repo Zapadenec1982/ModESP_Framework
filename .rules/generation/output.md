@@ -32,8 +32,7 @@ feat(module): short description
 |---|---|---|
 | `CLAUDE.md` | How the project works NOW | Architecture/API/structure changes |
 | `ACTION_PLAN.md` | What to do next | After each session |
-| `docs/CHANGELOG.md` | Full changelog | After each session |
-| `docs/06_roadmap.md` | Where we're going | Phase completion or priority change |
+| `documentation/CHANGELOG.md` | Full changelog | After each session |
 
 ### Rule: Documentation = mirror of code
 - If feature works — it's documented

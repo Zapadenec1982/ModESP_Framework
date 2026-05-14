@@ -43,7 +43,7 @@
  * // ... use pid as above
  * ```
  *
- * Reference: docs/sequence_engine/usage/04_custom_continuous.md (Stage 1.5).
+ * Reference: documentation/en/02-module-author-guide/continuous-behaviors.md.
  */
 
 #pragma once

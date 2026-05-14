@@ -1,6 +1,6 @@
 # Посібник автора модуля — Огляд
 
-> 📖 **In English:** [docs/en/02-module-author-guide/overview.md](../../en/02-module-author-guide/overview.md)
+> 📖 **In English:** [documentation/en/02-module-author-guide/overview.md](../../en/02-module-author-guide/overview.md)
 
 Цей посібник — для інженерів, які пишуть **модулі бізнес-логіки** та
 **сценарні рецепти** поверх ModESP. Після прочитання цього розділу ви зможете:

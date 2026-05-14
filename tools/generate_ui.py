@@ -274,7 +274,7 @@ class ManifestValidator:
     def _validate_inputs(self, manifest, module_state_map, active_modules):
         """Validate inputs section of a single manifest (cross-module).
 
-        Rules from docs/10 section 3.2a:
+        Rules from documentation/en/02-module-author-guide/manifest.md (inputs section):
         1. Key in inputs CANNOT also be in state of same module
         2. source_module must exist in project.json OR optional=true
         3. source_module must have this key in its state

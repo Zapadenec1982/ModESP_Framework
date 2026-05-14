@@ -1,6 +1,6 @@
 # Швидкий старт
 
-> 📖 **In English:** [docs/en/01-getting-started/quickstart.md](../../en/01-getting-started/quickstart.md)
+> 📖 **In English:** [documentation/en/01-getting-started/quickstart.md](../../en/01-getting-started/quickstart.md)
 
 Мета: прошити прошивку на основі ModESP на реальний ESP32, побачити WebUI
 в реальному часі, завантажити й запустити еталонний сценарій `abs_test`
