@@ -19,7 +19,7 @@ LittleFS partitioning.
 1. **[Швидкий старт](01-getting-started/quickstart.md)** — прошити пристрій,
    запустити reference scenario, побачити live state у WebUI. Менш ніж 10
    хвилин.
-2. **[Концепції](01-getting-started/concepts.md)** *(planned)* — чотири
+2. **[Концепції](01-getting-started/concepts.md)** — чотири
    ключові ідеї (manifest-driven, modules, scenarios, SharedState).
 3. **[Module Author Guide → Огляд](02-module-author-guide/overview.md)** —
    починаєте писати ваш перший модуль.
@@ -31,8 +31,8 @@ LittleFS partitioning.
 | Документ | Статус | Призначення |
 |---|---|---|
 | [quickstart.md](01-getting-started/quickstart.md) | ✅ | Flash, налаштування, запуск reference scenario. |
-| installation.md | ⏳ planned | Встановлення ESP-IDF, клонування репо, перший build. |
-| concepts.md | ⏳ planned | Ментальна модель. |
+| [installation.md](01-getting-started/installation.md) | ✅ | Встановлення ESP-IDF, клонування репо, перший build. |
+| [concepts.md](01-getting-started/concepts.md) | ✅ | Ментальна модель. |
 
 ### 02 — Module Author Guide (Основна аудиторія)
 
@@ -84,25 +84,25 @@ LittleFS partitioning.
 |---|---|---|
 | [board-config.md](04-hardware/board-config.md) | ✅ | Схема `board.json` і приклади. |
 | [bindings.md](04-hardware/bindings.md) | ✅ | `bindings.json` — driver↔role mapping. |
-| ota.md | ⏳ planned | OTA flow, rollback, partition layout. |
-| deployment.md | ⏳ planned | Flash, monitor, factory reset. |
+| [ota.md](04-hardware/ota.md) | ✅ | OTA flow, rollback, partition layout. |
+| [deployment.md](04-hardware/deployment.md) | ✅ | Flash, monitor, factory reset. |
 
 ### 05 — Tools
 
 | Документ | Статус | Призначення |
 |---|---|---|
-| generate_ui.md | ⏳ planned | Build-time генератор. |
-| compile_scenario.md | ⏳ planned | Компілятор рецептів і `.modr` формат. |
-| dump_modr.md | ⏳ planned | `.modr` інспектор / debugger. |
+| [generate_ui.md](05-tools/generate_ui.md) | ✅ | Build-time генератор. |
+| [compile_scenario.md](05-tools/compile_scenario.md) | ✅ | Компілятор рецептів і `.modr` формат. |
+| [dump_modr.md](05-tools/dump_modr.md) | ✅ | `.modr` інспектор / debugger. |
 
 ### 06 — Контриб'ютори
 
 | Документ | Статус | Призначення |
 |---|---|---|
-| development-setup.md | ⏳ planned | Налаштування dev environment. |
-| testing.md | ⏳ planned | Host tests, HIL tests, fuzz. |
-| code-style.md | ⏳ planned | C++ конвенції. |
-| docs-style.md | ⏳ planned | Cross-references [STYLE.md](../STYLE.md). |
+| [development-setup.md](06-contributing/development-setup.md) | ✅ | Налаштування dev environment. |
+| [testing.md](06-contributing/testing.md) | ✅ | Host tests, HIL tests, fuzz. |
+| [code-style.md](06-contributing/code-style.md) | ✅ | C++ конвенції. |
+| [docs-style.md](06-contributing/docs-style.md) | ✅ | Cross-references [STYLE.md](../STYLE.md). |
 
 ### ADR — Architecture Decision Records
 
@@ -112,8 +112,9 @@ engine section.
 ## Статус
 
 Документація — **clean-slate strategic rewrite** після rebuild engine
-`modesp_sequence` → `modesp_scenario`. Сторінки позначені ⏳ **planned** —
-у плані на наступні сесії.
+`modesp_sequence` → `modesp_scenario`. Усі core сторінки тепер ✅ готові;
+залишилися ⏳ planned пункти (e.g. `scenario-engine/` deep dive,
+`web-ui.md`) — у плані на наступні сесії.
 
 Попередня директорія `docs/` залишається доступною як **legacy reference** —
 частина сторінок там все ще фактично коректна, частина застаріла. Жодна не

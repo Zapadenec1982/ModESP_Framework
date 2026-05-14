@@ -18,7 +18,7 @@ In order:
 
 1. **[Quickstart](01-getting-started/quickstart.md)** — flash а device,
    run the reference scenario, see live state у WebUI. Under 10 minutes.
-2. **[Concepts](01-getting-started/concepts.md)** *(planned)* — four key
+2. **[Concepts](01-getting-started/concepts.md)** — four key
    ideas (manifest-driven, modules, scenarios, SharedState).
 3. **[Module Author Guide → Overview](02-module-author-guide/overview.md)**
    — start writing your first module.
@@ -30,8 +30,8 @@ In order:
 | Document | Status | Purpose |
 |---|---|---|
 | [quickstart.md](01-getting-started/quickstart.md) | ✅ | Flash, configure, run the reference scenario. |
-| installation.md | ⏳ planned | ESP-IDF install, repo clone, first build. |
-| concepts.md | ⏳ planned | Core mental model. |
+| [installation.md](01-getting-started/installation.md) | ✅ | ESP-IDF install, repo clone, first build. |
+| [concepts.md](01-getting-started/concepts.md) | ✅ | Core mental model. |
 
 ### 02 — Module Author Guide (Primary audience)
 
@@ -83,25 +83,25 @@ In order:
 |---|---|---|
 | [board-config.md](04-hardware/board-config.md) | ✅ | `board.json` schema і examples. |
 | [bindings.md](04-hardware/bindings.md) | ✅ | `bindings.json` — driver-to-role mapping. |
-| ota.md | ⏳ planned | OTA flow, rollback, partition layout. |
-| deployment.md | ⏳ planned | Flash, monitor, factory reset. |
+| [ota.md](04-hardware/ota.md) | ✅ | OTA flow, rollback, partition layout. |
+| [deployment.md](04-hardware/deployment.md) | ✅ | Flash, monitor, factory reset. |
 
 ### 05 — Tools
 
 | Document | Status | Purpose |
 |---|---|---|
-| generate_ui.md | ⏳ planned | Build-time generator overview. |
-| compile_scenario.md | ⏳ planned | Recipe compiler і `.modr` format. |
-| dump_modr.md | ⏳ planned | `.modr` inspector / debugger. |
+| [generate_ui.md](05-tools/generate_ui.md) | ✅ | Build-time generator overview. |
+| [compile_scenario.md](05-tools/compile_scenario.md) | ✅ | Recipe compiler і `.modr` format. |
+| [dump_modr.md](05-tools/dump_modr.md) | ✅ | `.modr` inspector / debugger. |
 
 ### 06 — Contributing
 
 | Document | Status | Purpose |
 |---|---|---|
-| development-setup.md | ⏳ planned | Development environment. |
-| testing.md | ⏳ planned | Host tests, HIL tests, fuzz. |
-| code-style.md | ⏳ planned | C++ conventions. |
-| docs-style.md | ⏳ planned | Cross-references [STYLE.md](../STYLE.md). |
+| [development-setup.md](06-contributing/development-setup.md) | ✅ | Development environment. |
+| [testing.md](06-contributing/testing.md) | ✅ | Host tests, HIL tests, fuzz. |
+| [code-style.md](06-contributing/code-style.md) | ✅ | C++ conventions. |
+| [docs-style.md](06-contributing/docs-style.md) | ✅ | Cross-references [STYLE.md](../STYLE.md). |
 
 ### ADR — Architecture Decision Records
 
@@ -111,8 +111,9 @@ scenario engine section.
 ## Status
 
 This documentation is а **clean-slate strategic rewrite** following the
-`modesp_sequence` → `modesp_scenario` engine rebuild. Pages marked ⏳
-**planned** are scheduled для upcoming sessions.
+`modesp_sequence` → `modesp_scenario` engine rebuild. All core pages are
+now ✅ ready; remaining ⏳ planned entries (e.g. `scenario-engine/` deep
+dive, `web-ui.md`) are scheduled for upcoming sessions.
 
 The previous `docs/` directory remains accessible as **legacy reference** —
 some pages there are still factually correct, some are outdated. None are
