@@ -56,8 +56,8 @@ LittleFS partitioning.
 
 | Документ | Статус | Призначення |
 |---|---|---|
-| architecture.md | ⏳ planned | Шари системи, залежності, init phases. |
-| components/modesp_core.md | ⏳ planned | SharedState, BaseModule, ModuleManager, App. |
+| [architecture.md](03-framework-reference/architecture.md) | ✅ | Шари системи, залежності, init phases. |
+| [components/modesp_core.md](03-framework-reference/components/modesp_core.md) | ✅ | SharedState, BaseModule, ModuleManager, App. |
 | components/modesp_hal.md | ⏳ planned | HAL абстракції, IDriver, DriverManager. |
 | components/modesp_services.md | ⏳ planned | Logger, Watchdog, Persist, Config, Error. |
 | components/modesp_net.md | ⏳ planned | Wi-Fi, HTTP сервер, WebSocket. |
