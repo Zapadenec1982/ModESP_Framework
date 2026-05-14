@@ -66,7 +66,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | Альтернативний бекенд AWS IoT. |
 | [components/modesp_json.md](03-framework-reference/components/modesp_json.md) | ✅ | Утиліти парсингу JSON (обгортка jsmn). |
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Загальний огляд рушія сценаріїв. |
-| scenario-engine/ | ⏳ заплановано | Поглиблений розгляд рушія (буде посилання на перенесений вміст). |
+| [scenario-engine/](03-framework-reference/scenario-engine/README.md) | ✅ | Поглиблений розгляд рушія — архітектура, бінарний формат, FSM, ADR, посібники. |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — міст між sensor/actuator HAL. |
 | [modules/datalogger.md](03-framework-reference/modules/datalogger.md) | ✅ | Логування каналів, утримання, plot API. |
 | [modules/simple_thermo.md](03-framework-reference/modules/simple_thermo.md) | ✅ | Еталонний ON/OFF термостат. |

@@ -64,7 +64,7 @@ In order:
 | [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | AWS IoT alternative backend. |
 | [components/modesp_json.md](03-framework-reference/components/modesp_json.md) | ✅ | JSON parsing utilities (jsmn wrapper). |
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Scenario engine high-level overview. |
-| scenario-engine/ | ⏳ planned | Engine deep dive (will link to migrated content as bridge). |
+| [scenario-engine/](03-framework-reference/scenario-engine/README.md) | ✅ | Engine deep dive — architecture, binary format, FSMs, ADRs, usage. |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — sensor/actuator HAL bridge. |
 | [modules/datalogger.md](03-framework-reference/modules/datalogger.md) | ✅ | Channel logging, retention, plot API. |
 | [modules/simple_thermo.md](03-framework-reference/modules/simple_thermo.md) | ✅ | Reference ON/OFF thermostat. |
