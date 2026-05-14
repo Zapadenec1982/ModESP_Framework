@@ -57,8 +57,8 @@ In order:
 |---|---|---|
 | [architecture.md](03-framework-reference/architecture.md) | ✅ | System layers, dependencies, init phases. |
 | [components/modesp_core.md](03-framework-reference/components/modesp_core.md) | ✅ | SharedState, BaseModule, ModuleManager, App. |
-| components/modesp_hal.md | ⏳ planned | HAL abstractions, IDriver, DriverManager. |
-| components/modesp_services.md | ⏳ planned | Logger, Watchdog, Persist, Config, Error. |
+| [components/modesp_hal.md](03-framework-reference/components/modesp_hal.md) | ✅ | HAL abstractions, IDriver, DriverManager. |
+| [components/modesp_services.md](03-framework-reference/components/modesp_services.md) | ✅ | Logger, Watchdog, Persist, Config, Error, SystemMonitor. |
 | components/modesp_net.md | ⏳ planned | Wi-Fi, HTTP server, WebSocket. |
 | components/modesp_mqtt.md | ⏳ planned | MQTT client wrapper. |
 | components/modesp_aws.md | ⏳ planned | AWS IoT alternative backend. |
