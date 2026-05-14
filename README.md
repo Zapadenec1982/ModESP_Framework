@@ -294,7 +294,7 @@ data/
 
 Switch board → rebuild → same firmware runs on different hardware.
 
-**Full guide:** [docs/en/04-hardware/board-config.md](docs/en/04-hardware/board-config.md) — 3 board examples, field reference, driver table *(legacy — being rewritten under `documentation/`)*.
+**Full guide:** [documentation/en/04-hardware/board-config.md](documentation/en/04-hardware/board-config.md) — schema reference, board examples, GPIO/I2C/OneWire/ADC bus declarations. Bilingual ([UK](documentation/uk/04-hardware/board-config.md)).
 
 ---
 
@@ -349,29 +349,34 @@ tests/host/             # C++ doctest (host-compiled)
 
 ## Documentation
 
-> 📖 **Current docs:** [`documentation/`](documentation/README.md) — bilingual
-> (EN + UK), being progressively rewritten з а single quality standard
-> ([STYLE.md](documentation/STYLE.md)).
+> 📖 **Primary docs:** [`documentation/`](documentation/README.md) — bilingual
+> (EN + UK), written to a single quality standard
+> ([STYLE.md](documentation/STYLE.md)). ~140 pages covering everything from
+> the 10-minute quickstart to ADRs of the scenario engine.
 >
-> 📚 **Legacy docs:** [`docs/`](docs/README.md) — pre-rebuild content,
-> remains accessible while sections are rewritten.
+> 📚 **Legacy:** [`docs/`](docs/README.md) — pre-rebuild content, kept for
+> reference. All authoritative content lives under `documentation/`.
 
-**Start here:**
+### Start here
 
 | Path | What you get |
 |---|---|
-| [documentation/en/01-getting-started/quickstart.md](documentation/en/01-getting-started/quickstart.md) | Flash, configure, run reference scenario у under 10 min |
-| [documentation/en/02-module-author-guide/overview.md](documentation/en/02-module-author-guide/overview.md) | Module types, core ideas, anatomy of а module folder |
+| [documentation/en/01-getting-started/quickstart.md](documentation/en/01-getting-started/quickstart.md) | Flash, configure, run the reference scenario in under 10 minutes |
+| [documentation/en/01-getting-started/installation.md](documentation/en/01-getting-started/installation.md) | ESP-IDF toolchain, repo clone, first build |
+| [documentation/en/01-getting-started/concepts.md](documentation/en/01-getting-started/concepts.md) | Four mental models — manifests, modules/drivers, SharedState, scenarios |
+| [documentation/en/02-module-author-guide/overview.md](documentation/en/02-module-author-guide/overview.md) | Module Author Guide entry — anatomy of a module folder |
 | [documentation/uk/](documentation/uk/README.md) | Українська версія (mirror) |
 
-**Reference (until rewritten):**
+### Reference
 
-| Document | Description | Location |
-|----------|-------------|----------|
-| Manifest specification v2.0 | All manifest sections | [docs/uk/02-module-author-guide/manifest.md](docs/uk/02-module-author-guide/manifest.md) (UK only) |
-| System architecture | Layers, dependencies | [docs/en/03-framework-reference/architecture.md](docs/en/03-framework-reference/architecture.md) |
-| Scenario engine deep dive | Engine internals, ADRs | [docs/en/03-framework-reference/scenario-engine/](docs/en/03-framework-reference/scenario-engine/) |
-| Tutorial: first module | Step-by-step thermostat | [docs/en/01-getting-started/tutorial-legacy.md](docs/en/01-getting-started/tutorial-legacy.md) |
+| Section | Content |
+|---|---|
+| [Module Author Guide](documentation/en/02-module-author-guide/) | 13 pages: manifest schema, writing modules/drivers, SharedState, UI widgets, MQTT, persistence, recipe authoring, continuous behaviors, debugging, best practices |
+| [Framework Reference](documentation/en/03-framework-reference/) | Architecture + 8 component pages (core/hal/services/net/mqtt/aws/json/scenario) + 4 reference modules + 6 reference drivers |
+| [Scenario Engine deep dive](documentation/en/03-framework-reference/scenario-engine/) | 11 architectural docs + 8 ADRs + 3 usage guides + 2 worked examples |
+| [Hardware](documentation/en/04-hardware/) | `board.json` schema, `bindings.json`, OTA flow, deployment |
+| [Tools](documentation/en/05-tools/) | `generate_ui.py`, `compile_scenario.py`, `dump_modr.py` |
+| [Contributing](documentation/en/06-contributing/) | Development setup, host + HIL testing, C++ style, docs style |
 
 ---
 
