@@ -59,11 +59,11 @@ In order:
 | [components/modesp_core.md](03-framework-reference/components/modesp_core.md) | ✅ | SharedState, BaseModule, ModuleManager, App. |
 | [components/modesp_hal.md](03-framework-reference/components/modesp_hal.md) | ✅ | HAL abstractions, IDriver, DriverManager. |
 | [components/modesp_services.md](03-framework-reference/components/modesp_services.md) | ✅ | Logger, Watchdog, Persist, Config, Error, SystemMonitor. |
-| components/modesp_net.md | ⏳ planned | Wi-Fi, HTTP server, WebSocket. |
-| components/modesp_mqtt.md | ⏳ planned | MQTT client wrapper. |
-| components/modesp_aws.md | ⏳ planned | AWS IoT alternative backend. |
-| components/modesp_json.md | ⏳ planned | JSON parsing і serialization utilities. |
-| components/modesp_scenario.md | ⏳ planned | Scenario engine high-level overview. |
+| [components/modesp_net.md](03-framework-reference/components/modesp_net.md) | ✅ | Wi-Fi, HTTP server, WebSocket. |
+| [components/modesp_mqtt.md](03-framework-reference/components/modesp_mqtt.md) | ✅ | MQTT client wrapper із TLS і HA discovery. |
+| [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | AWS IoT alternative backend. |
+| [components/modesp_json.md](03-framework-reference/components/modesp_json.md) | ✅ | JSON parsing utilities (jsmn wrapper). |
+| [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Scenario engine high-level overview. |
 | scenario-engine/ | ⏳ planned | Engine deep dive (will link to migrated content as bridge). |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — sensor/actuator HAL bridge. |
 | modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |

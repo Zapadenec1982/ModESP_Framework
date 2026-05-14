@@ -60,11 +60,11 @@ LittleFS partitioning.
 | [components/modesp_core.md](03-framework-reference/components/modesp_core.md) | ✅ | SharedState, BaseModule, ModuleManager, App. |
 | [components/modesp_hal.md](03-framework-reference/components/modesp_hal.md) | ✅ | HAL абстракції, IDriver, DriverManager. |
 | [components/modesp_services.md](03-framework-reference/components/modesp_services.md) | ✅ | Logger, Watchdog, Persist, Config, Error, SystemMonitor. |
-| components/modesp_net.md | ⏳ planned | Wi-Fi, HTTP сервер, WebSocket. |
-| components/modesp_mqtt.md | ⏳ planned | MQTT client wrapper. |
-| components/modesp_aws.md | ⏳ planned | AWS IoT alternative backend. |
-| components/modesp_json.md | ⏳ planned | JSON parsing і serialization. |
-| components/modesp_scenario.md | ⏳ planned | High-level огляд scenario engine. |
+| [components/modesp_net.md](03-framework-reference/components/modesp_net.md) | ✅ | Wi-Fi, HTTP сервер, WebSocket. |
+| [components/modesp_mqtt.md](03-framework-reference/components/modesp_mqtt.md) | ✅ | MQTT client wrapper з TLS і HA discovery. |
+| [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | AWS IoT alternative backend. |
+| [components/modesp_json.md](03-framework-reference/components/modesp_json.md) | ✅ | JSON parsing utilities (jsmn wrapper). |
+| [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | High-level огляд scenario engine. |
 | scenario-engine/ | ⏳ planned | Engine deep dive (буде link на migrated content). |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — bridge між sensor/actuator HAL. |
 | modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
