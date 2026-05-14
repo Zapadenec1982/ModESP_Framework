@@ -77,7 +77,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | Реле через розширювач I2C (PCF8574). |
 | [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | Контактний вхід на GPIO. |
 | [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | Контактний вхід через розширювач I2C. |
-| web-ui.md | ⏳ заплановано | Архітектура Svelte SPA, сховища стану. |
+| [web-ui.md](03-framework-reference/web-ui.md) | ✅ | Архітектура Svelte SPA, сховища стану, потік WebSocket, каталог віджетів. |
 
 ### 04 — Обладнання
 
@@ -113,10 +113,9 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 ## Статус
 
 Документація — це **стратегічне переписування з чистого аркуша** після
-перебудови рушія `modesp_sequence` → `modesp_scenario`. Усі основні
-сторінки тепер ✅ готові; решта пунктів зі статусом ⏳ заплановано
-(наприклад, поглиблений розгляд `scenario-engine/`, `web-ui.md`)
-заплановані на наступні сесії.
+перебудови рушія `modesp_sequence` → `modesp_scenario`. Усі сторінки
+в індексі тепер ✅ готові й написані за єдиним стандартом якості
+([STYLE.md](../STYLE.md)).
 
 Попередня директорія `docs/` залишається доступною як **застарілий
 довідник** — частина сторінок там досі фактично коректна, частина

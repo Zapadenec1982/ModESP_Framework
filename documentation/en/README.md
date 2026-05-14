@@ -75,7 +75,7 @@ In order:
 | [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | I2C-expanded relay (PCF8574). |
 | [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | GPIO contact input. |
 | [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | I2C-expanded contact input. |
-| web-ui.md | ⏳ planned | Svelte SPA architecture, state stores. |
+| [web-ui.md](03-framework-reference/web-ui.md) | ✅ | Svelte SPA architecture, state stores, WebSocket flow, widget catalog. |
 
 ### 04 — Hardware
 
@@ -111,9 +111,8 @@ scenario engine section.
 ## Status
 
 This documentation is а **clean-slate strategic rewrite** following the
-`modesp_sequence` → `modesp_scenario` engine rebuild. All core pages are
-now ✅ ready; remaining ⏳ planned entries (e.g. `scenario-engine/` deep
-dive, `web-ui.md`) are scheduled for upcoming sessions.
+`modesp_sequence` → `modesp_scenario` engine rebuild. All pages in the
+index are now ✅ ready, written to a single quality standard ([STYLE.md](../STYLE.md)).
 
 The previous `docs/` directory remains accessible as **legacy reference** —
 some pages there are still factually correct, some are outdated. None are
