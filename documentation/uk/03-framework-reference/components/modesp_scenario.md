@@ -1,22 +1,22 @@
-# `modesp_scenario` — scenario engine
+# `modesp_scenario` — рушій сценаріїв
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_scenario.md](../../../en/03-framework-reference/components/modesp_scenario.md)
 
-`modesp_scenario` — runtime engine що executes scenario recipes. Бере
-бінарний `.modr` blob (compiled by `tools/compile_scenario.py` з
-`scenario` секції маніфесту), валідує і ticks resulting phase machines
-кожен engine tick. Supports до 4 concurrent independent recipes, кожен
-з до 6 parallel tracks, із built-in actions, conditions, і continuous
-behaviors.
+`modesp_scenario` — це рушій часу виконання, який виконує рецепти
+сценаріїв. Він бере бінарний blob `.modr` (скомпільований
+`tools/compile_scenario.py` з секції `scenario` маніфесту), валідує
+його та крутить отримані машини фаз на кожному такті рушія. Підтримує
+до 4 одночасних незалежних рецептів, кожен — до 6 паралельних треків,
+з вбудованими діями, умовами та неперервними поведінками.
 
-Ця сторінка — high-level summary; full deep-dive у migrated
-[scenario-engine/](../scenario-engine/) subdirectory (10 architectural
-docs + 8 ADRs + usage guides).
+Ця сторінка — оглядове резюме; повне занурення — у перенесеному
+підкаталозі [scenario-engine/](../scenario-engine/) (10 архітектурних
+документів + 8 ADR + посібники з використання).
 
-REQUIRES: `modesp_core`, `marcel-cd__etlcpp`. Optional `nvs_flash` для
-persistence observer.
+ЗАЛЕЖНОСТІ: `modesp_core`, `marcel-cd__etlcpp`. Опціонально
+`nvs_flash` для observer-а персистентності.
 
-## Public API surface
+## Поверхня публічного API
 
 ```cpp
 #include "modesp/scenario/engine.h"
@@ -53,16 +53,17 @@ public:
 }
 ```
 
-Engine constructed з dependency injection: state backend (типово
-`SharedStateBackend` adapter wrapping global SharedState), action і
-continuous registries (caller-owned, populated із built-ins + custom
-registrations), і span observers (`NvsObserver` для persistence, плюс
-any custom).
+Рушій конструюється з впровадженням залежностей: бекенд стану (зазвичай
+адаптер `SharedStateBackend`, що обгортає глобальний SharedState),
+реєстри дій і неперервних поведінок (належать викликачу, заповнюються
+вбудованими + власними реєстраціями) та span спостерігачів
+(`NvsObserver` для персистентності плюс будь-які власні).
 
-Init priority: HIGH (1), у Phase 2 — runs після WiFi і HAL але перед
-business modules що можуть load recipes.
+Пріоритет ініціалізації: HIGH (1), у Phase 2 — запускається після
+Wi-Fi і HAL, але перед бізнес-модулями, що можуть завантажувати
+рецепти.
 
-## Component layout
+## Структура компонента
 
 ```
 components/modesp_scenario/include/modesp/scenario/
@@ -95,41 +96,43 @@ components/modesp_scenario/src/
 └── observers/ mirror.cpp, nvs_observer.cpp, nvs_token.cpp
 ```
 
-## Архітектура у одному параграфі
+## Архітектура в одному параграфі
 
-Engine — multi-instance scenario runner. Кожен slot owns один loaded
-`.modr` blob і його runtime state (`SequenceRuntime`). Per engine tick:
-кожен loaded slot's instance ticked → instance ticks кожен track у
-declaration order → track evaluates current phase's transitions і entry
-actions. Actions і conditions resolve через uint16 djb2 hash through
-injected ActionRegistry. Mirror keys (`<recipe>.scenario_state`,
-`<recipe>.<track>_phase_name`, тощо) пишуться до SharedState кожен tick
-через direct call. NVS persistence handled observer що listens до
-scenario start, phase entry, і terminal events.
+Рушій — це багатоінстансний виконавець сценаріїв. Кожен слот володіє
+одним завантаженим blob `.modr` і його станом часу виконання
+(`SequenceRuntime`). На кожному такті рушія: інстанс кожного
+завантаженого слота тактується → інстанс тактує кожен трек у порядку
+оголошення → трек обчислює переходи та дії входу поточної фази. Дії та
+умови розв'язуються через uint16-хеш djb2 у впровадженому
+ActionRegistry. Дзеркальні ключі (`<recipe>.scenario_state`,
+`<recipe>.<track>_phase_name` тощо) пишуться у SharedState на кожному
+такті прямим викликом. Персистентність NVS обробляється спостерігачем,
+що слухає старт сценарію, вхід у фазу та термінальні події.
 
-## Built-in actions і conditions
+## Вбудовані дії та умови
 
-Provided через `register_builtin_actions(registry)`:
+Надаються через `register_builtin_actions(registry)`:
 
-**Actions (3):** `log`, `set_state`, `wait_ms`.
+**Дії (3):** `log`, `set_state`, `wait_ms`.
 
-**Conditions (10 leaf + 3 composite):** `time_elapsed_ms`, `state_key_eq`/
-`_ne`/`_lt`/`_gt`/`_le`/`_ge`, `state_key_in_range`, `state_key_changed`,
-`time_of_day_eq`, `all_of`, `any_of`, `not`.
+**Умови (10 листових + 3 композитні):** `time_elapsed_ms`,
+`state_key_eq`/`_ne`/`_lt`/`_gt`/`_le`/`_ge`, `state_key_in_range`,
+`state_key_changed`, `time_of_day_eq`, `all_of`, `any_of`, `not`.
 
 Див. [02-module-author-guide/recipe-actions.md](../../02-module-author-guide/recipe-actions.md).
 
-## Continuous primitives
+## Неперервні примітиви
 
-Provided через `register_primitives(continuous_registry)`:
+Надаються через `register_primitives(continuous_registry)`:
 
-- `pid` — parallel-form PID з anti-windup і derivative-on-measurement.
-- `hysteresis` — bang-bang з symmetric deadband.
-- `ramp` — linear interpolation з start до end value over duration.
+- `pid` — PID у паралельній формі з anti-windup і похідною за виміром.
+- `hysteresis` — релейний з симетричною зоною нечутливості.
+- `ramp` — лінійна інтерполяція від початкового до кінцевого значення
+  за тривалість.
 
 Див. [02-module-author-guide/continuous-behaviors.md](../../02-module-author-guide/continuous-behaviors.md).
 
-## Wiring у main.cpp
+## Підключення в main.cpp
 
 ```cpp
 #include "modesp/scenario/engine.h"
@@ -141,7 +144,7 @@ Provided через `register_primitives(continuous_registry)`:
 static modesp::scenario::ActionRegistry     scenario_actions;
 static modesp::scenario::ContinuousRegistry scenario_continuous;
 
-// У app_main, після того як app.state() available:
+// In app_main, after app.state() is available:
 static SharedStateBackend                shared_state_backend{app.state()};
 static modesp::scenario::NvsObserver     scenario_nvs_obs{
     seq_nvs_write, seq_nvs_read, nullptr};
@@ -160,84 +163,88 @@ app.modules().register_module(scenario_engine);
 http_service.set_scenario_engine(&scenario_engine);
 ```
 
-## State keys (engine-level)
+## Ключі стану (рівень рушія)
 
-| Key | Notes |
+| Ключ | Примітки |
 |---|---|
-| `scenario.engine_active_count` | Кількість running scenarios. |
-| `scenario.engine_active_tracks` | Total active tracks across усіх scenarios. |
-| `scenario.engine_recovery_pending` | true якщо recovered scenario awaits manual resume. |
+| `scenario.engine_active_count` | Кількість запущених сценаріїв. |
+| `scenario.engine_active_tracks` | Загальна кількість активних треків по всіх сценаріях. |
+| `scenario.engine_recovery_pending` | true, якщо відновлений сценарій очікує ручного відновлення. |
 
-Recipe-specific mirror keys (declared у кожному recipe's manifest):
-`<recipe>.scenario_state`, `<recipe>.<track>_phase_name`, тощо.
+Дзеркальні ключі для конкретних рецептів (оголошені у маніфесті
+кожного рецепта): `<recipe>.scenario_state`,
+`<recipe>.<track>_phase_name` тощо.
 
 ## HTTP API
 
-Engine endpoints у `modesp_net`:
+Кінцеві точки рушія у `modesp_net`:
 
-| Endpoint | Purpose |
+| Кінцева точка | Призначення |
 |---|---|
-| `GET /api/scenario/list` | Усі loaded scenarios + states. |
-| `GET /api/scenario/info?handle=N` | Per-scenario details. |
-| `POST /api/scenario/load` | Load `.modr` by path. |
-| `POST /api/scenario/start` / `pause` / `resume` / `abort` / `unload` | Lifecycle. |
+| `GET /api/scenario/list` | Усі завантажені сценарії + стани. |
+| `GET /api/scenario/info?handle=N` | Деталі по сценарію. |
+| `POST /api/scenario/load` | Завантажити `.modr` за шляхом. |
+| `POST /api/scenario/start` / `pause` / `resume` / `abort` / `unload` | Життєвий цикл. |
 
-Full HIL test: [test_hil_scenario.py](../../../../tools/tests/test_hil_scenario.py).
+Повний HIL-тест: [test_hil_scenario.py](../../../../tools/tests/test_hil_scenario.py).
 
-## Memory і resources
+## Пам'ять і ресурси
 
-| Item | Cost |
+| Елемент | Вартість |
 |---|---|
-| Engine з 4 slots | ~16 KB (slots include `.modr` buffer до MODR_MAX_SIZE = 16 KB each) |
-| ActionRegistry із 64-entry maps | ~6 KB |
-| ContinuousRegistry із 32 entries | ~2 KB |
-| ResourceArbiter із 32-entry map | ~1 KB |
-| NvsObserver | ~256 bytes |
+| Рушій з 4 слотами | ~16 КБ (слоти включають буфер `.modr` до MODR_MAX_SIZE = 16 КБ кожен) |
+| ActionRegistry з мапами на 64 записи | ~6 КБ |
+| ContinuousRegistry з 32 записами | ~2 КБ |
+| ResourceArbiter з мапою на 32 записи | ~1 КБ |
+| NvsObserver | ~256 байт |
 
-Default MAX_SEQUENCES=2 (Kconfig); кожен slot pre-allocates 16 KB buffer.
-Bump до 4 для production deployments з multiple recipes; cost ~64 KB RAM.
+Типове MAX_SEQUENCES=2 (Kconfig); кожен слот заздалегідь виділяє
+буфер 16 КБ. Підніміть до 4 для продакшен-розгортань з кількома
+рецептами; вартість ~64 КБ RAM.
 
-## Deeper dives
+## Глибше занурення
 
-Migrated scenario engine documentation живе у
+Перенесена документація рушія сценаріїв живе у
 [scenario-engine/](../scenario-engine/):
 
-- `00_overview.md` — що це робить, для кого.
-- `01_architecture.md` — internal architecture з diagrams.
-- `02_binary_format.md` — `.modr` byte format з tables.
-- `03_api_reference.md` — full C++ API surface.
-- `04_state_machines.md` — scenario + track FSMs з diagrams.
-- `05_synchronization.md` — tick-order cross-track sync.
-- `06_resource_arbitration.md` — ISA-88 §5.3 mapping.
-- `07_persistence.md` — NVS layout, write policy.
-- `08_lifecycle.md` — build + runtime lifecycle.
-- `09_manifest_integration.md` — recipe-as-manifest pipeline.
-- `10_error_model.md` — engine error taxonomy.
+- `00_overview.md` — що він робить і для кого.
+- `01_architecture.md` — внутрішня архітектура з діаграмами.
+- `02_binary_format.md` — байтовий формат `.modr` з таблицями.
+- `03_api_reference.md` — повна поверхня C++ API.
+- `04_state_machines.md` — кінцеві автомати сценарію + треку з діаграмами.
+- `05_synchronization.md` — крос-трекова синхронізація за порядком тактів.
+- `06_resource_arbitration.md` — відображення ISA-88 §5.3.
+- `07_persistence.md` — структура NVS, політика запису.
+- `08_lifecycle.md` — життєвий цикл збірки + часу виконання.
+- `09_manifest_integration.md` — конвеєр «рецепт як маніфест».
+- `10_error_model.md` — таксономія помилок рушія.
 
-Плюс 8 ADRs documenting non-obvious decisions і 3 usage guides.
+Плюс 8 ADR, що документують неочевидні рішення, і 3 посібники з
+використання.
 
-> ℹ️ **Note:** scenario-engine docs migrated з old `modesp_sequence`
-> location; вони factually current але speak з old engine class name.
-> Phase 0/1/2 rebuild renamed `modesp_sequence` → `modesp_scenario` AND
-> `SequenceEngine` → `Engine`. Docs mostly auto-scrubbed; якщо ви
-> find stale references, fix on the spot.
+> ℹ️ **Примітка:** документи scenario-engine перенесені зі старого
+> місця `modesp_sequence`; вони фактично актуальні, але говорять зі
+> старою назвою класу рушія. Перебудова Phase 0/1/2 перейменувала
+> `modesp_sequence` → `modesp_scenario` І `SequenceEngine` → `Engine`.
+> Документи здебільшого автоматично прочищені; якщо ви знайдете
+> застарілі посилання — виправляйте на місці.
 
 ## Що далі
 
-- **[scenario-engine/](../scenario-engine/)** — deep dives.
+- **[scenario-engine/](../scenario-engine/)** — глибокі занурення.
 - **[02-module-author-guide/recipe-authoring.md](../../02-module-author-guide/recipe-authoring.md)**
-  — author-side guide для writing recipes.
+  — посібник з боку автора для написання рецептів.
 - **[02-module-author-guide/recipe-actions.md](../../02-module-author-guide/recipe-actions.md)**
-  — actions і conditions catalog.
+  — каталог дій і умов.
 - **[02-module-author-guide/continuous-behaviors.md](../../02-module-author-guide/continuous-behaviors.md)**
-  — PID / hysteresis / ramp.
-- **[modules/abs_test.md](../modules/abs_test.md)** *(planned)* —
-  reference recipe.
+  — PID / гістерезис / лінійне наростання.
+- **[modules/abs_test.md](../modules/abs_test.md)** *(заплановано)* —
+  еталонний рецепт.
 
-## Source
+## Джерела
 
-- [`components/modesp_scenario/`](../../../../components/modesp_scenario/) — implementation.
+- [`components/modesp_scenario/`](../../../../components/modesp_scenario/) — реалізація.
 - [`tools/compile_scenario.py`](../../../../tools/compile_scenario.py) —
-  build-time compiler.
+  компілятор часу збірки.
 - [`tools/known_actions.json`](../../../../tools/known_actions.json) —
-  action audit catalog.
+  каталог аудиту дій.

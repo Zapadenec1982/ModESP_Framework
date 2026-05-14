@@ -1,165 +1,171 @@
-# Module Author Guide — Огляд
+# Посібник автора модуля — Огляд
 
 > 📖 **In English:** [docs/en/02-module-author-guide/overview.md](../../en/02-module-author-guide/overview.md)
 
-Цей гайд — для інженерів які пишуть **business-logic модулі** і **scenario
-рецепти** поверх ModESP. Прочитавши цей розділ ви зможете:
+Цей посібник — для інженерів, які пишуть **модулі бізнес-логіки** та
+**сценарні рецепти** поверх ModESP. Після прочитання цього розділу ви зможете:
 
-- Кинути новий модуль у `modules/your_thing/` і він автоматично підхопиться
-  build системою.
-- Декларувати state keys, UI widgets, і MQTT topics декларативно (без
-  ручної схеми, без C++ boilerplate на кожен ключ).
-- Написати scenario recipe як частину маніфесту і отримати скомпільований
-  бінарь що engine виконує у runtime.
-- Читати і писати state через thread-safe, type-checked store (SharedState).
-- Persist-ити конфіг модуля між ребутами без прямих NVS API.
+- Покласти новий модуль до `modules/your_thing/` так, щоб система збірки
+  автоматично його підхопила.
+- Декларативно оголошувати ключі стану, віджети UI та теми MQTT (без
+  ручної схеми, без C++-шаблонів на кожен ключ).
+- Написати сценарний рецепт як частину маніфесту, який буде скомпільовано
+  в бінарний blob, що рушій виконує в runtime.
+- Читати й писати стан через потокобезпечне сховище з перевіркою типів
+  (SharedState).
+- Зберігати конфігурацію модуля між перезавантаженнями без прямих викликів
+  NVS API.
 
 ## Що таке модуль?
 
-У ModESP **модуль** — це одиниця бізнес-логіки що живе у власній директорії
-під `modules/` і поставляється з **manifest.json** що описує все що
-фреймворку треба знати про нього:
+У ModESP **модуль** — це одиниця бізнес-логіки, що живе у власній директорії
+під `modules/` і поставляється разом із **manifest.json**, що описує все,
+що фреймворку потрібно знати про модуль:
 
-- Які **state keys** модуль читає і пише (типізовані: int, float, bool, string).
-- Які **UI widgets** з'являються для нього у WebUI (декларативно — жодного
-  Svelte коду у ваших руках).
-- Які **MQTT topics** він публікує / на які підписується.
-- (Опціонально) **`scenario`** секція якщо модуль — це recipe — декларативний
-  phase/transition граф скомпільований у бінарь `.modr` при build.
-- (Опціонально) **Feature flags**, **i18n strings**, **datalogger channels**.
+- Які **ключі стану** модуль читає та пише (типізовані: int, float, bool, string).
+- Які **віджети UI** з'являються для нього у WebUI (декларативно — жодного
+  Svelte-коду у ваших руках).
+- Які **теми MQTT** він публікує та на які підписується.
+- (Опційно) Секція **`scenario`**, якщо модуль є рецептом — декларативний
+  граф фаз і переходів, що компілюється в бінарний `.modr` під час збірки.
+- (Опційно) **Прапорці можливостей**, **рядки i18n**, **канали datalogger**.
 
-Build-time генератор фреймворку (`tools/generate_ui.py`) читає всі module
-manifests, виробляє merged UI schema, C++ state-metadata header, MQTT topic
-константи, і CMake module list. Ви пишете C++ клас з бізнес-логікою; усе
-інше згенероване.
+Генератор фреймворку часу збірки (`tools/generate_ui.py`) читає всі
+маніфести модулів, виробляє об'єднану схему UI, заголовок з метаданими
+стану C++, константи тем MQTT та список модулів CMake. Ви пишете C++-клас
+з бізнес-логікою; усе інше генерується.
 
-## Дві категорії модулів
+## Два різновиди модулів
 
-| Тип | Має C++ код? | Має manifest scenario? | Коли |
+| Тип | Має C++-код? | Має сценарій у маніфесті? | Коли застосовувати |
 |---|---|---|---|
-| **Service module** | Так (BaseModule subclass) | Ні | Continuous logic: thermostat, sensor reader, alarm manager. Активний кожен tick. |
-| **Recipe module** | Ні | Так | Time-bounded процес: cook program, batch reactor цикл, irrigation послідовність. Engine веде його через phases. |
+| **Сервісний модуль** | Так (підклас BaseModule) | Ні | Безперервна логіка: термостат, читач сенсора, менеджер тривог. Активний на кожному такті. |
+| **Модуль-рецепт** | Ні | Так | Обмежений у часі процес: програма готування, цикл реактора, послідовність поливу. Рушій веде його через фази. |
 
-Можна змішувати — business module що завантажує recipe on-demand — валідний
-дизайн (наприклад, оператор обирає recipe A або B через UI, ваш модуль
-викликає `engine.load_path()`).
+Можна змішувати — бізнес-модуль, що завантажує рецепт на запит, є
+коректним дизайном (наприклад, оператор обирає рецепт А або Б через UI,
+ваш модуль викликає `engine.load_path()`).
 
-## П'ять core ідей
+## П'ять основних ідей
 
-### 1. Manifest-driven everything
+### 1. Усе керується маніфестом
 
-Контракт вашого модуля — це JSON file. Фреймворк його читає, генерує усе що
-може статично, і просить вас написати лише actual логіку. Додавання нового
-state key — це один рядок у `manifest.json` — без C++ змін, без UI змін,
-без MQTT plumbing.
+Контракт вашого модуля — це JSON-файл. Фреймворк його читає, генерує все,
+що може статично, і просить вас написати лише саму логіку. Додавання
+нового ключа стану — це один рядок у `manifest.json` — жодних змін у C++,
+жодних змін UI, жодного MQTT-обв'язування.
 
 Див. **[manifest.md](manifest.md)** для повної схеми.
 
-### 2. SharedState як data backbone
+### 2. SharedState як основа даних
 
-Існує один in-process state store (`modesp::SharedState`) спільний для
-всіх модулів. Це типізована, thread-safe key-value мапа обмеженої місткості.
-Модулі читають output один одного через відповідні state keys — без прямих
-покажчиків, без observer реєстрації. HTTP API, WebSocket, MQTT publisher,
-і datalogger також спостерігають SharedState.
+Існує одне внутрішньопроцесне сховище стану (`modesp::SharedState`),
+спільне для всіх модулів. Це типізована, потокобезпечна мапа ключ-значення
+обмеженої місткості. Модулі читають виходи один одного через відповідні
+ключі стану — без прямих покажчиків, без реєстрації спостерігачів. HTTP API,
+WebSocket, видавець MQTT та datalogger також спостерігають за SharedState.
 
-Див. **shared-state.md** *(planned)* для read/write патернів, change tracking,
-і lifetime гарантій.
+Див. **shared-state.md** *(заплановано)* для патернів читання/запису,
+відстеження змін і гарантій часу життя.
 
-### 3. Three-phase init lifecycle
+### 3. Трифазний життєвий цикл ініціалізації
 
-Модулі конструюються при static-storage init, далі проходять три init phases
-що драйвить App / ModuleManager:
+Модулі конструюються під час static-storage init, після чого проходять
+через три фази ініціалізації, керовані App / ModuleManager:
 
-1. **Phase 1 (CRITICAL):** error service, watchdog, config, persistence,
-   system monitor. Першими.
-2. **Phase 2 (HIGH/NORMAL):** Wi-Fi, cloud, equipment, drivers, **scenario
-   engine**, бізнес-модулі. Після того як конфіг завантажений.
-3. **Phase 3 (LOW):** HTTP, WebSocket. Останніми — залежать від усього вище.
+1. **Фаза 1 (CRITICAL):** служба помилок, watchdog, конфіг, persistence,
+   системний монітор. Запускаються першими.
+2. **Фаза 2 (HIGH/NORMAL):** Wi-Fi, хмара, equipment, драйвери, **сценарний
+   рушій**, бізнес-модулі. Після завантаження конфігу.
+3. **Фаза 3 (LOW):** HTTP, WebSocket. Останніми — залежать від усього вище.
 
-Поле `priority` у вашому маніфесті обирає phase. Див. **writing-a-module.md**
-*(planned)* для lifecycle hooks (`on_init`, `on_update`, `on_message`,
-`on_stop`).
+Поле `priority` у маніфесті вашого модуля обирає його фазу. Див.
+**writing-a-module.md** *(заплановано)* для життєвих гачків (`on_init`,
+`on_update`, `on_message`, `on_stop`).
 
-### 4. Scenarios як скомпільовані artifacts
+### 4. Сценарії як скомпільовані артефакти
 
-Якщо ви пишете recipe — він не виконується як JSON у runtime. Build-time
-`compile_scenario.py` виробляє бінарний `.modr` blob (захищений CRC,
-4-byte aligned, обмежений ≤ 16 KB) що engine завантажує з LittleFS. Це
-означає що recipe authoring зміщує production complexity з runtime у
-build time — невалідні рецепти ніколи не доходять до пристрою.
+Якщо ви пишете рецепт, він не виконується як JSON у runtime. Під час
+збірки `compile_scenario.py` виробляє бінарний blob `.modr` (захищений
+CRC, вирівняний на 4 байти, обмежений ≤ 16 KB), який рушій завантажує
+з LittleFS. Це означає, що написання рецептів зміщує продакшн-складність
+з runtime у час збірки — невалідні рецепти ніколи не доходять до пристрою.
 
-Див. **recipe-authoring.md** *(planned)* і
-**[scenario-engine/](../03-framework-reference/scenario-engine/)** для deep dive.
+Див. **recipe-authoring.md** *(заплановано)* та
+**[scenario-engine/](../03-framework-reference/scenario-engine/)** для
+детального занурення.
 
-### 5. Zero heap allocation
+### 5. Нульова heap-алокація
 
-Фреймворк цільовий до ESP32-WROOM-32 (320 KB DRAM). Стандартних C++
-containers уникаємо — використовуємо ETL (Embedded Template Library) для
-fixed-capacity maps, vectors, queues, optionals. Модулі ПОВИННІ робити так
-само — жодних `std::vector`, `std::map`, `new`/`delete`. Використовуйте ETL
-або static-size POD типи.
+Фреймворк цілиться на ESP32-WROOM-32 (320 KB DRAM). Стандартних C++-контейнерів
+уникаємо — використовуємо ETL (Embedded Template Library) для мап, векторів,
+черг та optional фіксованої місткості. Модулі ПОВИННІ робити так само —
+жодних `std::vector`, `std::map`, `new`/`delete`. Використовуйте ETL або
+POD-типи статичного розміру.
 
-Див. **best-practices.md** *(planned)* для allocation конвенцій і common
-pitfalls.
+Див. **best-practices.md** *(заплановано)* для конвенцій алокації та
+типових помилок.
 
-## Анатомія module folder
+## Анатомія папки модуля
 
 ```
 modules/your_thing/
 ├── manifest.json          ← ОБОВ'ЯЗКОВО — контракт модуля
-├── CMakeLists.txt         ← ОБОВ'ЯЗКОВО для service modules; пропустити для recipes
+├── CMakeLists.txt         ← ОБОВ'ЯЗКОВО для сервісних модулів; пропустити для рецептів
 ├── include/
-│   └── your_thing.h       ← Module C++ class declaration (service modules)
+│   └── your_thing.h       ← Декларація C++-класу модуля (сервісні модулі)
 └── src/
-    └── your_thing.cpp     ← Implementation (service modules)
+    └── your_thing.cpp     ← Реалізація (сервісні модулі)
 ```
 
-Recipe модулі містять **лише** `manifest.json` — без C++, без CMakeLists.
-Фреймворк розпізнає їх по `"module_type": "recipe"` у маніфесті.
+Модулі-рецепти містять **лише** `manifest.json` — без C++, без
+CMakeLists. Фреймворк розпізнає їх за `"module_type": "recipe"` у
+маніфесті.
 
-## Коли вам НЕ потрібен новий модуль
+## Коли вам не потрібен новий модуль
 
-Іноді ви хочете поведінку, не новий модуль. Розгляньте:
+Іноді ви хочете отримати поведінку, а не новий модуль. Розгляньте:
 
-- **One-off scenario** без постійного state? Використайте recipe (без C++,
-  швидша ітерація).
-- **Кастомна action / condition** для recipes? Зареєструйте через
-  `ActionRegistry` з init існуючого модуля — див.
-  **recipe-actions.md** *(planned)*.
-- **Новий continuous control primitive (варіант PID)?** Зареєструйте
-  `ContinuousBehavior` factory — див. **continuous-behaviors.md** *(planned)*.
-- **Hardware-specific driver (новий I2C сенсор)?** Йде у
-  `components/modesp_hal/` з новим `IDriver` subclass, не модуль. Див.
-  **[hardware/bindings.md](../04-hardware/bindings.md)** *(planned)*.
+- **Разовий сценарій** без постійного стану? Використайте рецепт (без
+  C++, швидша ітерація).
+- **Власна дія / умова** для рецептів? Зареєструйте через `ActionRegistry`
+  з ініціалізації наявного модуля — див. **recipe-actions.md**
+  *(заплановано)*.
+- **Новий примітив безперервного керування (варіант PID)?** Зареєструйте
+  фабрику `ContinuousBehavior` — див. **continuous-behaviors.md**
+  *(заплановано)*.
+- **Драйвер під конкретне обладнання (новий I2C-сенсор)?** Іде до
+  `components/modesp_hal/` з новим підкласом `IDriver`, а не як модуль.
+  Див. **[hardware/bindings.md](../04-hardware/bindings.md)** *(заплановано)*.
 
 ## Рекомендований порядок читання
 
-1. [Manifest reference](manifest.md) — що ви будете писати найчастіше.
-2. shared-state.md *(planned)* — як дані flow-ять.
-3. writing-a-module.md *(planned)* — C++ сторона.
-4. ui-widgets.md *(planned)* — як WebUI рендерить ваш state.
-5. [best-practices.md](best-practices.md) — патерни і анти-патерни.
+1. [Довідник маніфесту](manifest.md) — те, що ви писатимете найчастіше.
+2. shared-state.md *(заплановано)* — як рухаються дані.
+3. writing-a-module.md *(заплановано)* — сторона C++.
+4. ui-widgets.md *(заплановано)* — як WebUI рендерить ваш стан.
+5. [best-practices.md](best-practices.md) — патерни та антипатерни.
 
-Якщо ваша мета — recipe, перейдіть до:
+Якщо ваша мета — рецепт, перейдіть до:
 
-1. [Manifest reference](manifest.md) — той самий маніфест хостить `scenario` секцію.
-2. recipe-authoring.md *(planned)*.
-3. recipe-actions.md *(planned)*.
+1. [Довідник маніфесту](manifest.md) — той самий маніфест містить секцію
+   `scenario`.
+2. recipe-authoring.md *(заплановано)*.
+3. recipe-actions.md *(заплановано)*.
 
-## Існуючі модулі як worked examples
+## Наявні модулі як готові приклади
 
-Дивіться на ці для reference:
+Подивіться на них для довідки:
 
-- [`modules/simple_thermo/`](../../../modules/simple_thermo/) — мінімальний
-  service module (ON/OFF thermostat). Manifest зі state, UI, MQTT; ~150 LOC
-  C++. Хороший перший приклад.
-- [`modules/datalogger/`](../../../modules/datalogger/) — більший service
-  module з features (channels, retention, plot data API). Див.
-  [datalogger reference](../03-framework-reference/modules/datalogger.md).
-- [`modules/equipment/`](../../../modules/equipment/) — service module що
-  bridge-ить manifest з HAL drivers (найбільш coupled модуль — читайте
-  ПІСЛЯ того як зрозумієте основи).
-- [`modules/abs_test/`](../../../modules/abs_test/) — чистий recipe модуль
-  (без C++). Два паралельні tracks з cross-track синхронізацією. Reference
-  для recipe authoring.
+- [`modules/simple_thermo/`](../../../modules/simple_thermo/) —
+  мінімальний сервісний модуль (термостат ON/OFF). Маніфест зі станом,
+  UI, MQTT; ~150 рядків C++. Хороше перше читання.
+- [`modules/datalogger/`](../../../modules/datalogger/) — більший
+  сервісний модуль з можливостями (канали, утримання, API даних графіка).
+  Див. [довідник datalogger](../03-framework-reference/modules/datalogger.md).
+- [`modules/equipment/`](../../../modules/equipment/) — сервісний модуль,
+  що з'єднує маніфест з драйверами HAL (найбільш зв'язаний модуль —
+  читайте ПІСЛЯ того, як зрозумієте основи).
+- [`modules/abs_test/`](../../../modules/abs_test/) — чистий модуль-рецепт
+  (без C++). Дві паралельні доріжки з міждоріжковою синхронізацією.
+  Орієнтир для написання рецептів.

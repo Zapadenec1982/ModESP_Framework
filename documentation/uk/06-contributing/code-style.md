@@ -1,37 +1,40 @@
-# Code style — C++ conventions
+# Стиль коду — конвенції C++
 
 > 📖 **In English:** [documentation/en/06-contributing/code-style.md](../../en/06-contributing/code-style.md)
 
-Style rules для framework C++ code. Не всі auto-enforced; list
-у order у якому reviewer typically applies it.
+Правила стилю для C++ коду фреймворку. Не всі забезпечуються
+автоматично; перелік наведено в тому порядку, у якому їх зазвичай
+застосовує рев'юер.
 
-## Language baseline
+## Мовний базис
 
-- **C++17** — fully. C++20 features не used (managed components
-  often have older compilers).
-- **No exceptions** (`-fno-exceptions`). ESP-IDF default; framework
-  matches.
-- **No RTTI** (`-fno-rtti`). Same reason.
-- **`constexpr` over `#define`** для constants visible у headers.
-- **`[[nodiscard]]`** на getters що allocate АБО could be silently
-  ignored (returns `bool` indicating success — classic case).
+- **C++17** — повністю. Можливості C++20 не використовуються (керовані
+  компоненти часто мають старіші компілятори).
+- **Без винятків** (`-fno-exceptions`). Це стандарт ESP-IDF; фреймворк
+  його дотримується.
+- **Без RTTI** (`-fno-rtti`). З тієї ж причини.
+- **`constexpr` замість `#define`** для констант, видимих у заголовкових
+  файлах.
+- **`[[nodiscard]]`** на геттерах, які виділяють пам'ять АБО можуть
+  бути мовчки проігноровані (повернення `bool` як ознака успіху —
+  класичний випадок).
 
-## Naming
+## Іменування
 
-| Kind | Convention | Example |
+| Категорія | Конвенція | Приклад |
 |---|---|---|
-| Types | `PascalCase` | `SharedState`, `IDriver`, `ScenarioEngine`. |
-| Variables, functions | `snake_case` | `read_interval_ms`, `on_init()`. |
-| Private members | `snake_case_` (trailing underscore) | `heating_`, `last_tick_ms_`. |
-| Constants, enums | `SCREAMING_SNAKE_CASE` | `MODR_MAGIC`, `STATE_KEY_COUNT`. |
-| Namespaces | `lowercase`, nested | `modesp::scenario::detail`. |
-| Macros (rare!) | `MODESP_` prefix | `MODESP_LOG_TAG`. |
+| Типи | `PascalCase` | `SharedState`, `IDriver`, `ScenarioEngine`. |
+| Змінні, функції | `snake_case` | `read_interval_ms`, `on_init()`. |
+| Приватні члени | `snake_case_` (з підкресленням у кінці) | `heating_`, `last_tick_ms_`. |
+| Константи, enum'и | `SCREAMING_SNAKE_CASE` | `MODR_MAGIC`, `STATE_KEY_COUNT`. |
+| Простори імен | `lowercase`, вкладені | `modesp::scenario::detail`. |
+| Макроси (рідко!) | префікс `MODESP_` | `MODESP_LOG_TAG`. |
 
-State keys у SharedState — `<module>.<key>` з 32-char total
-budget. Не C++ — це runtime contract — але shapes як ми name
-corresponding C++ identifiers.
+Ключі стану в SharedState — `<module>.<key>` із загальним бюджетом
+32 символи. Це не C++, а контракт виконання, але він формує те, як ми
+іменуємо відповідні ідентифікатори C++.
 
-## File і directory layout
+## Розкладка файлів і каталогів
 
 ```
 components/modesp_<name>/
@@ -45,57 +48,64 @@ components/modesp_<name>/
     └── *.cpp
 ```
 
-- Public headers include each other з angle brackets:
-  `#include <modesp/scenario/engine.h>`.
-- Source files include private headers з quotes: `#include "track.h"`.
-- One class per public header. Multiple closely-related types у one
-  header OK якщо user буде use them together.
+- Публічні заголовкові файли підключають один одного через кутові
+  дужки: `#include <modesp/scenario/engine.h>`.
+- Файли вихідного коду підключають приватні заголовкові файли через
+  лапки: `#include "track.h"`.
+- Один клас на публічний заголовковий файл. Кілька тісно пов'язаних
+  типів в одному заголовковому файлі — нормально, якщо користувач
+  застосовує їх разом.
 
-## Headers
+## Заголовкові файли
 
-- Use `#pragma once`. No include guards.
-- Forward-declare aggressively у headers. Pull full definitions у
-  source files.
-- No header-only implementations larger than ~10 lines (forces full
-  rebuilds для trivial changes).
-- Public headers include only що their interface requires.
+- Використовуйте `#pragma once`. Без include-guard'ів.
+- Активно застосовуйте forward-оголошення в заголовкових файлах.
+  Повні визначення підтягуйте у файли вихідного коду.
+- Без header-only реалізацій, довших за ~10 рядків (це примушує до
+  повних перезбирань через тривіальні зміни).
+- Публічні заголовкові файли підключають лише те, чого вимагає їхній
+  інтерфейс.
 
-## Memory
+## Пам'ять
 
-Фреймворк targets MCUs з limited RAM. Hard rules:
+Фреймворк націлений на МК з обмеженою RAM. Жорсткі правила:
 
-- **No `new` / `delete`** outside of one-time init code. Static
-  allocation АБО `etl::*` containers з bounded capacity.
-- **No `std::string`** у hot paths. Use `etl::string<N>` АБО string
-  views.
-- **No `std::vector`** у hot paths. Use `etl::vector<T, N>` (fixed
-  capacity) АБО raw arrays.
-- Heap allocations OK у: HTTP request bodies, JSON parsing buffers,
-  one-time init (everything must be statically reserved by Phase 3 end).
+- **Без `new` / `delete`** поза одноразовим init-кодом. Статичне
+  виділення АБО контейнери `etl::*` з обмеженою ємністю.
+- **Без `std::string`** на гарячих шляхах. Використовуйте `etl::string<N>`
+  АБО string view.
+- **Без `std::vector`** на гарячих шляхах. Використовуйте
+  `etl::vector<T, N>` (фіксована ємність) АБО сирі масиви.
+- Виділення в купі допустимі в: тілах HTTP-запитів, буферах парсингу
+  JSON, одноразовому init (усе має бути статично зарезервовано до
+  кінця Phase 3).
 
-## Const correctness
+## Const-коректність
 
-- Functions що don't modify their object: `const` method.
-- References що don't get reassigned: `const T&`.
-- Pointers що don't escape І don't modify: `const T*`.
+- Методи, які не модифікують свій об'єкт: `const`.
+- Посилання, які не перевизначаються: `const T&`.
+- Покажчики, які не виходять назовні І не модифікують: `const T*`.
 
-Якщо function has 5+ parameters де const-ness varies, refactor —
-take struct.
+Якщо функція має 5+ параметрів, у яких const-ність варіюється, —
+рефактор: візьміть структуру.
 
-## Error handling
+## Обробка помилок
 
-- **No exceptions.** Use `bool` returns АБО rich error types:
+- **Без винятків.** Використовуйте повернення `bool` АБО багаті типи
+  помилок:
 
 ```cpp
 [[nodiscard]] EngineError start(SequenceHandle h);
 ```
 
-- `EngineError` — scoped enum, ніколи raw `int`. Add new variants
-  до enum коли needed; ніколи bake error codes у mass `int`s.
-- Для "couldn't find / not present" cases use `bool get(key, T& out)`
-  pattern. `std::optional<T>` OK у public APIs де не cost RTTI.
+- `EngineError` — це scoped enum, ніколи сирий `int`. Додавайте нові
+  варіанти в enum, коли потрібно; ніколи не запікайте коди помилок у
+  «масові» `int`.
+- Для випадків «не знайдено / відсутнє» використовуйте шаблон
+  `bool get(key, T& out)`. `std::optional<T>` допустимий у публічних
+  API там, де не коштує RTTI.
 
-## Logging
+## Логування
 
 ```cpp
 ESP_LOGI(TAG, "scenario started: handle=%d", h);
@@ -103,53 +113,59 @@ ESP_LOGW(TAG, "throttled NVS write: dt=%dms", dt);
 ESP_LOGE(TAG, "load failed: %s", error_name(err));
 ```
 
-- `TAG` per-file: `static const char* TAG = "scenario";`.
-- Level discipline:
-  - `ESP_LOGE`: failure user must fix.
-  - `ESP_LOGW`: degraded behaviour, recovered.
-  - `ESP_LOGI`: lifecycle (init, start, stop). Quiet during steady state.
-  - `ESP_LOGD`: per-tick noise. Off у production.
+- `TAG` для кожного файлу: `static const char* TAG = "scenario";`.
+- Дисципліна рівнів:
+  - `ESP_LOGE`: збій, який користувач має виправити.
+  - `ESP_LOGW`: погіршена поведінка, відновлено.
+  - `ESP_LOGI`: життєвий цикл (init, start, stop). Тихо у штатному
+    режимі.
+  - `ESP_LOGD`: шум на кожен тік. Вимкнено в продакшені.
 
-Avoid `printf` direct. ESP-IDF logging level filtering doesn't apply.
+Уникайте прямого `printf`. Фільтрація рівнів логування ESP-IDF на нього
+не поширюється.
 
-## Initialization, destructors, lifetime
+## Ініціалізація, деструктори, час життя
 
-- **Two-phase init.** Constructors stay trivial (just record dependencies).
-  Heavy work goes у `on_init()` called by `ModuleManager`.
-- **Destructors usually trivial** because objects static І live
-  до program exit. Don't allocate у constructors що destructors must
-  release.
-- **No singletons** для framework state. Pass references through
-  constructors. Framework's only "singleton-like" exceptions —
-  `App` І `Logger` — both injected, не `::instance()`.
+- **Двофазна ініціалізація.** Конструктори залишаються тривіальними
+  (лише записують залежності). Важка робота йде в `on_init()`, що
+  викликається з `ModuleManager`.
+- **Деструктори зазвичай тривіальні**, бо об'єкти статичні й живуть до
+  завершення програми. Не виділяйте в конструкторах те, що деструктори
+  мають звільняти.
+- **Без синглтонів** для стану фреймворку. Передавайте посилання через
+  конструктори. Єдині «схожі на синглтон» винятки фреймворку — `App`
+  і `Logger` — обидва ін'єктуються, а не доступні через `::instance()`.
 
-## Concurrency
+## Конкурентність
 
-- One main task (~100 Hz) drives module updates. Module code runs
-  synchronously у цій task. Don't block.
-- HTTP, MQTT, WiFi tasks run separately. State access з other
-  tasks goes through SharedState lock.
-- `std::mutex` не існує у ESP-IDF; use `SemaphoreHandle_t` АБО
-  framework's `Lock` helper.
+- Одна головна задача (~100 Гц) керує оновленнями модулів. Код модулів
+  виконується синхронно в цій задачі. Не блокуйте.
+- HTTP, MQTT, Wi-Fi-задачі виконуються окремо. Доступ до стану з інших
+  задач іде через лок SharedState.
+- `std::mutex` в ESP-IDF не існує; використовуйте `SemaphoreHandle_t`
+  АБО хелпер `Lock` фреймворку.
 
-## Formatting
+## Форматування
 
-Goal: consistent enough що automated tooling can apply it. Не yet
-auto-enforced.
+Мета: достатня послідовність, щоб автоматичний інструмент міг це
+застосувати. Поки що не забезпечується автоматично.
 
-- 4-space indentation. No tabs.
-- 100-column soft limit. Break перед line wraps look ugly.
-- Opening brace на same line: `if (cond) {` не `\n{`.
-- Завжди brace single-statement `if`/`while`/`for`. Без exceptions.
-- Pointer/reference asterisks attached до type: `int* ptr`, not
+- 4-пробільні відступи. Без табів.
+- М'який ліміт 100 колонок. Розбивайте, поки переноси рядків ще
+  виглядають охайно.
+- Відкривальна фігурна дужка на тому ж рядку: `if (cond) {`, не `\n{`.
+- Завжди беріть у фігурні дужки однорядкові `if`/`while`/`for`. Без
+  винятків.
+- Зірочки покажчика/посилання прилягають до типу: `int* ptr`, а не
   `int *ptr`.
 
-Pending: add `.clang-format` config file based на вищенаведеному. PR
-welcome.
+У планах: додати конфігураційний файл `.clang-format` на основі
+вищенаведеного. PR вітаються.
 
-## Documentation comments
+## Документаційні коментарі
 
-- **Public headers** get doc comments на every type І function:
+- **Публічні заголовкові файли** отримують док-коментарі на кожному
+  типі й функції:
 
 ```cpp
 /// Reads the typed value into `out`. Returns false if key missing
@@ -158,34 +174,37 @@ template <typename T>
 bool get(const char* key, T& out) const;
 ```
 
-- Triple-slash `///` для public-API docs (Doxygen-compatible).
-- `//` для inline implementation comments.
-- `/* */` block comments тільки для license headers І large multi-line
-  context blocks.
+- Потрійний слеш `///` для документації публічного API (сумісно з
+  Doxygen).
+- `//` для вбудованих коментарів у реалізації.
+- Блочні коментарі `/* */` — лише для заголовків ліцензії і великих
+  багаторядкових контекстних блоків.
 
-Не doc obvious things ("constructor: constructs the thing"). Не
-mirror function name у comment. Say WHY АБО document
-preconditions/invariants/units.
+Не документуйте очевидного («constructor: constructs the thing»). Не
+дублюйте назву функції в коментарі. Кажіть ЧОМУ АБО документуйте
+передумови/інваріанти/одиниці.
 
-## Anti-patterns to avoid
+## Антипатерни, яких варто уникати
 
-- ❌ Singletons з `::instance()` access. Use injection.
-- ❌ Long `if/else` chains для dispatch. Use registries з hash lookup.
-- ❌ Magic numbers у hot paths. Name constants.
-- ❌ Global state outside of `App` / `Logger`.
-- ❌ Heap allocations у `on_update`. Pre-allocate.
-- ❌ Recursive functions з unbounded depth.
-- ❌ Logging `ESP_LOGI` every tick. Choose level правильно АБО rate-limit.
+- ❌ Синглтони з доступом `::instance()`. Використовуйте ін'єкцію.
+- ❌ Довгі ланцюги `if/else` для диспетчеризації. Використовуйте
+  реєстри з хеш-пошуком.
+- ❌ «Магічні» числа на гарячих шляхах. Іменуйте константи.
+- ❌ Глобальний стан поза `App` / `Logger`.
+- ❌ Виділення в купі всередині `on_update`. Виділяйте наперед.
+- ❌ Рекурсивні функції необмеженої глибини.
+- ❌ `ESP_LOGI` на кожен тік. Обирайте рівень правильно АБО обмежуйте
+  частоту.
 
 ## Що далі
 
-- **[development-setup.md](development-setup.md)** — env для building
-  І testing.
-- **[testing.md](testing.md)** — як style enforcement interacts з
-  test discipline.
-- **[docs-style.md](docs-style.md)** — documentation style guide.
+- **[development-setup.md](development-setup.md)** — середовище для
+  збирання й тестування.
+- **[testing.md](testing.md)** — як забезпечення стилю взаємодіє з
+  дисципліною тестування.
+- **[docs-style.md](docs-style.md)** — стайлгайд документації.
 
-## Source
+## Джерела
 
-Framework codebase сам — reference. Коли у doubt, copy
-nearest existing pattern.
+Сама кодова база фреймворку є еталоном. Коли є сумніви — копіюйте
+найближчий наявний патерн.

@@ -1,20 +1,21 @@
-# `modesp_aws` — AWS IoT Core backend (alternative до MQTT)
+# `modesp_aws` — бекенд AWS IoT Core (альтернатива MQTT)
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_aws.md](../../../en/03-framework-reference/components/modesp_aws.md)
 
-`modesp_aws` — drop-in alternative до `modesp_mqtt` що connects до
-Amazon AWS IoT Core замість generic MQTT broker. Той самий publish /
-subscribe contract для business modules — declarations у `mqtt` секції
-маніфесту work identically. Differences у transport layer: mTLS з
-per-device certificates, AWS-specific topic prefixes (`$aws/things/...`),
-і IoT Things integration.
+`modesp_aws` — це повноцінна заміна `modesp_mqtt`, яка з'єднується з
+Amazon AWS IoT Core замість звичайного MQTT-брокера. Той самий
+контракт publish / subscribe для бізнес-модулів — оголошення у секції
+`mqtt` маніфесту працюють однаково. Відмінності — у транспортному
+рівні: mTLS з сертифікатами на кожен пристрій, специфічні для AWS
+префікси топіків (`$aws/things/...`) та інтеграція з IoT Things.
 
-REQUIRES: `modesp_core`, `modesp_services`, `modesp_net`, `mbedtls`,
-AWS IoT root CA + device cert + device private key (uploaded через WebUI).
+ЗАЛЕЖНОСТІ: `modesp_core`, `modesp_services`, `modesp_net`, `mbedtls`,
+кореневий CA AWS IoT + сертифікат пристрою + приватний ключ пристрою
+(завантажуються через WebUI).
 
-## Cloud backend selection
+## Вибір хмарного бекенду
 
-Compile-time choice через Kconfig:
+Вибір на етапі компіляції через Kconfig:
 
 ```ini
 # sdkconfig.defaults
@@ -22,11 +23,11 @@ CONFIG_MODESP_CLOUD_MQTT=n
 CONFIG_MODESP_CLOUD_AWS=y
 ```
 
-Лише один cloud backend builds у firmware. `main.cpp` includes one з
-`modesp/net/mqtt_service.h` або `modesp/net/aws_iot_service.h` based на
-flag.
+У прошивку збирається лише один хмарний бекенд. `main.cpp` підключає
+або `modesp/net/mqtt_service.h`, або `modesp/net/aws_iot_service.h`
+залежно від прапорця.
 
-## `AwsIotService` — module class
+## `AwsIotService` — клас модуля
 
 ```cpp
 class AwsIotService : public modesp::BaseModule {
@@ -40,91 +41,94 @@ public:
 };
 ```
 
-Init priority: HIGH (1), після WiFi. Та сама shape як MqttService.
+Пріоритет ініціалізації: HIGH (1), після Wi-Fi. Та сама форма, що й у
+MqttService.
 
-## Що відрізняється від `modesp_mqtt`
+## Чим відрізняється від `modesp_mqtt`
 
-| Aspect | modesp_mqtt | modesp_aws |
+| Аспект | modesp_mqtt | modesp_aws |
 |---|---|---|
-| Transport | Plain or TLS | mTLS лише (cert-required) |
-| Broker | Configurable host | AWS IoT endpoint (Kconfig + Thing name) |
-| Auth | Username/password або cert | X.509 device cert + private key |
-| Topics | `modesp/v1/<tenant>/<id>/...` | `<thing_name>/state/...`, `$aws/things/<thing_name>/shadow/...` |
-| HA discovery | Optional | N/A (HA не consumes AWS IoT directly) |
-| Shadow document | N/A | Synced з SharedState (Stage 1.5) |
+| Транспорт | Звичайний або TLS | Лише mTLS (потрібен сертифікат) |
+| Брокер | Налаштовуваний хост | Кінцева точка AWS IoT (Kconfig + ім'я Thing) |
+| Автентифікація | Логін/пароль або сертифікат | Сертифікат пристрою X.509 + приватний ключ |
+| Топіки | `modesp/v1/<tenant>/<id>/...` | `<thing_name>/state/...`, `$aws/things/<thing_name>/shadow/...` |
+| HA discovery | Опціонально | Н/Д (HA не споживає AWS IoT напряму) |
+| Shadow-документ | Н/Д | Синхронізується з SharedState (Stage 1.5) |
 
-## Configuration
+## Налаштування
 
-Certificates uploaded через WebUI Network → Cloud → AWS:
+Сертифікати завантажуються через WebUI Network → Cloud → AWS:
 
-- Root CA (Amazon's PEM, public).
-- Device cert (issued by IoT Core коли registering Thing).
-- Device private key (matches cert).
+- Кореневий CA (PEM від Amazon, публічний).
+- Сертифікат пристрою (видається IoT Core при реєстрації Thing).
+- Приватний ключ пристрою (відповідає сертифікату).
 
-Stored у NVS namespace `aws` (key/value, base64 PEM). HTTP `POST /api/cert`
-з `type=aws_root_ca`, `aws_device_cert`, `aws_device_key`.
+Зберігаються у просторі імен NVS `aws` (ключ/значення, PEM у base64).
+HTTP `POST /api/cert` з `type=aws_root_ca`, `aws_device_cert`,
+`aws_device_key`.
 
-Endpoint configuration у `sdkconfig.defaults`:
+Налаштування кінцевої точки у `sdkconfig.defaults`:
 
 ```ini
 CONFIG_MODESP_AWS_ENDPOINT="a1b2c3d4e5f6-ats.iot.us-east-1.amazonaws.com"
 CONFIG_MODESP_AWS_THING_NAME_PREFIX="modesp"  # actual = <prefix>_<device_id>
 ```
 
-## Topic structure
+## Структура топіків
 
 ```
 <thing_name>/state/<key_path>         publish (наприклад simple_thermo/temperature)
-<thing_name>/cmd/<state_key>          subscribe (write SharedState)
+<thing_name>/cmd/<state_key>          subscribe (запис у SharedState)
 $aws/things/<thing_name>/shadow/...   IoT Thing Shadow (Stage 1.5)
 ```
 
-`<thing_name>` defaults до `<prefix>_<device_id_lowercase>` (наприклад,
-`modesp_a1b2c3`). Configurable.
+`<thing_name>` за замовчуванням дорівнює `<prefix>_<device_id_lowercase>`
+(наприклад, `modesp_a1b2c3`). Налаштовується.
 
-Shadow document syncing (planned, Stage 1.5):
-- SharedState writes mirror до `shadow/update` з reported state.
-- Shadow desired-state updates flow back через `shadow/update/delta` як
-  commands.
-- Enables remote setpoint control через AWS dashboard без custom
-  pub/sub topic.
+Синхронізація shadow-документа (заплановано, Stage 1.5):
+- Записи у SharedState віддзеркалюються у `shadow/update` як reported state.
+- Оновлення desired-state у shadow повертаються через
+  `shadow/update/delta` як команди.
+- Дозволяє віддалене керування уставками через AWS dashboard без
+  власного топіка pub/sub.
 
-## State keys
+## Ключі стану
 
-| Key | Notes |
+| Ключ | Примітки |
 |---|---|
-| `aws.connected` | true якщо IoT Core session active. |
-| `aws.thing_name` | This device's Thing name (read-only, derived). |
-| `aws.endpoint` | Current IoT endpoint. |
-| `aws.publish_count` | Cumulative publishes since boot. |
+| `aws.connected` | true, якщо сесія IoT Core активна. |
+| `aws.thing_name` | Ім'я Thing цього пристрою (read-only, похідне). |
+| `aws.endpoint` | Поточна кінцева точка IoT. |
+| `aws.publish_count` | Сумарна кількість публікацій від завантаження. |
 
-## Memory і resources
+## Пам'ять і ресурси
 
-| Resource | Cost |
+| Ресурс | Вартість |
 |---|---|
-| AWS SDK client (esp-aws-iot або custom) | ~10 KB heap |
-| mTLS session | ~12 KB heap (cert + key + session state) |
-| Certificate strings у NVS | ~4-8 KB |
+| Клієнт AWS SDK (esp-aws-iot або власний) | ~10 КБ купи |
+| Сесія mTLS | ~12 КБ купи (сертифікат + ключ + стан сесії) |
+| Рядки сертифікатів у NVS | ~4-8 КБ |
 
-Total ~25 KB. AWS backend heavier ніж generic MQTT через mTLS і more
-verbose Amazon SDK. Plan budget accordingly.
+Загалом ~25 КБ. Бекенд AWS важчий за звичайний MQTT через mTLS і
+багатослівніший Amazon SDK. Плануйте бюджет відповідно.
 
-## Коли choose AWS над generic MQTT
+## Коли обирати AWS замість звичайного MQTT
 
-**AWS:** managed broker з built-in device fleet management, OTA pipelines,
-shadow documents, rule engine для cloud-side processing, IAM-based
-access control. Heavier RAM cost; mTLS mandatory.
+**AWS:** керований брокер з вбудованим керуванням флотом пристроїв,
+конвеєрами OTA, shadow-документами, рушієм правил для обробки на
+стороні хмари, контролем доступу на основі IAM. Більша вартість у
+RAM; mTLS обов'язковий.
 
-**Generic MQTT:** local broker (Mosquitto, EMQX, HA Mosquitto add-on),
-lightweight, full control. Optional TLS.
+**Звичайний MQTT:** локальний брокер (Mosquitto, EMQX, додаток
+Mosquitto для HA), легкий, повний контроль. Опціональний TLS.
 
-Для production deployment що integrates з AWS Lambda / IoT Analytics /
-Greengrass — choose AWS. Для local-only або self-hosted Home Assistant —
-choose generic MQTT.
+Для продакшен-розгортання, що інтегрується з AWS Lambda / IoT
+Analytics / Greengrass — обирайте AWS. Для лише локального або
+самохостингового Home Assistant — обирайте звичайний MQTT.
 
-## Author-side perspective
+## Погляд з боку автора
 
-Identical до MQTT. Manifest declarations work the same:
+Ідентичний до MQTT. Оголошення у маніфесті працюють так само:
 
 ```json
 "mqtt": {
@@ -133,33 +137,36 @@ Identical до MQTT. Manifest declarations work the same:
 }
 ```
 
-Framework picks active backend і wires accordingly. Business modules не
-care which.
+Фреймворк обирає активний бекенд і підключає відповідно. Бізнес-модулі
+не звертають уваги, який саме.
 
-## Common pitfalls
+## Типові помилки
 
-**Cert/key mismatch:** uploaded cert і key не pair. AWS IoT rejects
-connection з `MQTT_ERROR_TLS_HANDSHAKE_FAILED`. Re-generate і re-upload
-обидва з AWS IoT console.
+**Невідповідність сертифіката і ключа:** завантажений сертифікат і
+ключ не утворюють пару. AWS IoT відхиляє з'єднання з
+`MQTT_ERROR_TLS_HANDSHAKE_FAILED`. Перегенеруйте і повторно завантажте
+обидва з консолі AWS IoT.
 
-**Endpoint typo:** mistyped IoT endpoint URL. Connection times out
-silently. Verify через `aws iot describe-endpoint --endpoint-type
-iot:Data-ATS`.
+**Опечатка у кінцевій точці:** неправильно введений URL кінцевої
+точки IoT. З'єднання тихо тайм-аутиться. Перевірте через
+`aws iot describe-endpoint --endpoint-type iot:Data-ATS`.
 
-**Thing name mismatch:** policy attached до wrong Thing → connection
-accepted але publishes rejected (Forbidden). Check IoT Core console для
-attached policy і resource ARNs.
+**Невідповідність імені Thing:** політика прив'язана до не того
+Thing → з'єднання приймається, але публікації відхиляються
+(Forbidden). Перевірте у консолі IoT Core прив'язану політику і ARN
+ресурсів.
 
-**Memory budget:** building з обома modesp_aws і scenario engine під
-WROOM-32 may run tight. Profile через `idf.py size-components`.
+**Бюджет пам'яті:** збірка з одночасно modesp_aws і рушієм сценаріїв
+під WROOM-32 може бути тісною. Профілюйте через
+`idf.py size-components`.
 
 ## Що далі
 
-- **[components/modesp_mqtt.md](modesp_mqtt.md)** — generic MQTT
-  alternative.
+- **[components/modesp_mqtt.md](modesp_mqtt.md)** — альтернатива зі
+  звичайним MQTT.
 - **[02-module-author-guide/mqtt.md](../../02-module-author-guide/mqtt.md)** —
-  manifest declarations apply до обох backends.
+  оголошення у маніфесті стосуються обох бекендів.
 
-## Source
+## Джерела
 
-- [`components/modesp_aws/`](../../../../components/modesp_aws/) — implementation.
+- [`components/modesp_aws/`](../../../../components/modesp_aws/) — реалізація.

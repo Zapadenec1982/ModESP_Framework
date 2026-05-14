@@ -2,33 +2,34 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_core.md](../../../en/03-framework-reference/components/modesp_core.md)
 
-`modesp_core` — foundation на якому ModESP stands. Не має framework
-залежностей вище ETL і FreeRTOS, і кожен інший компонент залежить від
-нього. Пʼять публічних типів — `App`, `ModuleManager`, `SharedState`,
-`BaseModule`, і type definitions у `types.h` — collectively визначають
-всю framework programming model.
+`modesp_core` — це фундамент, на якому стоїть ModESP. Він не має
+залежностей від фреймворка над ETL і FreeRTOS, а кожен інший компонент
+залежить від нього. П'ять публічних типів — `App`, `ModuleManager`,
+`SharedState`, `BaseModule` і визначення типів у `types.h` — разом
+утворюють всю програмну модель фреймворка.
 
-Ця сторінка документує кожен у деталях з повним API surface, lifetime
-guarantees, і thread-safety contracts. Якщо пишете modules, ви будете
-torch-ити `BaseModule` і `SharedState` constantly; `App` і
-`ModuleManager` wire-ються у main.cpp і rarely revisited.
+Ця сторінка детально описує кожен із них з повною поверхнею API,
+гарантіями життєвого циклу та контрактами потокобезпеки. Якщо ви пишете
+модулі, ви постійно торкатиметесь `BaseModule` і `SharedState`; `App` і
+`ModuleManager` підключаються у main.cpp і рідко змінюються.
 
-## Публічні headers
+## Публічні заголовки
 
 ```
 components/modesp_core/include/modesp/
 ├── app.h                    ← App singleton, lifecycle root
-├── base_module.h            ← BaseModule — base class вашого module
+├── base_module.h            ← BaseModule — your module's base class
 ├── module_manager.h         ← ModuleManager — registry і tick driver
 ├── shared_state.h           ← SharedState — thread-safe key-value store
-├── types.h                  ← StateKey, StateValue, ModulePriority, тощо.
+├── types.h                  ← StateKey, StateValue, ModulePriority, etc.
 ├── message.h                ← etl::imessage wrapper + message ID ranges
 └── platform/timing.h        ← millis() helper (FreeRTOS-aware)
 ```
 
-REQUIRES: `marcel-cd__etlcpp` (ETL templates), `freertos` (mutex, tasks).
+REQUIRES: `marcel-cd__etlcpp` (шаблони ETL), `freertos` (м'ютекси,
+завдання).
 
-## Types — `modesp/types.h`
+## Типи — `modesp/types.h`
 
 ### `StateKey` і `StateValue`
 
@@ -43,15 +44,16 @@ using StateValue = etl::variant<int32_t, float, bool, StringValue>;
 }
 ```
 
-| Type | Notes |
+| Тип | Примітки |
 |---|---|
-| `StateKey` | До 32 символів. Long names rejected при `state_set` time. |
-| `StringValue` | До 32 символів. Strings larger вимагають raw NVS або LittleFS. |
-| `StateValue` | Variant з 4 cases. Кожен key locks до first-set type. |
+| `StateKey` | До 32 символів. Задовгі імена відхиляються під час `state_set`. |
+| `StringValue` | До 32 символів. Довші рядки потребують прямого доступу до NVS або LittleFS. |
+| `StateValue` | Варіант з 4 випадків. Кожен ключ закріплюється за типом при першому встановленні. |
 
-Configurable через Kconfig (`CONFIG_MODESP_MAX_KEY_LENGTH`,
-`CONFIG_MODESP_MAX_STRING_VALUE_LENGTH`), але defaults battle-tested.
-Raising limits costs RAM linearly у map SharedState.
+Налаштовується через Kconfig (`CONFIG_MODESP_MAX_KEY_LENGTH`,
+`CONFIG_MODESP_MAX_STRING_VALUE_LENGTH`), але значення за замовчуванням
+перевірені практикою. Збільшення лімітів лінійно зростає у витратах RAM
+карти SharedState.
 
 ### `ModulePriority`
 
@@ -64,31 +66,34 @@ enum class ModulePriority : uint8_t {
 };
 ```
 
-Controls init phase і update order. Modules у межах priority bucket
-init/update у **registration order**. Lower priority → earlier у phase.
+Керує фазою ініціалізації та порядком оновлення. Модулі у межах одного
+рівня пріоритету ініціалізуються та оновлюються у **порядку реєстрації**.
+Нижчий пріоритет → раніша фаза.
 
-### Message ID ranges
+### Діапазони ідентифікаторів повідомлень
 
-`message.h` divides uint16 message ID space:
+`message.h` ділить простір ідентифікаторів повідомлень uint16:
 
-| Range | Owner |
+| Діапазон | Власник |
 |---|---|
-| 0-49 | System (`MSG_SYS_*`) |
-| 50-99 | Services (`MSG_SVC_*`) |
+| 0-49 | система (`MSG_SYS_*`) |
+| 50-99 | служби (`MSG_SVC_*`) |
 | 100-109 | HAL |
-| 110-149 | Drivers |
-| 150-199 | (reserved) |
-| 200+ | Domain modules |
+| 110-149 | драйвери |
+| 150-199 | (зарезервовано) |
+| 200+ | прикладні модулі |
 
-Use distinct IDs щоразу як визначаєте новий typed message — collisions
-break ETL message dispatch.
+Використовуйте унікальні ідентифікатори щоразу, коли визначаєте нове
+типізоване повідомлення — колізії ламають диспетчеризацію повідомлень
+ETL.
 
 ## `BaseModule` — `modesp/base_module.h`
 
-Клас від якого усі service modules inherit. Lifetime: static у main.cpp
-(constructed once при program start, destroyed ніколи).
+Клас, від якого успадковуються усі службові модулі. Час життя: статичний
+у main.cpp (конструюється один раз на старті програми, ніколи не
+знищується).
 
-### Construction
+### Конструювання
 
 ```cpp
 class BaseModule {
@@ -98,10 +103,10 @@ public:
 };
 ```
 
-`name` matched проти `"module"` field у вашому manifest. Length limit:
-`MODESP_MAX_MODULE_NAME_LENGTH` (default 16 chars).
+`name` зіставляється з полем `"module"` у вашому маніфесті. Обмеження
+довжини: `MODESP_MAX_MODULE_NAME_LENGTH` (за замовчуванням 16 символів).
 
-### Lifecycle hooks
+### Хуки життєвого циклу
 
 ```cpp
 virtual bool on_init()                            { return true; }
@@ -110,14 +115,14 @@ virtual void on_message(const etl::imessage& msg) {}
 virtual void on_stop()                            {}
 ```
 
-| Hook | Called | Return / blocking |
+| Хук | Викликається | Повернення / блокування |
 |---|---|---|
-| `on_init` | Один раз при startup у phase що matches `priority`. | Return `false` щоб mark module FAILED. |
-| `on_update` | Кожні 10 мс (100 Hz) коли у INITIALISED state. | Must не block (< 1 мс типово). |
-| `on_message` | Коли `ModuleManager::send_message` targets ім'я цього module. | Should не block; chain до internal queues якщо треба. |
-| `on_stop` | Один раз при shutdown OR якщо `stop_all()` called. | Cleanup; рідко на practice. |
+| `on_init` | Один раз при старті у фазі, що відповідає `priority`. | Поверніть `false`, щоб позначити модуль FAILED. |
+| `on_update` | Кожні 10 мс (100 Гц), коли модуль у стані INITIALISED. | Не повинен блокувати (< 1 мс зазвичай). |
+| `on_message` | Коли `ModuleManager::send_message` адресовано цьому модулю. | Не повинен блокувати; за потреби передавайте у внутрішні черги. |
+| `on_stop` | Один раз при зупинці АБО при виклику `stop_all()`. | Прибирання; рідкість на практиці. |
 
-### Module state machine
+### Машина станів модуля
 
 ```
    CREATED ──init→ INITIALISED ──tick→ INITIALISED  (steady state)
@@ -127,25 +132,25 @@ virtual void on_stop()                            {}
        └──init failed→ FAILED
 ```
 
-| State | Meaning |
+| Стан | Значення |
 |---|---|
-| `CREATED` | Constructed але `on_init` ще не called. |
-| `INITIALISED` | `on_init` повернув `true`. Module receives `on_update` calls. |
-| `FAILED` | `on_init` повернув `false`. Module registered але inactive. |
-| `STOPPED` | `on_stop` ran. Module no longer ticks. |
+| `CREATED` | Сконструйовано, але `on_init` ще не викликано. |
+| `INITIALISED` | `on_init` повернув `true`. Модуль отримує виклики `on_update`. |
+| `FAILED` | `on_init` повернув `false`. Модуль зареєстрований, але неактивний. |
+| `STOPPED` | `on_stop` виконано. Модуль більше не отримує тактів. |
 
-Visible через `BaseModule::state() const`.
+Видно через `BaseModule::state() const`.
 
-### Convenience accessors (built на SharedState)
+### Зручні методи доступу (на основі SharedState)
 
 ```cpp
-// Write — typed overloads, всі delegate до SharedState::set.
+// Write — typed overloads, all delegate до SharedState::set.
 bool state_set(const char* key, int32_t value, bool track_change = true);
 bool state_set(const char* key, float value,   bool track_change = true);
 bool state_set(const char* key, bool value,    bool track_change = true);
 bool state_set(const char* key, const char* value, bool track_change = true);
 
-// Read — typed з default fallback.
+// Read — typed із default fallback.
 float   read_float(const char* key, float def = 0.0f) const;
 int32_t read_int(const char* key, int32_t def = 0) const;
 bool    read_bool(const char* key, bool def = false) const;
@@ -155,9 +160,9 @@ etl::optional<StateValue> state_get(const char* key) const;
 ```
 
 Див. [shared-state.md](../../02-module-author-guide/shared-state.md) для
-повних semantics і common pitfalls.
+повної семантики та типових помилок.
 
-### Identity і diagnostics
+### Ідентичність і діагностика
 
 ```cpp
 const char*    name() const;
@@ -165,29 +170,30 @@ ModulePriority priority() const;
 ModuleState    state() const;
 ```
 
-`/api/modules` HTTP endpoint reports `name()` і `state()` для кожного
-registered module.
+HTTP-точка доступу `/api/modules` повідомляє `name()` і `state()` для
+кожного зареєстрованого модуля.
 
 ## `ModuleManager` — `modesp/module_manager.h`
 
-Holds fixed-capacity array `BaseModule*` references і drives їхні
-lifecycles. Один instance живе всередині `App`.
+Тримає масив фіксованої місткості з посилань `BaseModule*` і керує їхніми
+життєвими циклами. Один екземпляр живе всередині `App`.
 
-### Capacity
+### Місткість
 
-Default capacity set у Kconfig (`CONFIG_MODESP_MAX_MODULES`, типово 32).
-Exceeding це silently drops registration (registrations return `false`).
+Місткість за замовчуванням задається в Kconfig
+(`CONFIG_MODESP_MAX_MODULES`, зазвичай 32). Перевищення тихо скасовує
+реєстрацію (виклики реєстрації повертають `false`).
 
 ### API
 
 ```cpp
 class ModuleManager {
 public:
-    bool register_module(BaseModule& m);          // false якщо already registered або full
-    bool init_all(SharedState& state);            // calls on_init() на кожному CREATED module
-    void update_all(uint32_t dt_ms);              // calls on_update() на кожному INITIALISED module
-    void on_message(const etl::imessage& msg);    // dispatch до addressed module's on_message
-    void stop_all();                              // calls on_stop() на всіх initialised modules
+    bool register_module(BaseModule& m);          // false if already registered or full
+    bool init_all(SharedState& state);            // calls on_init() on each CREATED module
+    void update_all(uint32_t dt_ms);              // calls on_update() on each INITIALISED module
+    void on_message(const etl::imessage& msg);    // dispatch to addressed module's on_message
+    void stop_all();                              // calls on_stop() on all initialised modules
     bool send_message(const char* target, const etl::imessage& msg);
 
     // Diagnostic
@@ -197,12 +203,13 @@ public:
 };
 ```
 
-### Three-phase init pattern
+### Шаблон трифазної ініціалізації
 
-`init_all` — **gate** — it only initialises modules currently у CREATED
-state. Calling it once at boot initialises every registered module;
-calling it three times із registrations interleaved gives phased init
-описаний у [architecture.md](../architecture.md#three-phase-init).
+`init_all` — це **шлагбаум**: він ініціалізує лише ті модулі, що зараз
+знаходяться у стані CREATED. Виклик один раз при завантаженні ініціалізує
+кожен зареєстрований модуль; виклик тричі з перемежованими реєстраціями
+дає фазову ініціалізацію, описану у
+[architecture.md](../architecture.md#three-phase-init).
 
 ```cpp
 // Phase 1
@@ -217,18 +224,18 @@ app.modules().init_all(app.state());            // now these inited; phase 1 mod
 
 // Phase 3
 app.modules().register_module(http);
-app.modules().init_all(app.state());            // only http inited тут
+app.modules().init_all(app.state());            // only http inited here
 ```
 
-### Update tick
+### Такт оновлення
 
-`update_all` iterates registered modules у insertion order і викликає
-`on_update(dt_ms)` на кожному `INITIALISED` module. Single-threaded — no
-parallel module execution.
+`update_all` ітерує зареєстровані модулі у порядку додавання і викликає
+`on_update(dt_ms)` для кожного модуля зі станом `INITIALISED`.
+Однопотоково — без паралельного виконання модулів.
 
-### Messages
+### Повідомлення
 
-Module sends typed `etl::imessage` до іншого module по імені:
+Модуль надсилає типізоване `etl::imessage` іншому модулю за іменем:
 
 ```cpp
 struct OtaProgressMsg : public etl::message<200> {
@@ -240,24 +247,25 @@ OtaProgressMsg msg{12345, 67890};
 app.modules().send_message("datalogger", msg);
 ```
 
-Target's `on_message` runs synchronously на sending task. Use sparingly —
-більшість речей повинні flow через SharedState натомість.
+`on_message` адресата виконується синхронно у завданні-відправнику.
+Використовуйте обережно — більшість обмінів має йти через SharedState.
 
 ## `SharedState` — `modesp/shared_state.h`
 
-Thread-safe typed key-value store. Один instance живе всередині `App`.
+Потокобезпечне типізоване сховище ключ-значення. Один екземпляр живе
+всередині `App`.
 
-### Storage
+### Сховище
 
 ```cpp
 using Map = etl::unordered_map<StateKey, StateValue, MODESP_MAX_STATE_ENTRIES>;
 ```
 
-`MODESP_MAX_STATE_ENTRIES` defaults до 96, auto-generated у `state_meta.h`
-з маніфестів. Bump через Kconfig якщо треба (cost: ~80 bytes RAM per
-entry).
+`MODESP_MAX_STATE_ENTRIES` за замовчуванням дорівнює 96, генерується
+автоматично у `state_meta.h` з маніфестів. Збільшується через Kconfig за
+потреби (вартість: ~80 байт RAM на запис).
 
-### Read/write API
+### API читання/запису
 
 ```cpp
 class SharedState {
@@ -281,55 +289,56 @@ public:
 };
 ```
 
-### Change tracking і WebSocket integration
+### Відстеження змін та інтеграція з WebSocket
 
 ```cpp
 class SharedState {
 public:
     using IterCallback = void(*)(const StateKey&, const StateValue&, void* user_data);
 
-    // Iterate ALL keys (під mutex — callback повинен бути fast).
+    // Iterate ALL keys (під mutex — callback must be fast).
     void for_each(IterCallback cb, void* user_data) const;
 
     // Iterate changed keys (since last flush) AND clear list.
     bool for_each_changed_and_clear(IterCallback cb, void* user_data);
 
     bool has_changes() const;
-    bool needs_full_broadcast() const;   // true якщо changed_keys_ overflowed
-    uint32_t version() const;             // monotonic counter при кожному tracked set
+    bool needs_full_broadcast() const;   // true if changed_keys_ overflowed
+    uint32_t version() const;             // monotonic counter on every tracked set
     uint32_t set_failures() const;        // diagnostic — set() rejection count
 };
 ```
 
-WebSocket service використовує це щоб broadcast deltas кожні ~500 мс.
-PersistService і MqttService також observe state changes через цей API.
+Служба WebSocket використовує ці методи для розсилки дельт кожні ~500 мс.
+PersistService і MqttService також спостерігають за змінами стану через
+цей API.
 
-### Persistence hook
+### Гак збереження
 
 ```cpp
 using PersistCallback = void(*)(const StateKey&, const StateValue&, void* user_data);
 void set_persist_callback(PersistCallback cb, void* user_data);
 ```
 
-PersistService registers callback що fires при кожному tracked write —
-ось як `persist: true` працює (див.
+PersistService реєструє зворотний виклик, що спрацьовує при кожному
+відстеженому записі — саме так працює `persist: true` (див.
 [persistence.md](../../02-module-author-guide/persistence.md)).
 
-### Thread safety
+### Потокобезпека
 
-Всі методи acquire FreeRTOS mutex internally. Safe з:
-- Module tick task (default).
-- HTTP request task.
-- MQTT subscribe callback task.
-- Recipe scenario engine.
-- **НЕ ISR** (mutex blocks).
+Усі методи внутрішньо захоплюють м'ютекс FreeRTOS. Безпечно з:
+- завдання тактів модуля (за замовчуванням);
+- завдання HTTP-запиту;
+- завдання зворотного виклику підписки MQTT;
+- рушія сценаріїв рецептів;
+- **НЕ ISR** (м'ютекс блокує).
 
-Mutex timeout — 100 мс. Якщо `set` returns `false`, `set_failures()`
-increments — non-zero value натякає на contention.
+Тайм-аут м'ютекса — 100 мс. Якщо `set` повертає `false`, лічильник
+`set_failures()` зростає — ненульове значення натякає на конкуренцію.
 
 ## `App` — `modesp/app.h`
 
-Application singleton що owns SharedState і ModuleManager.
+Синглтон застосунку, що володіє SharedState і ModuleManager.
 
 ```cpp
 class App {
@@ -347,24 +356,25 @@ private:
 };
 ```
 
-Lifetime: lazily constructed при першому `App::instance()` call. Живе
-до program exit (ніколи, на embedded). Обидва accessors return references
-що outlive будь-який module.
+Час життя: лінько конструюється при першому виклику `App::instance()`.
+Живе до виходу програми (на вбудованих пристроях — ніколи). Обидва
+методи доступу повертають посилання, що переживають будь-який модуль.
 
-## Memory і size budget
+## Пам'ять і бюджет розміру
 
-| Item | RAM cost |
+| Стаття | Витрата RAM |
 |---|---|
-| SharedState із 96 entries | ~8 KB (key + variant + bookkeeping) |
-| ModuleManager із 32 slots | ~512 bytes (pointer array + status) |
-| Один BaseModule subclass | depends на ваші members; aim для < 256 bytes |
-| Mutex (FreeRTOS) | ~88 bytes |
+| SharedState з 96 записами | ~8 КБ (ключ + варіант + службова інформація) |
+| ModuleManager з 32 слотами | ~512 байт (масив вказівників + статус) |
+| Один підклас BaseModule | залежить від ваших полів; ціль — < 256 байт |
+| М'ютекс (FreeRTOS) | ~88 байт |
 
-Total core overhead: ~10 KB RAM. Heap usage: zero (усе ETL static).
+Загальні накладні витрати ядра: ~10 КБ RAM. Використання купи: нуль (усе
+ETL — статичне).
 
-## Common usage patterns
+## Типові шаблони використання
 
-### Typical module skeleton
+### Типовий каркас модуля
 
 ```cpp
 // my_module/include/my_module.h
@@ -398,24 +408,24 @@ void MyModule::on_update(uint32_t dt_ms) {
 }
 ```
 
-### Diagnostic snapshot з HTTP handler
+### Діагностичний знімок з обробника HTTP
 
 ```cpp
-// runs на httpd task
+// runs on httpd task
 auto& state = HttpService::app_ref().state();
 state.for_each([](const auto& k, const auto& v, void* ctx) {
     auto* json = static_cast<JsonWriter*>(ctx);
-    // emit key=value до JSON
+    // emit key=value into JSON
 }, &json_writer);
 ```
 
-(HTTP handlers зазвичай не `register_module`; вони використовують
-`app.state()` напряму через dependency injection.)
+(Обробники HTTP зазвичай не викликають `register_module`; вони
+використовують `app.state()` напряму через впровадження залежностей.)
 
-### Static-init modules
+### Статична ініціалізація модулів
 
-Modules instantiated як file-scope statics у `main.cpp` (згенерований
-`module_instances.h`):
+Модулі створюються як статичні об'єкти файлової області у `main.cpp`
+(згенерований `module_instances.h`):
 
 ```cpp
 static modesp::ErrorService error_service;
@@ -423,39 +433,43 @@ static MyModule             my_module;
 // ... constructed before app_main runs.
 ```
 
-Constructor bodies повинні бути **trivial** — лише set defaults. Real
-init йде у `on_init` after SharedState exists.
+Тіла конструкторів повинні бути **тривіальними** — лише встановлення
+типових значень. Справжня ініціалізація йде у `on_init`, коли SharedState
+вже існує.
 
-## Common pitfalls
+## Типові помилки
 
-**Calling `state_set` з constructor:** SharedState ще не існує при
-static-init time. Завжди defer до `on_init`.
+**Виклик `state_set` із конструктора:** SharedState ще не існує під час
+статичної ініціалізації. Завжди відкладайте до `on_init`.
 
-**Re-entrant `SharedState` calls з всередині `for_each` callback:** mutex
-acquired для iteration; calling `set` / `get` з вашого callback
-deadlocks. Buffer changes externally і apply after iteration.
+**Реентрантні виклики `SharedState` зсередини зворотного виклику
+`for_each`:** м'ютекс утримується на час ітерації; виклик `set` / `get`
+з вашого зворотного виклику призводить до взаємного блокування. Буферте
+зміни ззовні та застосовуйте їх після ітерації.
 
-**Heavy work у `on_message`:** runs на whatever task що sent message.
-Long handlers block that task. Queue work до власного state machine для
-processing у `on_update`.
+**Важка робота у `on_message`:** виконується в тому завданні, що
+надіслало повідомлення. Тривалі обробники блокують це завдання. Ставте
+роботу у власну машину станів для обробки в `on_update`.
 
-**Missing `override` на virtual methods:** silent typo (`on_initt`)
-leaves default no-op у place. Завжди use `override`.
+**Відсутній `override` на віртуальних методах:** мовчазна помилка
+друку (`on_initt`) залишає стандартну порожню реалізацію на місці.
+Завжди використовуйте `override`.
 
 ## Що далі
 
-- **[components/modesp_services.md](modesp_services.md)** *(planned)* —
-  Error/Watchdog/Config/Persist/Logger services що build на modesp_core.
-- **[components/modesp_hal.md](modesp_hal.md)** *(planned)* — HAL і
+- **[components/modesp_services.md](modesp_services.md)** *(планується)*
+  — служби Error/Watchdog/Config/Persist/Logger, побудовані на
+  modesp_core.
+- **[components/modesp_hal.md](modesp_hal.md)** *(планується)* — HAL і
   DriverManager.
 - **[02-module-author-guide/writing-a-module.md](../../02-module-author-guide/writing-a-module.md)**
-  — author-side walkthrough using це API.
+  — покрокове проходження з боку автора з використанням цього API.
 - **[02-module-author-guide/shared-state.md](../../02-module-author-guide/shared-state.md)**
-  — SharedState patterns і type rules.
+  — шаблони SharedState і правила типів.
 
-## Source
+## Джерела
 
 - [`components/modesp_core/include/modesp/`](../../../../components/modesp_core/include/modesp/)
-  — public headers.
+  — публічні заголовки.
 - [`components/modesp_core/src/`](../../../../components/modesp_core/src/)
-  — implementations.
+  — реалізації.

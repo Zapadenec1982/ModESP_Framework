@@ -1,47 +1,48 @@
-# Reference маніфесту
+# Довідник маніфесту
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/manifest.md](../../en/02-module-author-guide/manifest.md)
 
-Маніфест — це контракт вашого модуля з фреймворком. JSON file що декларує
-все що build system повинен знати: які state keys ви exposing, які UI widgets
-рендеряться, які MQTT topics публікуються, що persist-иться, і (для рецептів)
-яка phase machine драйвить виконання.
+Маніфест — це контракт вашого модуля з фреймворком. Це JSON-файл, який
+декларує все, що повинна знати система збірки: які ключі стану ви
+експонуєте, які віджети UI рендеряться, які теми MQTT публікуються, що
+зберігається, і (для рецептів) яка машина фаз керує виконанням.
 
-Ця сторінка — reference для кожної секції з реальними прикладами із модулів
-що поставляються з фреймворком. Прочитавши, ви зможете написати повний
-маніфест для нового модуля, recipe або драйвера без consult-ування existing
-коду.
+Ця сторінка — довідкова документація для кожної секції з реальними
+прикладами з модулів, що поставляються з фреймворком. Прочитавши, ви
+зможете написати повний маніфест для нового модуля, рецепта або драйвера
+без звернення до наявного коду.
 
-## Три категорії маніфестів
+## Три різновиди маніфестів
 
-ModESP розпізнає три типи на основі top-level полів. Build pipeline обирає
-правильний генератор для кожного.
+ModESP розрізняє три типи на основі полів верхнього рівня. Конвеєр збірки
+обирає потрібний генератор коду для кожного з них.
 
-| Категорія | Папка | Розрізняюче поле | C++ код? |
+| Різновид | Папка | Розрізняюче поле | Має C++-код? |
 |---|---|---|---|
-| **Service module** | `modules/<name>/` | `"module": "..."` | Так (BaseModule subclass) |
-| **Recipe module** | `modules/<name>/` | `"module_type": "recipe"` + `"scenario"` секція | Ні |
-| **Driver** | `drivers/<name>/` | `"driver": "..."` | Так (IDriver subclass) |
+| **Сервісний модуль** | `modules/<name>/` | `"module": "..."` | Так (підклас BaseModule) |
+| **Модуль-рецепт** | `modules/<name>/` | `"module_type": "recipe"` + секція `"scenario"` | Ні |
+| **Драйвер** | `drivers/<name>/` | `"driver": "..."` | Так (підклас IDriver) |
 
-Секції тут стосуються одного або кількох типів. Заголовки маркують це.
+Секції, описані тут, стосуються одного або кількох різновидів. Заголовки
+позначають, кого саме.
 
-## Top-level поля
+## Поля верхнього рівня
 
-З'являються у JSON root для кожного маніфесту:
+З'являються у корені JSON для кожного маніфесту:
 
 | Поле | Тип | Обов'язкове | Примітки |
 |---|---|---|---|
-| `manifest_version` | int | так | Зараз `1`. Bump-иться при incompatible зміні схеми. |
-| `module` | string | одне з цих двох | Ім'я модуля (відповідає папці під `modules/`). Snake_case, ≤ 16 chars. |
+| `manifest_version` | int | так | Наразі `1`. Збільшується при несумісних змінах схеми. |
+| `module` | string | одне з цих двох | Ім'я модуля (відповідає папці під `modules/`). Snake_case, ≤ 16 символів. |
 | `driver` | string | одне з цих двох | Ім'я драйвера (відповідає папці під `drivers/`). Snake_case. |
-| `module_type` | string | лише recipes | Встановити у `"recipe"` для pure manifest модулів без C++. |
-| `version` | string | рекомендоване | Semver — для вашого власного tracking. |
-| `description` | string | рекомендоване | Однорядковий human-readable опис. |
-| `priority` | int | service модулі | Init phase: `0`=CRITICAL, `1`=HIGH, `2`=NORMAL, `3`=LOW. Див. [overview.md](overview.md#3--three-phase-init-lifecycle). |
-| `category` | string | лише драйвери | `"sensor"` або `"actuator"`. |
-| `hardware_type` | string | лише драйвери | `"gpio"`, `"onewire_bus"`, `"adc"`, `"i2c"`, `"rs485"`, тощо. |
+| `module_type` | string | лише для рецептів | Встановити `"recipe"` для чистих маніфест-модулів без C++. |
+| `version` | string | рекомендовано | Semver — для вашого власного відстеження. |
+| `description` | string | рекомендовано | Однорядковий зрозумілий опис. |
+| `priority` | int | сервісні модулі | Фаза ініціалізації: `0`=CRITICAL, `1`=HIGH, `2`=NORMAL, `3`=LOW. Див. [overview.md](overview.md#3--three-phase-init-lifecycle). |
+| `category` | string | лише для драйверів | `"sensor"` або `"actuator"`. |
+| `hardware_type` | string | лише для драйверів | `"gpio"`, `"onewire_bus"`, `"adc"`, `"i2c"`, `"rs485"` тощо. |
 
-Приклад top of `modules/simple_thermo/manifest.json`:
+Приклад початку `modules/simple_thermo/manifest.json`:
 
 ```json
 {
@@ -53,7 +54,7 @@ ModESP розпізнає три типи на основі top-level полів
 }
 ```
 
-Приклад top of `drivers/ds18b20/manifest.json`:
+Приклад початку `drivers/ds18b20/manifest.json`:
 
 ```json
 {
@@ -68,27 +69,28 @@ ModESP розпізнає три типи на основі top-level полів
 }
 ```
 
-## Секція: `state` (service модулі)
+## Секція: `state` (сервісні модулі)
 
-Декларує SharedState keys що модуль володіє. Кожен key отримує типізовану
-metadata що тече до: згенерованої C++ state table, WebUI auto-card, MQTT
-topic strings, і datalogger channel discovery.
+Декларує ключі SharedState, якими володіє модуль. Кожен ключ отримує
+типізовану метаінформацію, що проходить далі до: згенерованої C++-таблиці
+стану, авто-картки WebUI, рядків тем MQTT та виявлення каналів datalogger.
 
-**Конвенція іменування:** `<module>.<key_name>`, один dot, ≤ 32 символів total.
+**Конвенція іменування:** `<module>.<key_name>`, одна крапка, ≤ 32
+символів загалом.
 
-### Per-key поля
+### Поля на кожен ключ
 
 | Поле | Тип | Обов'язкове | Примітки |
 |---|---|---|---|
-| `type` | `"int"` / `"float"` / `"bool"` / `"string"` | так | Маппиться на `modesp::StateValue` variant cases. |
-| `access` | `"read"` / `"readwrite"` | так | `"read"` = display-only у UI; `"readwrite"` = user може встановлювати через WebUI/MQTT. |
-| `default` | typed | optional | Initial value якщо нема persisted override. Типізоване повинно match `type`. |
-| `min` / `max` / `step` | numeric | лише numeric типи | Bounds для UI widgets і validation. |
-| `unit` | string | optional | `"°C"`, `"%"`, `"мс"` — показується поруч із value у UI. |
-| `description` | string | optional | Tooltip у UI. |
-| `persist` | bool | optional | `true` → PersistService зберігає/відновлює через reboot. Default `false`. |
-| `mqtt_subscribe` | bool | optional | `true` → key writable через MQTT. Потребує `access: "readwrite"`. |
-| `on_label` / `off_label` | string | лише bool | Лейбли для indicator widget (наприклад `"ON"`/`"OFF"`, `"Нагрів"`/`"Idle"`). |
+| `type` | `"int"` / `"float"` / `"bool"` / `"string"` | так | Відображається на варіанти `modesp::StateValue`. |
+| `access` | `"read"` / `"readwrite"` | так | `"read"` = лише відображення у UI; `"readwrite"` = користувач може встановлювати через WebUI/MQTT. |
+| `default` | typed | опційно | Початкове значення, якщо немає збереженого перевизначення. Тип має відповідати `type`. |
+| `min` / `max` / `step` | numeric | лише для числових типів | Межі для віджетів UI та валідації. |
+| `unit` | string | опційно | `"°C"`, `"%"`, `"мс"` — показується поруч зі значенням у UI. |
+| `description` | string | опційно | Підказка у UI. |
+| `persist` | bool | опційно | `true` → PersistService зберігає/відновлює між перезавантаженнями. За замовчуванням `false`. |
+| `mqtt_subscribe` | bool | опційно | `true` → ключ доступний для запису через MQTT. Потребує `access: "readwrite"`. |
+| `on_label` / `off_label` | string | лише для bool | Підписи для віджета-індикатора (напр., `"ON"`/`"OFF"`, `"Нагрів"`/`"Спокій"`). |
 
 ### Приклад
 
@@ -122,70 +124,72 @@ topic strings, і datalogger channel discovery.
 }
 ```
 
-> 💡 **Tip:** генератор виробляє `state_meta.h` з constexpr table усіх
-> декларованих keys і їхніх типів. Ваш C++ код може referencing keys через
-> згенеровані константи — typos це compile errors, не runtime "key not found".
+> 💡 **Підказка:** генератор створює `state_meta.h` з constexpr-таблицею
+> всіх задекларованих ключів та їхніх типів. Ваш C++-код може посилатися
+> на ключі через згенеровані константи — опечатки стають помилками
+> компіляції, а не runtime-повідомленнями "key not found".
 
-## Секція: `ui` (будь-який модуль / driver)
+## Секція: `ui` (будь-який модуль / драйвер)
 
-Декларативний WebUI. Генератор зливає всі module/driver `ui` секції у єдиний
-`data/ui.json` що Svelte SPA завантажує. Жодного Svelte коду не проходить
-через ваші руки; ви пишете JSON.
+Декларативний WebUI. Генератор зливає всі секції `ui` модулів і драйверів
+в єдиний `data/ui.json`, який завантажує Svelte SPA. Жоден Svelte-код не
+проходить через ваші руки; ви пишете JSON.
 
-### Top-level shape
+### Форма верхнього рівня
 
 ```json
 "ui": {
-  "page": "Термостат",              // Page title показаний у навігації
-  "icon": "thermometer",            // Icon name (lucide / heroicons)
-  "page_id": "thermostat",          // Optional URL slug. Default derived з page name.
-  "access_level": "user",           // "user" / "service" / "admin" — gates visibility
-  "cards": [...]                    // Масив card definitions
+  "page": "Термостат",              // Заголовок сторінки у навігації
+  "icon": "thermometer",            // Ім'я іконки (lucide / heroicons)
+  "page_id": "thermostat",          // Опційний URL-slug. За замовчуванням з імені сторінки.
+  "access_level": "user",           // "user" / "service" / "admin" — обмежує видимість
+  "cards": [...]                    // Масив визначень карток
 }
 ```
 
-### Cards
+### Картки
 
-Card — це grouped widget container що рендериться як одна panel у page.
+Картка — це згрупований контейнер віджетів, що рендериться як одна панель
+на сторінці.
 
 ```json
 {
   "title": "Стан",                  // Заголовок картки
-  "subtitle": "Температура, режим", // Optional sub-heading
+  "subtitle": "Температура, режим", // Опційний підзаголовок
   "layout": "single",               // "single" / "grid" / "split"
-  "visible_when": {                 // Optional — показувати лише коли state key matches
+  "visible_when": {                 // Опційно — показувати лише коли ключ стану відповідає
     "scenario.engine_active_count": {">": 0}
   },
   "widgets": [...]
 }
 ```
 
-### Widgets
+### Віджети
 
-Найпростіша widget shape:
+Найпростіша форма віджета:
 
 ```json
 {"key": "simple_thermo.temperature", "widget": "value"}
 ```
 
-Найпоширеніші widget types:
+Поширені типи віджетів:
 
-| `widget` значення | Рендерить | Кращий для |
+| Значення `widget` | Що рендерить | Найкраще для |
 |---|---|---|
-| `"value"` | Read-only number/string display з unit | Sensor readings, computed state. |
-| `"indicator"` | LED-style on/off circle | Bool outputs, alarm state. |
-| `"slider"` | Range slider з min/max/step | Setpoints, gain values. |
-| `"number_input"` | Spin-box numeric input | Precise values, large ranges. |
-| `"select"` | Dropdown із enum values | Mode pickers (HEATING/COOLING). |
-| `"toggle"` | Bool switch | On/off configuration flags. |
-| `"chart"` | Time-series chart pull-ається з datalogger | Temperature history, trend lines. |
+| `"value"` | Відображення числа/рядка лише для читання з одиницею | Показання сенсорів, обчислений стан. |
+| `"indicator"` | Кружок у стилі LED on/off | Бінарні виходи, стан тривоги. |
+| `"slider"` | Повзунок діапазону з min/max/step | Уставки, значення коефіцієнтів. |
+| `"number_input"` | Числовий ввід зі стрілками | Точні значення, великі діапазони. |
+| `"select"` | Випадаючий список зі значеннями enum | Вибір режиму (HEATING/COOLING). |
+| `"toggle"` | Перемикач для bool | Прапорці конфігурації on/off. |
+| `"chart"` | Часовий ряд, що тягне дані з datalogger | Історія температури, лінії тренду. |
 
-Driver-specific shape (зверніть увагу `setting` замість `key`):
+Форма для драйверів (зверніть увагу, `setting` замість `key`):
 
 ```json
 {
   "title": "DS18B20: {{hardware_id}}",
-  "instance_per_binding": true,     // Рендерити одну картку на bound instance
+  "instance_per_binding": true,     // Рендерити одну картку на прив'язаний екземпляр
   "widgets": [
     {"setting": "read_interval_ms", "widget": "number_input"},
     {"setting": "offset",           "widget": "slider"},
@@ -194,11 +198,12 @@ Driver-specific shape (зверніть увагу `setting` замість `key
 }
 ```
 
-## Секція: `mqtt` (service модулі)
+## Секція: `mqtt` (сервісні модулі)
 
-Перелічує які state keys публікуються у MQTT, і які приймають MQTT writes.
-Генератор виробляє topic strings форми `<base>/<module>/<key_name>` де
-`<base>` сконфігурований у `sdkconfig` (default `modesp/<device-id>`).
+Перелічує, які ключі стану публікуються у MQTT, і які приймають запис
+з MQTT. Генератор виробляє рядки тем у форматі
+`<base>/<module>/<key_name>`, де `<base>` сконфігурований у `sdkconfig`
+(за замовчуванням `modesp/<device-id>`).
 
 ```json
 "mqtt": {
@@ -215,15 +220,17 @@ Driver-specific shape (зверніть увагу `setting` замість `key
 ```
 
 **Правила:**
-- Keys у `subscribe` повинні мати `access: "readwrite"` і `mqtt_subscribe: true`
-  у `state` декларації. Генератор валідує це при build.
-- Published values отримують throttled delta-publish (Stage 1.5 буде
-  документувати rates і LWT handling у [mqtt.md](mqtt.md) *(planned)*).
+- Ключі у `subscribe` мають мати `access: "readwrite"` і
+  `mqtt_subscribe: true` у своїй декларації `state`. Генератор валідує
+  це під час збірки.
+- Опубліковані значення отримують придушену дельта-публікацію (Stage 1.5
+  документуватиме частоти та обробку LWT у [mqtt.md](mqtt.md)
+  *(заплановано)*).
 
-## Секція: `loggable` (service модулі)
+## Секція: `loggable` (сервісні модулі)
 
-Wire-ить state keys до DataLogger модуля — channels для time-series, events
-для edge logging.
+Прив'язує ключі стану до модуля DataLogger — канали для часових рядів,
+події для логування фронтів.
 
 ```json
 "loggable": {
@@ -231,12 +238,12 @@ Wire-ить state keys до DataLogger модуля — channels для time-ser
     "simple_thermo.temperature": {
       "type": "temperature",
       "label": "Температура",
-      "default": true              // Увімкнено out of the box
+      "default": true              // Увімкнено за замовчуванням
     }
   },
   "events": {
     "simple_thermo.output": {
-      "id": 30,                    // Stable event ID — призначити раз, ніколи не змінювати
+      "id": 30,                    // Стабільний ID події — призначити раз, ніколи не змінювати
       "edge": "both",              // "rising" / "falling" / "both"
       "label_on": "Нагрів ON",
       "label_off": "Нагрів OFF"
@@ -245,15 +252,17 @@ Wire-ить state keys до DataLogger модуля — channels для time-ser
 }
 ```
 
-> ⚠️ **Warning:** event `id` — це stable byte-level identifier збережений у
-> datalogger flash files. **Ніколи не reuse-айте і не renumber-уйте** існуючі
-> IDs — interpretation історичних даних поламається. Підберіть unused IDs
-> скануючи маніфести усіх модулів для current values.
+> ⚠️ **Попередження:** `id` події — це стабільний побайтовий ідентифікатор,
+> збережений у flash-файлах datalogger. **Ніколи не використовуйте
+> повторно і не перенумеровуйте** наявні ID — інтерпретація історичних
+> даних зламається. Підбирайте невикористані ID, переглядаючи маніфести
+> всіх модулів на поточні значення.
 
-## Секція: `features` (service модулі, optional)
+## Секція: `features` (сервісні модулі, опційно)
 
-Декларує compile-time feature flags. Генератор виробляє константи у
-`features_config.h` що ваш C++ і інші генератори читають при compile time.
+Декларує прапорці можливостей часу компіляції. Генератор виробляє
+константи у `features_config.h`, які ваш C++-код та інші генератори
+читають під час компіляції.
 
 ```json
 "features": {
@@ -265,20 +274,20 @@ Wire-ить state keys до DataLogger модуля — channels для time-ser
   "thermo_max_setpoint": {
     "type": "int",
     "default": 40,
-    "description": "Hard cap на setpoint (°C)"
+    "description": "Hard cap on setpoint (°C)"
   }
 }
 ```
 
-Використовуйте sparingly. Більшість "configuration" повинна жити у `state`
-з `persist: true` (runtime-changeable, без rebuild). Features — для
-compile-time-only виборів: flash size optimisations, mutually exclusive code
-paths, debug gating.
+Використовуйте помірковано. Більшість «конфігурації» повинна жити в
+`state` з `persist: true` (можна змінити в runtime, без перезбірки).
+Прапорці можливостей — для виборів виключно часу компіляції: оптимізації
+розміру flash, взаємовиключні гілки коду, debug-обмеження.
 
-## Секція: `scenario` (лише recipe модулі)
+## Секція: `scenario` (лише модулі-рецепти)
 
-Це DSL рецептів — phase/transition graph скомпільований у бінарний `.modr`
-через `tools/compile_scenario.py`. Engine виконує отриманий blob при runtime.
+Це DSL рецептів — граф фаз і переходів, скомпільований у бінарний `.modr`
+через `tools/compile_scenario.py`. Рушій виконує отриманий blob у runtime.
 
 ```json
 "scenario": {
@@ -299,23 +308,24 @@ paths, debug gating.
             {"to": "phase_b", "when": {"time_elapsed_ms": 1000}}
           ]
         },
-        // ... ще phases
+        // ... ще фази
       ]
     }
   ]
 }
 ```
 
-Повний reference: [recipe-authoring.md](recipe-authoring.md) *(planned)* і
-існуючі
-[scenario-engine docs](../03-framework-reference/scenario-engine/).
+Повний довідник: [recipe-authoring.md](recipe-authoring.md) *(заплановано)*
+та наявна
+[документація scenario-engine](../03-framework-reference/scenario-engine/).
 
-## Driver-only секції
+## Секції лише для драйверів
 
 ### `settings`
 
-Persisted config schema для driver instance (одне driver definition може
-мати багато bound instances — різні sensors того ж типу).
+Схема збереженої конфігурації для екземпляра драйвера (одне визначення
+драйвера може мати багато прив'язаних екземплярів — різні сенсори
+одного типу).
 
 ```json
 "settings": [
@@ -331,36 +341,36 @@ Persisted config schema для driver instance (одне driver definition мо�
 ]
 ```
 
-Поля mirror-ять `state` per-key поля. Settings зберігаються у NVS під
-`drv.<driver>.<instance>.<key>`.
+Поля дзеркалять поля `state` на кожен ключ. Налаштування зберігаються у
+NVS під `drv.<driver>.<instance>.<key>`.
 
 ### `provides`
 
-Що драйвер виробляє (sensors) або приймає (actuators).
+Що драйвер виробляє (сенсори) або приймає (актуатори).
 
 ```json
-// Sensor driver:
+// Драйвер сенсора:
 "provides": {"type": "float", "unit": "°C", "range": [-55, 125]}
 
-// Actuator driver:
+// Драйвер актуатора:
 "provides": {"type": "bool", "description": "Стан реле"}
 ```
 
 ### `requires_address`
 
-Driver instance binding потребує hardware addressing (OneWire ROM, I2C
-address, тощо). Коли `true`, `bindings.json` повинен supply `address` поле
-per instance.
+Прив'язка екземпляра драйвера потребує апаратної адресації (OneWire ROM,
+I2C-адреса тощо). Коли `true`, `bindings.json` має надати поле `address`
+для кожного екземпляра.
 
 ```json
 "requires_address": true,
-"multiple_per_bus": true            // > 1 instance може ділити шину
+"multiple_per_bus": true            // > 1 екземпляр може ділити шину
 ```
 
 ### `discovery`
 
-Optional scanner endpoint — UI button що probe-ить hardware bus і повертає
-discovered devices.
+Опційний ендпоінт сканера — кнопка UI, що зондує апаратну шину і
+повертає виявлені пристрої.
 
 ```json
 "discovery": {
@@ -379,67 +389,71 @@ discovered devices.
 }
 ```
 
-## Валідація і build integration
+## Валідація та інтеграція зі збіркою
 
-`tools/generate_ui.py` запускається як pre-build CMake hook. Він:
+`tools/generate_ui.py` запускається як CMake-гак перед збіркою. Він:
 
-1. Discover-ить кожен `manifest.json` під `modules/` і `drivers/`.
-2. Валідує кожен проти схеми (цей документ — human-readable форма тієї схеми).
-3. Cross-валідує посилання: кожен key у `mqtt.subscribe` повинен існувати у
-   `state`; кожен `setting.key` повинен бути unique у межах драйвера; кожен
-   recipe `scenario` mirror key повинен бути pre-declared у recipe's `state`
-   секції.
-4. Виробляє artifacts у `generated/` і `data/` (див.
-   [tools/generate_ui.md](../05-tools/generate_ui.md) *(planned)*).
+1. Виявляє кожен `manifest.json` під `modules/` і `drivers/`.
+2. Валідує кожен проти схеми (цей документ — людиночитна форма тієї
+   схеми).
+3. Перехресно валідує посилання: кожен ключ у `mqtt.subscribe` має
+   існувати у `state`; кожен `setting.key` має бути унікальним у межах
+   драйвера; кожен дзеркальний ключ `scenario` рецепта має бути
+   попередньо задекларований у секції `state` рецепта.
+4. Виробляє артефакти до `generated/` і `data/` (див.
+   [tools/generate_ui.md](../05-tools/generate_ui.md) *(заплановано)*).
 
-Падіння у будь-якому кроці aborts build з конкретним error message —
+Збій на будь-якому кроці перериває збірку з конкретним повідомленням —
 невалідні маніфести ніколи не доходять до runtime.
 
-## Поширені помилки
+## Типові помилки
 
-**Забутий `priority`:** service module без `priority` потрапляє у NORMAL phase
-(priority `2`) за замовчуванням — зазвичай ОК. Critical модулі (watchdog,
-error service) потребують `priority: 0`; HAL і драйвери потребують
-`priority: 1`. Пізні init phases (HTTP, WS) отримують `priority: 3`.
+**Забутий `priority`:** сервісний модуль без `priority` за замовчуванням
+потрапляє до фази NORMAL (priority `2`) — зазвичай нормально. Критичним
+модулям (watchdog, служба помилок) потрібно `priority: 0`; HAL і
+драйверам — `priority: 1`. Пізні фази ініціалізації (HTTP, WS) отримують
+`priority: 3`.
 
-**State key довжина > 32 chars:** SharedState enforces 32-char key limit.
-`<module>.<key>` бюджет: module name ≤ 12 chars + dot + key ≤ 19 chars.
-Recipe authors хіт-ять це з довгими phase names — recipe name budget
-зменшується до ≤ 8.
+**Довжина ключа стану > 32 символів:** SharedState накладає обмеження у
+32 символи. Бюджет `<module>.<key>`: ім'я модуля ≤ 12 символів + крапка
++ ключ ≤ 19 символів. Автори рецептів натикаються на це з довгими
+іменами фаз — бюджет імені рецепта скорочується до ≤ 8.
 
-**Забутий `mqtt_subscribe: true` для writable keys:** key із
-`access: "readwrite"` перерахований у `mqtt.subscribe` але без флагу —
-генератор відхиляє з чітким повідомленням.
+**Забутий `mqtt_subscribe: true` для ключів запису:** ключ із
+`access: "readwrite"`, перелічений у `mqtt.subscribe`, але без прапорця —
+генератор відхиляє його з чітким повідомленням.
 
-**`features` сплутаний з `state`:** features — compile-time, state —
-runtime. Якщо users будуть adjusting value через WebUI — використовуйте
-`state`. Якщо вибір gates entire code blocks — використовуйте `features`.
+**`features` плутають зі `state`:** features — це час компіляції, state —
+runtime. Якщо користувачі коригуватимуть значення через WebUI,
+використовуйте `state`. Якщо вибір обмежує цілі блоки коду,
+використовуйте `features`.
 
-**Recipe з undeclared mirror keys:** scenarios пишуть mirror keys
-(`<recipe>.scenario_state`, тощо) — ці МУСЯТЬ бути pre-declared у recipe
-manifest's `state` section, навіть хоча їх пише engine, не recipe.
-Компілятор cross-валідує і fails build інакше.
+**Рецепт із незадекларованими дзеркальними ключами:** сценарії пишуть
+дзеркальні ключі (`<recipe>.scenario_state` тощо) — їх ПОТРІБНО
+попередньо задекларувати у секції `state` маніфесту рецепта, хоча їх
+пише рушій, а не рецепт. Компілятор перехресно перевіряє це і інакше
+завалює збірку.
 
 ## Що далі
 
-- **[writing-a-module.md](writing-a-module.md)** *(planned)* — перетворити
-  маніфест у working C++ модуль.
-- **[writing-a-driver.md](writing-a-driver.md)** *(planned)* — driver
-  authoring з IDriver інтерфейсом.
-- **[recipe-authoring.md](recipe-authoring.md)** *(planned)* — `scenario`
-  секція deep dive.
-- **[ui-widgets.md](ui-widgets.md)** *(planned)* — усі widget types з
-  rendered прикладами.
+- **[writing-a-module.md](writing-a-module.md)** *(заплановано)* —
+  перетворити маніфест у робочий C++-модуль.
+- **[writing-a-driver.md](writing-a-driver.md)** *(заплановано)* —
+  написання драйвера з інтерфейсом IDriver.
+- **[recipe-authoring.md](recipe-authoring.md)** *(заплановано)* —
+  глибоке занурення у секцію `scenario`.
+- **[ui-widgets.md](ui-widgets.md)** *(заплановано)* — усі типи віджетів
+  з прикладами рендерингу.
 
 ## Приклади для вивчення
 
-Existing маніфести варто прочитати source-first:
+Наявні маніфести варто прочитати з джерельного коду:
 
 - [`modules/simple_thermo/manifest.json`](../../../modules/simple_thermo/manifest.json) —
-  мінімальний service module з state, mqtt, loggable, ui. ~100 рядків.
+  мінімальний сервісний модуль зі state, mqtt, loggable, ui. ~100 рядків.
 - [`modules/abs_test/manifest.json`](../../../modules/abs_test/manifest.json) —
-  recipe module з 2-track `scenario` секцією.
+  модуль-рецепт із 2-доріжковою секцією `scenario`.
 - [`drivers/ds18b20/manifest.json`](../../../drivers/ds18b20/manifest.json) —
-  driver з settings, provides, discovery.
+  драйвер із settings, provides, discovery.
 - [`modules/datalogger/manifest.json`](../../../modules/datalogger/manifest.json) —
-  більший service module з channels, features.
+  більший сервісний модуль з каналами та можливостями.

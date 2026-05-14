@@ -2,107 +2,89 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/modules/equipment.md](../../../en/03-framework-reference/modules/equipment.md)
 
-Equipment Manager — це модуль що **bridge-ить hardware drivers і business
-модулі**. Читає `bindings.json` при startup, instantiates drivers, polls
-sensors / commands actuators на update loop, і exposes everything як
-`equipment.*` state keys. Business модулі ніколи не торкаються drivers
-напряму — вони читають і пишуть SharedState, і Equipment Manager handles
-все I/O.
+Equipment Manager — це модуль, який **зв'язує драйвери обладнання з бізнес-модулями**. Під час старту він зчитує `bindings.json`, створює екземпляри драйверів, опитує сенсори та надсилає команди актуаторам у циклі оновлення, а також публікує все це як ключі стану з префіксом `equipment.*`. Бізнес-модулі ніколи не звертаються до драйверів напряму — вони читають і записують SharedState, а Equipment Manager обробляє весь ввід-вивід.
 
-Ця сторінка документує відповідальності модуля, state keys exposed,
-configuration параметри, і як він інтегрується з ширшим hardware pipeline
-(board.json → bindings.json → drivers → SharedState).
+Ця сторінка описує обов'язки модуля, ключі стану, які він публікує, параметри конфігурації та те, як він інтегрується із загальним конвеєром обладнання (board.json → bindings.json → драйвери → SharedState).
 
-## Де Equipment fits
+## Місце Equipment у системі
 
 ```
    board.json + bindings.json
               │
               ▼
-   DriverManager створює driver instances
+   DriverManager створює екземпляри драйверів
               │
               ▼
-   Equipment Manager володіє drivers
-              │   читає sensors, commands actuators
+   Equipment Manager володіє драйверами
+              │   читає сенсори, командує актуаторами
               ▼
-   equipment.<role> keys у SharedState
+   ключі equipment.<role> у SharedState
               │
               ▼
-   Business модулі (thermostat, defrost, alarms)
-   читають equipment.<role>, пишуть equipment.req_<role>
+   Бізнес-модулі (thermostat, defrost, alarms)
+   читають equipment.<role>, записують equipment.req_<role>
 ```
 
-Equipment — **service module** (priority `HIGH` = 1, запускається у Phase
-2 init). Частина фреймворку і ships у `modules/equipment/`.
+Equipment — це **сервісний модуль** (пріоритет `HIGH` = 1, виконується у Phase 2 ініціалізації). Він є частиною фреймворку та постачається у `modules/equipment/`.
 
-## State keys exposed
+## Опубліковані ключі стану
 
-### Sensor keys (per binding із `category: "sensor"`)
+### Ключі сенсорів (на кожну прив'язку з `category: "sensor"`)
 
-| Key pattern | Type | Notes |
+| Шаблон ключа | Тип | Примітки |
 |---|---|---|
-| `equipment.<role>` | float | Current sensor reading (з calibration applied). |
-| `equipment.<role>_ok` | bool | Health: `true` якщо last read succeeded і driver healthy. |
+| `equipment.<role>` | float | Поточне показання сенсора (з урахуванням калібрування). |
+| `equipment.<role>_ok` | bool | Стан здоров'я: `true`, якщо останнє читання успішне і драйвер працює. |
 
-Приклад: bindings із `role: "air_temp"` і `role: "evap_temp"` створюють:
+Приклад: прив'язки з `role: "air_temp"` і `role: "evap_temp"` створюють:
 - `equipment.air_temp` (float)
 - `equipment.air_temp_ok` (bool)
 - `equipment.evap_temp` (float)
 - `equipment.evap_temp_ok` (bool)
 
-### Actuator keys (per binding із `category: "actuator"`)
+### Ключі актуаторів (на кожну прив'язку з `category: "actuator"`)
 
-| Key pattern | Type | Notes |
+| Шаблон ключа | Тип | Примітки |
 |---|---|---|
-| `equipment.<role>` | bool | Current actual state (read-only, reflects driver state). |
-| `equipment.req_<role>` | bool | Requested state (writable — business модулі пишуть це). |
+| `equipment.<role>` | bool | Поточний фактичний стан (тільки для читання, відображає стан драйвера). |
+| `equipment.req_<role>` | bool | Запитуваний стан (доступний для запису — бізнес-модулі записують сюди). |
 
-Приклад: bindings із `role: "compressor"` і `role: "evap_fan"` створюють:
+Приклад: прив'язки з `role: "compressor"` і `role: "evap_fan"` створюють:
 - `equipment.compressor`, `equipment.req_compressor`
 - `equipment.evap_fan`, `equipment.req_evap_fan`
 
-### Driver-presence keys
+### Ключі наявності драйверів
 
-Використовуються business модулями для detect-ння які drivers bound
-(graceful degradation коли hardware absent):
+Використовуються бізнес-модулями для виявлення, які драйвери прив'язані (плавна деградація за відсутності обладнання):
 
-| Key | Notes |
+| Ключ | Примітки |
 |---|---|
-| `equipment.has_ntc_driver` | `true` якщо at least один NTC sensor binding active. |
-| `equipment.has_ds18b20_driver` | `true` якщо at least один DS18B20 binding active. |
-| `equipment.<driver>_driver` | Один на кожен supported driver type. |
+| `equipment.has_ntc_driver` | `true`, якщо активна щонайменше одна прив'язка сенсора NTC. |
+| `equipment.has_ds18b20_driver` | `true`, якщо активна щонайменше одна прив'язка DS18B20. |
+| `equipment.<driver>_driver` | По одному ключу на кожен підтримуваний тип драйвера. |
 
-### Configuration keys (persisted)
+### Ключі конфігурації (зберігаються)
 
-| Key | Type | Default | Notes |
+| Ключ | Тип | За замовчуванням | Примітки |
 |---|---|---|---|
-| `equipment.filter_coeff` | int | 4 | Digital filter coefficient для sensor smoothing (0=raw..10=heavy). |
-| `equipment.ntc_beta` | int | 3950 | NTC B-coefficient. Applies до всіх NTC sensors. |
-| `equipment.ntc_r_series` | int | 10000 | NTC series resistor у Ω. |
-| `equipment.ntc_r_nominal` | int | 10000 | NTC nominal resistance при 25 °C (Ω). |
-| `equipment.ds18b20_offset` | float | 0.0 | Global DS18B20 calibration offset (°C). |
+| `equipment.filter_coeff` | int | 4 | Коефіцієнт цифрового фільтра для згладжування показань сенсорів (0=сирі..10=сильне згладжування). |
+| `equipment.ntc_beta` | int | 3950 | B-коефіцієнт NTC. Застосовується до всіх сенсорів NTC. |
+| `equipment.ntc_r_series` | int | 10000 | Послідовний резистор NTC у Ω. |
+| `equipment.ntc_r_nominal` | int | 10000 | Номінальний опір NTC за 25 °C (Ω). |
+| `equipment.ds18b20_offset` | float | 0.0 | Глобальне калібрувальне зміщення DS18B20 (°C). |
 
-Усі persisted (`persist: true`) — user adjustments survive reboot. WebUI
-exposes це як setpoints; MQTT subscribes accept writes для remote tuning.
+Усі зберігаються (`persist: true`) — налаштування користувача переживають перезавантаження. WebUI показує їх як уставки; підписники MQTT приймають записи для віддаленого налаштування.
 
-## Update flow per tick
+## Послідовність оновлення за один такт
 
-1. **Driver poll** — call `driver->update(dt_ms)` для кожного bound driver.
-   Sensors читають hardware, actuators apply pending state changes.
-2. **Read sensors** — `driver->read(value)` для кожного sensor driver;
-   apply digital filter і calibration; write `equipment.<role>` і
-   `equipment.<role>_ok`.
-3. **Forward actuator requests** — для кожного actuator binding, читає
-   `equipment.req_<role>` з SharedState і викликає `driver->set(state)`.
-   Driver returns success/failure; mirror back до `equipment.<role>`.
-4. **Health monitoring** — track consecutive failures per driver; set `_ok`
-   у `false` після threshold; surface alarms через error_service для
-   critical sensors.
+1. **Опитування драйверів** — виклик `driver->update(dt_ms)` для кожного прив'язаного драйвера. Сенсори читають обладнання, актуатори застосовують відкладені зміни стану.
+2. **Читання сенсорів** — `driver->read(value)` для кожного сенсорного драйвера; застосування цифрового фільтра та калібрування; запис `equipment.<role>` і `equipment.<role>_ok`.
+3. **Передача запитів актуаторів** — для кожної прив'язки актуатора читання `equipment.req_<role>` із SharedState та виклик `driver->set(state)`. Драйвер повертає успіх або невдачу; результат віддзеркалюється у `equipment.<role>`.
+4. **Моніторинг здоров'я** — відстеження послідовних збоїв на кожен драйвер; встановлення `_ok` у `false` після перевищення порогу; передача аварій через error_service для критичних сенсорів.
 
-## Digital filter
+## Цифровий фільтр
 
-Sensors readings можуть бути noisy (особливо NTC ADC reads). Equipment
-applies first-order IIR filter:
+Показання сенсорів можуть бути зашумленими (особливо читання ADC NTC). Equipment застосовує IIR-фільтр першого порядку:
 
 ```
 filtered = α × raw + (1 - α) × prev_filtered
@@ -111,25 +93,22 @@ filtered = α × raw + (1 - α) × prev_filtered
 
 | `filter_coeff` | α | Поведінка |
 |---|---|---|
-| 0 | 1.0 | Без фільтра (raw reads pass through). |
-| 4 (default) | 0.2 | Moderate smoothing, ~5-tick response. |
-| 10 | ~0.09 | Heavy smoothing, slow response. |
+| 0 | 1.0 | Без фільтра (сирі читання проходять без змін). |
+| 4 (за замовчуванням) | 0.2 | Помірне згладжування, реакція приблизно за 5 тактів. |
+| 10 | ~0.09 | Сильне згладжування, повільна реакція. |
 
-Поставте `equipment.filter_coeff = 0` якщо хочете raw access (для власного
-фільтра або edge detection).
+Встановіть `equipment.filter_coeff = 0`, якщо потрібен сирий доступ (для власного фільтра або виявлення фронтів).
 
-## Health і failures
+## Здоров'я та збої
 
-Drivers report health через `driver->is_healthy()` і `error_count()`.
-Equipment Manager:
+Драйвери повідомляють про стан здоров'я через `driver->is_healthy()` і `error_count()`. Equipment Manager:
 
-- Incrementує consecutive-failure counter при кожному failed read.
-- Після 3 consecutive failures, ставить `equipment.<role>_ok = false`.
-- Reset-ить counter при first successful read; restore-ить `_ok` у `true`.
-- Logs ESP_LOGW при кожному transition (уникає log spam).
+- Збільшує лічильник послідовних збоїв на кожне невдале читання.
+- Після 3 послідовних збоїв встановлює `equipment.<role>_ok = false`.
+- Скидає лічильник при першому успішному читанні; відновлює `_ok` у `true`.
+- Логує ESP_LOGW при кожному переході (уникає засмічення логу).
 
-Business модулі що потребують fail-safe behavior повинні перевіряти `_ok`
-перед trust-ингом reading:
+Бізнес-модулі, яким потрібна стійка до збоїв поведінка, мають перевіряти `_ok` перед тим, як довіряти показанню:
 
 ```cpp
 float temp = 0.0f;
@@ -137,17 +116,16 @@ bool sensor_ok = read_bool("equipment.air_temp_ok", false);
 if (sensor_ok) {
     temp = read_float("equipment.air_temp", 0.0f);
 } else {
-    // Fall back: use last-known-good, emergency-safe value, тощо.
+    // Резервний варіант: останнє відоме значення, аварійно-безпечне значення тощо.
 }
 ```
 
-## Configuration через WebUI / MQTT
+## Конфігурація через WebUI / MQTT
 
-`mqtt.subscribe` list дозволяє external clients tune calibration без
-recompile:
+Список `mqtt.subscribe` дозволяє зовнішнім клієнтам налаштовувати калібрування без перекомпіляції:
 
 ```bash
-# Tune NTC B-coefficient через MQTT
+# Налаштування B-коефіцієнта NTC через MQTT
 mosquitto_pub -t modesp/<device-id>/equipment/ntc_beta -m "3977"
 ```
 
@@ -158,13 +136,11 @@ curl -u admin:modesp -X POST http://192.168.1.85/api/settings \
   -d '{"equipment.ntc_beta": 3977}'
 ```
 
-Або через WebUI's "Equipment" page (auto-generated з manifest's `ui`
-section — не показано тут але живе у equipment manifest).
+Або через сторінку "Equipment" у WebUI (автоматично згенерована із секції `ui` маніфесту — тут не показана, але живе у маніфесті equipment).
 
-## Customising requires list
+## Налаштування списку requires
 
-Manifest equipment's `requires` декларує **що за kind of bindings модуль
-очікує**:
+`requires` у маніфесті Equipment оголошує **які прив'язки очікує модуль**:
 
 ```json
 "requires": [
@@ -173,22 +149,19 @@ Manifest equipment's `requires` декларує **що за kind of bindings м
 ]
 ```
 
-| Поле | Notes |
+| Поле | Примітки |
 |---|---|
-| `role` | Повинен match `role` binding exactly. |
+| `role` | Має точно збігатися з `role` прив'язки. |
 | `type` | `"sensor"` / `"actuator"`. |
-| `driver` | Array allowed driver types. Equipment accepts будь-який з них. |
-| `label` | Human-readable name (для UI). |
-| `optional` | Якщо `true`, missing binding не abort startup. Default `false`. |
+| `driver` | Масив дозволених типів драйверів. Equipment приймає будь-який із них. |
+| `label` | Назва у людиночитному форматі (для UI). |
+| `optional` | Якщо `true`, відсутність прив'язки не зупиняє запуск. За замовчуванням `false`. |
 
-Якщо потрібно більше ролей (multiple compressors, multiple temperature
-zones), edit equipment маніфест і додайте `requires` entries. Не додавайте
-ролі що bindings не fill-ять — `optional: true` тримає двері відкритими
-для майбутнього hardware.
+Якщо потрібно більше ролей (декілька компресорів, декілька температурних зон), відредагуйте маніфест equipment і додайте записи `requires`. Не додавайте ролі, які прив'язки не заповнять, — `optional: true` залишає двері відчиненими для майбутнього обладнання.
 
-## Display integration
+## Інтеграція з дисплеєм
 
-Equipment маніфест включає:
+Маніфест Equipment містить:
 
 ```json
 "display": {
@@ -199,76 +172,51 @@ Equipment маніфест включає:
 }
 ```
 
-На boards з LCD displays, фреймворк рендерить "main value" widget що
-показує primary температуру. Driv-ить default screen content LCD.
-[components/modesp_hal.md](../components/modesp_hal.md) *(planned)*
-документує display integration глибше.
+На платах з РК-дисплеями фреймворк відображає віджет головного значення з основною температурою. Це наповнює стандартний екран РК-дисплея. [components/modesp_hal.md](../components/modesp_hal.md) *(планується)* детальніше описує інтеграцію з дисплеєм.
 
-## Поширені патерни
+## Типові шаблони використання
 
-### Перемикання типів sensor-ів per deployment
+### Перемикання типів сенсорів між розгортаннями
 
-Та сама прошивка, різні sensor families per deployment: edit bindings щоб
-використовувати `ntc` driver для cheap deployments, `ds18b20` для precision.
-Business module's `read_float("equipment.air_temp", ...)` works identically.
+Та сама прошивка, різні сімейства сенсорів у кожному розгортанні: відредагуйте прив'язки, щоб використовувати драйвер `ntc` для дешевих розгортань і `ds18b20` для точних. Виклик `read_float("equipment.air_temp", ...)` у бізнес-модулі працює однаково.
 
-### Multiple temperature zones
+### Декілька температурних зон
 
-Для multi-zone refrigeration, додайте bindings для кожної zone:
+Для мультизонного холодильного обладнання додайте прив'язки для кожної зони:
 
 ```json
 {"role": "air_temp_zone1", "driver": "ds18b20", ..., "address": "..."},
 {"role": "air_temp_zone2", "driver": "ds18b20", ..., "address": "..."}
 ```
 
-Update equipment manifest's `requires` to match. Ваш business module читає
-`equipment.air_temp_zone1` і `equipment.air_temp_zone2` як окремі keys.
+Оновіть `requires` у маніфесті equipment відповідно. Ваш бізнес-модуль читає `equipment.air_temp_zone1` і `equipment.air_temp_zone2` як окремі ключі.
 
-### Read-only equipment configuration
+### Конфігурація equipment лише для читання
 
-Деякі сайти lock down equipment params (filter_coeff, calibration constants)
-once commissioned. Два options:
+Деякі об'єкти блокують параметри equipment (filter_coeff, константи калібрування) після введення в експлуатацію. Два варіанти:
 
-1. Remove `persist: true` з маніфесту — persistent setting forced до
-   default при кожному boot.
-2. Keep `persist: true` але set `access: "read"` — value loads з NVS при
-   boot, але no API path accepts writes. Configure once у service mode,
-   потім ship.
+1. Видалити `persist: true` з маніфесту — постійне налаштування примусово скидається до значення за замовчуванням при кожному завантаженні.
+2. Залишити `persist: true`, але встановити `access: "read"` — значення завантажується з NVS при старті, але жоден API-шлях не приймає запис. Налаштуйте один раз у сервісному режимі та поставляйте.
 
-## Поширені помилки
+## Типові помилки
 
-**Reading missing keys:** якщо role's binding не deployed, key
-`equipment.<role>` не з'являється у SharedState. `read_float` returns
-default. Завжди надавайте sensible default АБО check `_ok` first.
+**Читання відсутніх ключів:** якщо прив'язку ролі не розгорнуто, ключ `equipment.<role>` не з'являється у SharedState. `read_float` повертає значення за замовчуванням. Завжди задавайте розумне значення за замовчуванням або спочатку перевіряйте `_ok`.
 
-**Writing у `equipment.<role>` замість `equipment.req_<role>`:** actuator
-state keys — read-only. Writing у них succeeds (SharedState accepts) але
-Equipment Manager overwrites на next tick з actual driver state. Завжди
-write requests у `req_<role>`.
+**Запис у `equipment.<role>` замість `equipment.req_<role>`:** ключі стану актуаторів призначені лише для читання. Запис у них успішний (SharedState приймає), але Equipment Manager перезаписує їх наступного такту фактичним станом драйвера. Завжди записуйте запити у `req_<role>`.
 
-**Conflating "request" і "actual":** `equipment.req_compressor = true`
-asks для compressor ON. `equipment.compressor` reports current state.
-Вони diverge коли driver rejects (compressor min switch interval not yet
-elapsed). Завжди observe `equipment.<role>` щоб verify, не trust request
-immediately.
+**Плутанина між "запитом" і "фактичним станом":** `equipment.req_compressor = true` запитує увімкнення компресора. `equipment.compressor` повідомляє про поточний стан. Вони розходяться, коли драйвер відхиляє команду (мінімальний інтервал перемикання компресора ще не сплинув). Завжди дивіться на `equipment.<role>`, щоб переконатися, не довіряйте запиту відразу.
 
-**Persisting calibration accidentally:** `equipment.ntc_beta` shared
-across усіх NTC sensors. Tuning global value для однієї location skews
-всі інші. Stage 1.5 plans per-binding calibration overrides.
+**Випадкове збереження калібрування:** `equipment.ntc_beta` спільний для всіх сенсорів NTC. Налаштування глобального значення для одного місця спотворює всі інші. Stage 1.5 планує перевизначення калібрування на рівні окремої прив'язки.
 
 ## Що далі
 
-- **[board-config.md](../../04-hardware/board-config.md)** — hardware
-  capabilities declaration (prerequisite для understanding bindings).
-- **[bindings.md](../../04-hardware/bindings.md)** — driver-to-role wiring.
-- **[writing-a-driver.md](../../02-module-author-guide/writing-a-driver.md)**
-  — implement новий driver для hardware ще не supported.
-- **[components/modesp_hal.md](../components/modesp_hal.md)** *(planned)*
-  — HAL і DriverManager internals.
-- **[components/modesp_core.md](../components/modesp_core.md)** *(planned)*
-  — SharedState reference.
+- **[board-config.md](../../04-hardware/board-config.md)** — декларація можливостей обладнання (передумова для розуміння прив'язок).
+- **[bindings.md](../../04-hardware/bindings.md)** — зв'язування драйверів із ролями.
+- **[writing-a-driver.md](../../02-module-author-guide/writing-a-driver.md)** — реалізація нового драйвера для обладнання, яке ще не підтримується.
+- **[components/modesp_hal.md](../components/modesp_hal.md)** *(планується)* — внутрішня будова HAL і DriverManager.
+- **[components/modesp_core.md](../components/modesp_core.md)** *(планується)* — довідник SharedState.
 
-## Source
+## Джерела
 
 - [`modules/equipment/manifest.json`](../../../../modules/equipment/manifest.json)
 - [`modules/equipment/include/equipment_module.h`](../../../../modules/equipment/include/equipment_module.h)

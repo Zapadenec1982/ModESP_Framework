@@ -1,17 +1,14 @@
-# `digital_input` — GPIO дискретний вхід
+# `digital_input` — контактний вхід на GPIO
 
 > 📖 **In English:** [documentation/en/03-framework-reference/drivers/digital_input.md](../../../en/03-framework-reference/drivers/digital_input.md)
 
-GPIO digital input — binary sensor що reads switch, door contact,
-limit switch, або any dry-contact device. Найпростіший possible sensor
-driver — reads GPIO level on each tick і publishes bool.
+Цифровий вхід GPIO — бінарний сенсор, що зчитує перемикач, дверний контакт, кінцевий вимикач або будь-який пристрій із "сухим" контактом. Найпростіший можливий драйвер сенсора — зчитує рівень GPIO на кожному такті та публікує bool.
 
-Driver registers як `sensor` з `hardware_type: gpio_input` і
-`requires_address: false`. One sensor per bound GPIO.
+Драйвер реєструється як `sensor` з `hardware_type: gpio_input` і `requires_address: false`. Один сенсор на прив'язаний GPIO.
 
-REQUIRES: `modesp_hal`. No external dependencies.
+ВИМАГАЄ: `modesp_hal`. Без зовнішніх залежностей.
 
-## Bindings
+## Прив'язки
 
 ```json
 {
@@ -23,84 +20,67 @@ REQUIRES: `modesp_hal`. No external dependencies.
 }
 ```
 
-`pin` references board-defined GPIO input (з pull-up/pull-down
-configuration). Driver не configures pin сам —
-configuration належить board.json.
+`pin` посилається на визначений у платі вхід GPIO (з конфігурацією підтяжки догори/донизу). Драйвер не конфігурує сам вивід — конфігурація належить board.json.
 
-## Settings
+## Налаштування
 
-| Key | Type | Default | Notes |
+| Ключ | Тип | За замовчуванням | Примітки |
 |---|---|---|---|
-| `invert` | bool | false | Інверсія логіки (NC vs NO contacts). Persisted. |
+| `invert` | bool | false | Інверсія логіки (для нормально замкнутих vs нормально розімкнутих контактів). Зберігається. |
 
-Це все. Debouncing належить consumer (наприклад door alarm module),
-не driver — different domains need different debounce timings.
+І все. Усунення дребезгу належить споживачу (наприклад, модулю аварії дверей), а не драйверу — різні сфери потребують різних таймінгів дребезгу.
 
-## Provides
+## Надає
 
-`{"type": "bool"}` — current pin level (із optional invert), publishes
-до `equipment.<role>`.
+`{"type": "bool"}` — поточний рівень виводу (з опціональною інверсією), публікується в `equipment.<role>`.
 
-## Pattern: consumed by business module
+## Шаблон: споживання бізнес-модулем
 
 ```cpp
 // у вашому BaseModule::on_update:
 bool door_open;
 if (state.get("equipment.door_contact", door_open) && door_open) {
-    // door is open
+    // двері відчинені
 }
 ```
 
-Debounce, edge detect, timeouts — все живе у consumer. Driver
-publishes **raw level**.
+Усунення дребезгу, виявлення фронтів, таймаути — усе живе у споживачі. Драйвер публікує **сирий рівень**.
 
-## Hardware notes
+## Примітки щодо обладнання
 
-- ESP32 GPIO inputs 3.3 V tolerant. Для 5 V або 24 V contacts use
-  optocoupler / level shifter.
-- Without pull-up/pull-down, floating inputs read random. Configure
-  `pull_up: true` (active-low contact) у board.json.
-- Long wire runs — antennas — RFI на contact може cause spurious
-  edges. Add capacitor (~10 nF) close до GPIO, або filter у
-  consumer.
+- Входи GPIO ESP32 толерантні до 3,3 В. Для контактів 5 В або 24 В використовуйте оптопару / перетворювач рівнів.
+- Без підтяжки догори/донизу плаваючі входи зчитуються випадково. Налаштуйте `pull_up: true` (для контакту з активним низьким рівнем) у board.json.
+- Довгі проводи — це антени; завади РЧ на контакті можуть викликати хибні фронти. Додайте конденсатор (~10 нФ) близько до GPIO або фільтр у споживачі.
 
-## Discovery
+## Виявлення
 
-None. Bindings declared manually.
+Немає. Прив'язки оголошуються вручну.
 
-## Common pitfalls
+## Типові помилки
 
-**Random states at boot:** якщо pin не має pull-up configured у
-board, ви бачите noise. Завжди set pull-up або pull-down у board.json.
+**Випадкові стани при завантаженні:** якщо у вивода не налаштована підтяжка у платі, ви побачите шум. Завжди задавайте підтяжку догори або донизу у board.json.
 
-**Inverted contact:** NC contact reads HIGH коли closed, LOW коли open
-— opposite того що naive reader expects. Set `invert: true` щоб make
-"contact closed" → true.
+**Інвертований контакт:** нормально замкнутий контакт зчитується HIGH, коли замкнутий, і LOW, коли відкритий — навпаки до того, що очікує наївний код. Встановіть `invert: true`, щоб "контакт замкнуто" → true.
 
-**Edge skipping:** driver polls at tick rate (~100 Hz). Pulses
-shorter than ~10 ms можуть бути missed. Для interrupt-grade input, write
-dedicated driver з GPIO ISR.
+**Пропуск фронтів:** драйвер опитує з частотою такту (~100 Гц). Імпульси коротші за ~10 мс можуть бути пропущені. Для входу рівня переривання напишіть окремий драйвер з GPIO ISR.
 
-## UI surface
+## Інтерфейс користувача
 
-None у shipped manifest. Add cards block у вашому fork якщо
-operators need flip `invert` у field; standard pattern —
-toggle widget binding до `<binding_id>.invert`.
+Немає у маніфесті, що постачається. Додайте блок cards у своєму форку, якщо вашим операторам потрібно перемикати `invert` у польових умовах; стандартний патерн — віджет перемикача, прив'язаний до `<binding_id>.invert`.
 
-## Чому це good driver to read
+## Чому це гарний драйвер для читання
 
-- Найпростіший sensor driver — counterpart до `relay` на actuator side.
-- Single bool setting demonstrates persisted-setting pattern.
-- Clean publisher → equipment.<role> contract.
+- Найпростіший драйвер сенсора — парний до `relay` зі сторони актуаторів.
+- Єдине налаштування bool демонструє патерн збереження налаштування.
+- Чистий контракт публікатора → equipment.<role>.
 
 ## Що далі
 
-- **[drivers/pcf8574_input.md](pcf8574_input.md)** — I2C-expanded variant.
-- **[drivers/relay.md](relay.md)** — counterpart actuator driver.
-- **[modules/equipment.md](../modules/equipment.md)** — як sensors
-  become `equipment.<role>` keys.
+- **[drivers/pcf8574_input.md](pcf8574_input.md)** — варіант із розширенням через I2C.
+- **[drivers/relay.md](relay.md)** — парний драйвер актуатора.
+- **[modules/equipment.md](../modules/equipment.md)** — як сенсори стають ключами `equipment.<role>`.
 
-## Source
+## Джерела
 
 - [`drivers/digital_input/manifest.json`](../../../../drivers/digital_input/manifest.json)
 - [`drivers/digital_input/include/digital_input_driver.h`](../../../../drivers/digital_input/include/digital_input_driver.h)

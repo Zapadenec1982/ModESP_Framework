@@ -1,33 +1,34 @@
-# `dump_modr.py` — інспектор `.modr` binary
+# `dump_modr.py` — інспектор двійкових файлів `.modr`
 
 > 📖 **In English:** [documentation/en/05-tools/dump_modr.md](../../en/05-tools/dump_modr.md)
 
-Human-readable inspector для compiled `.modr` recipe binaries. Analog
-`objdump` для ELF або `protoc --decode` для protobuf. Не full
-decompiler back до JSON (planned для Stage 2 у TypeScript alongside
-WebUI editor) — це debugging utility.
+Інспектор скомпільованих двійкових рецептів `.modr` у форматі, читаному
+людиною. Аналог `objdump` для ELF або `protoc --decode` для protobuf.
+Не є повним декомпілятором назад у JSON (планується на Stage 2 у
+TypeScript разом із редактором WebUI) — це утиліта для відлагодження.
 
-REQUIRES: Python 3.8+. No external dependencies.
+ВИМАГАЄ: Python 3.8+. Без зовнішніх залежностей.
 
 ```
 python tools/dump_modr.py path/to/recipe.modr
 python tools/dump_modr.py --hex path/to/recipe.modr
 ```
 
-`--hex` flag adds raw byte dump alongside structured view.
+Прапор `--hex` додає сирий байтовий дамп поруч зі структурованим
+виглядом.
 
 ## Коли використовувати
 
-- **HIL test failures** — inspect який binary compiler emitted щоб
-  diagnose engine misbehaviour.
-- **Schema vs binary mismatch** — regression-debug golden files при
-  changing binary format.
-- **Format version migrations** — compare layouts side-by-side.
-- **Manual sanity checks** під active development engine.
+- **Збої HIL-тестів** — оглянути, який двійковий файл видав компілятор,
+  щоб діагностувати неправильну поведінку рушія.
+- **Розбіжність схеми та двійкового формату** — регресійне
+  відлагодження еталонних файлів при зміні двійкового формату.
+- **Міграція версій формату** — порівняння розкладок поруч.
+- **Ручні перевірки осудливості** під час активної розробки рушія.
 
-## Output format
+## Формат виводу
 
-Sample (truncated):
+Зразок (скорочений):
 
 ```
 == Header ==
@@ -61,20 +62,22 @@ phases_count = 4
 ...
 ```
 
-Output reads top-to-bottom mirroring binary layout. Each section
-prints absolute byte offset, sub-record count, і decoded fields.
+Вивід читається згори донизу, віддзеркалюючи розкладку двійкового
+файлу. Кожна секція друкує свій абсолютний байтовий зсув, кількість
+підзаписів та декодовані поля.
 
-## Special markers
+## Спеціальні маркери
 
-- `$complete` — transition target 0xFFFF (scenario success).
-- `$abort` — transition target 0xFFFE (scenario failure).
-- `NO_OFFSET` — 0xFFFF placeholder, used для "no children" pointers.
+- `$complete` — ціль переходу 0xFFFF (успіх сценарію).
+- `$abort` — ціль переходу 0xFFFE (невдача сценарію).
+- `NO_OFFSET` — заповнювач 0xFFFF, використовується для вказівників
+  "немає дочірніх".
 
-## Format reference
+## Довідник формату
 
-Binary layout matches C++ headers:
+Розкладка двійкового файлу збігається із заголовками C++:
 
-| Section | Size constant у `modr_format.h` | Bytes |
+| Секція | Константа розміру у `modr_format.h` | Байти |
 |---|---|---|
 | Header | `SIZE_HEADER` | 56 |
 | Track | `SIZE_TRACK` | 16 |
@@ -84,49 +87,54 @@ Binary layout matches C++ headers:
 | Param entry | `SIZE_PARAM_ENTRY` | 8 |
 | Resource decl | `SIZE_RESOURCE_DECL` | 4 |
 
-Order у file: header → tracks → phases → transitions → actions →
-params → resources → string pool → CRC32 footer.
+Порядок у файлі: заголовок → доріжки → фази → переходи → дії →
+параметри → ресурси → пул рядків → хвостовий CRC32.
 
-## CRC validation
+## Перевірка CRC
 
-Tool verifies CRC32 на load. Якщо footer CRC не match computed CRC
-of bytes [0..size_bytes), prints red error і still
-dumps structure best-effort. Use це щоб catch corrupted files
-(usually з bad partition flash).
+Інструмент перевіряє CRC32 при завантаженні. Якщо CRC у хвості не
+збігається з обчисленим CRC байтів [0..size_bytes), він друкує
+червону помилку і все ж дампить структуру за найкращих можливостей.
+Використовуйте це, щоб ловити пошкоджені файли (зазвичай через невдалу
+прошивку розділу).
 
-## Hash decoding
+## Декодування хешу
 
-Action І condition references use djb2_hash16 hashes. Tool tries
-reverse їх using `tools/known_actions.json` — якщо hash matches
-known action, prints name; otherwise leaves raw hex.
+Посилання на дії та умови використовують хеші djb2_hash16. Інструмент
+намагається повернути їх назад за допомогою `tools/known_actions.json`
+— якщо хеш збігається з відомою дією, друкує ім'я; інакше залишає
+сирий шістнадцятковий вигляд.
 
 ```
 [0] action_hash=0x4d2a    # 'set_state'
 [1] action_hash=0xff01    # <unknown — was the action removed from known_actions.json?>
 ```
 
-Якщо бачите `<unknown>`, або recipe compiled проти newer
-`known_actions.json` ніж checked-in version, або action renamed.
+Якщо бачите `<unknown>`, то або рецепт скомпільовано проти новішого
+`known_actions.json`, ніж той, що в репозиторії, або дію було
+перейменовано.
 
-## Common pitfalls
+## Типові помилки
 
-**`magic mismatch`:** file не `.modr` (truncated, wrong format,
-або wrong version). Re-run `compile_scenario.py` і check input.
+**`magic mismatch`:** файл не є `.modr` (обрізаний, неправильний формат
+або неправильна версія). Перезапустіть `compile_scenario.py` і
+перевірте вхідні дані.
 
-**Truncated dump:** якщо `size_bytes` у header > actual file size,
-файл incomplete. Probably failed flash або partial write.
+**Обрізаний дамп:** якщо `size_bytes` у заголовку > фактичного розміру
+файлу, файл неповний. Імовірно, невдала прошивка або частковий запис.
 
-**Output too long:** large recipes can scroll several screens. Pipe до
-pager (`| less`) або redirect до file (`> dump.txt`).
+**Завеликий вивід:** великі рецепти можуть прокручуватися на кілька
+екранів. Пропустіть через пейджер (`| less`) або перенаправте у файл
+(`> dump.txt`).
 
 ## Що далі
 
-- **[compile_scenario.md](compile_scenario.md)** — produces `.modr`
-  files які цей tool inspects.
+- **[compile_scenario.md](compile_scenario.md)** — виробляє файли
+  `.modr`, які оглядає цей інструмент.
 - **[03-framework-reference/components/modesp_scenario.md](../03-framework-reference/components/modesp_scenario.md)** —
-  engine що loads `.modr` at runtime.
+  рушій, що завантажує `.modr` під час виконання.
 
-## Source
+## Джерела
 
 - [`tools/dump_modr.py`](../../../tools/dump_modr.py)
 - [`components/modesp_scenario/include/modesp/scenario/modr_format.h`](../../../components/modesp_scenario/include/modesp/scenario/modr_format.h)

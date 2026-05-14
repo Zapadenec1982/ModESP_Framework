@@ -1,31 +1,32 @@
-# Testing — host, HIL, fuzz
+# Тестування — host, HIL, fuzz
 
 > 📖 **In English:** [documentation/en/06-contributing/testing.md](../../en/06-contributing/testing.md)
 
-Фреймворк uses three levels of tests з distinct purposes:
+Фреймворк використовує три рівні тестів з різними призначеннями:
 
-| Level | Where | Що validates |
+| Рівень | Де | Що валідує |
 |---|---|---|
-| **Host** | `components/*/tests/host/` | Pure C++ logic — engine FSM, action registry, parsing. |
-| **HIL** | `tools/tests/test_hil_*.py` | Live firmware на real ESP32 — end-to-end behaviour. |
-| **Fuzz** | `tools/tests/fuzz_*` (планується) | Binary format edge cases, malformed inputs. |
+| **Host** | `components/*/tests/host/` | Чисту логіку C++ — FSM рушія, реєстр дій, парсинг. |
+| **HIL** | `tools/tests/test_hil_*.py` | Живу прошивку на справжньому ESP32 — наскрізну поведінку. |
+| **Fuzz** | `tools/tests/fuzz_*` (планується) | Граничні випадки бінарного формату, малосформовані входи. |
 
-Кожен PR що touches framework code should land з at least host-level
-test changes. PRs що change engine АБО persistence MUST pass HIL.
+Кожен PR, що зачіпає код фреймворку, має включати щонайменше зміни
+хост-тестів. PR, які змінюють рушій АБО персистентність, ОБОВ'ЯЗКОВО
+мають проходити HIL.
 
-## Host tests
+## Хост-тести
 
-Кожен component з `tests/host/` directory has:
+Кожен компонент із каталогом `tests/host/` має:
 
 ```
 tests/host/
-├── Makefile                # builds з standard gcc на host
+├── Makefile                # builds із standard gcc on the host
 ├── common/
 │   └── stub_state_backend.h  # shared fixtures
 └── test_<feature>.cpp      # one file per concern
 ```
 
-Run з component root:
+Запуск з кореня компонента:
 
 ```
 cd components/modesp_scenario/tests/host
@@ -38,17 +39,18 @@ make
 ./test_nvs_observer
 ```
 
-Або build all at once:
+Або зібрати все одразу:
 
 ```
 make all
 make run    # builds + runs every test_* binary
 ```
 
-Tests use **plain `assert()`** — no Google Test, no Catch2. Goal:
-zero external dependencies, builds anywhere з C++ compiler.
+Тести використовують **простий `assert()`** — без Google Test, без
+Catch2. Мета: нуль зовнішніх залежностей, збирається всюди, де є
+компілятор C++.
 
-Test file looks так:
+Файл тесту має такий вигляд:
 
 ```cpp
 #include <cassert>
@@ -68,103 +70,112 @@ int main() {
 }
 ```
 
-Failing assertions abort з core dump; CI grep'ає для `Aborted`.
+Невдалі перевірки призводять до аварійного завершення з core dump;
+CI шукає в логах `Aborted`.
 
-### Stub backend
+### Заглушка бекенду
 
-`stub_state_backend.h` provides:
+`stub_state_backend.h` надає:
 
 - `get_raw / set_raw` проти `std::unordered_map<std::string, StateValue>`.
-- No type validation (production SharedState enforces; stub does not —
-  add у test якщо need it).
-- `last_writes()` helper для asserting які keys tested unit wrote.
+- Без валідації типів (продакшен-SharedState її забезпечує; заглушка —
+  ні; додайте у тесті, якщо потрібно).
+- Хелпер `last_writes()` для перевірки, які ключі записав тестований
+  юніт.
 
-### Коли писати host test
+### Коли писати хост-тест
 
-- ✅ Pure function — parsing, hashing, validation.
-- ✅ FSM transitions — feed events, assert state.
-- ✅ Registry behaviour — register, lookup, unregister.
-- ❌ Hardware interaction — drivers, ADC, GPIO.
-- ❌ Network protocols (HTTP, MQTT) — HIL coverage.
-- ❌ WebUI rendering — manual test.
+- ✅ Чиста функція — парсинг, хешування, валідація.
+- ✅ Переходи FSM — подати події, перевірити стан.
+- ✅ Поведінка реєстру — реєстрація, пошук, скасування реєстрації.
+- ❌ Взаємодія з апаратурою — драйвери, ADC, GPIO.
+- ❌ Мережеві протоколи (HTTP, MQTT) — покриваються HIL.
+- ❌ Рендеринг WebUI — ручний тест.
 
-## HIL tests
+## HIL-тести
 
-`tools/tests/test_hil_scenario.py` runs проти live device. Six
-tests cover scenario engine end-to-end:
+`tools/tests/test_hil_scenario.py` виконується проти живого пристрою.
+Шість тестів покривають рушій сценаріїв наскрізно:
 
-1. Single-instance load + run.
-2. Multi-instance (same recipe loaded twice).
-3. Resource contention.
-4. Global transition fault injection.
-5. Power-cycle recovery.
-6. WebUI live mirror updates.
+1. Завантаження + запуск одного екземпляра.
+2. Кілька екземплярів (той самий рецепт завантажений двічі).
+3. Конкуренція за ресурси.
+4. Інжекція збою глобального переходу.
+5. Відновлення після перезапуску живлення.
+6. Оновлення живого дзеркала WebUI.
 
-Configuration через environment:
+Конфігурація через змінні середовища:
 
 ```
-$env:ESP_IP="192.168.4.1"   # device IP АБО mDNS name
+$env:ESP_IP="192.168.4.1"   # device IP OR mDNS name
 $env:ESP_USER="admin"
 $env:ESP_PASS="modesp"
 python -m pytest tools/tests/test_hil_scenario.py -v
 ```
 
-(`ESP_*` env vars read by fixture. Defaults: 192.168.4.1, admin,
-modesp.)
+(Змінні `ESP_*` зчитуються фікстурою. Значення за замовчуванням:
+192.168.4.1, admin, modesp.)
 
-Pytest fixture:
+Фікстура pytest:
 
-- Authenticates через HTTP Basic.
-- POSTs scenario commands.
-- Polls SharedState через GET `/api/state`.
-- Verifies state transitions з timing constraints.
+- Автентифікується через HTTP Basic.
+- Надсилає POST-команди сценарію.
+- Опитує SharedState через GET `/api/state`.
+- Перевіряє переходи стану з обмеженнями за часом.
 
-Expected runtime: ~3-5 minutes для всі six tests.
+Очікувана тривалість виконання: ~3–5 хвилин для всіх шести тестів.
 
-### Коли писати HIL test
+### Коли писати HIL-тест
 
-- New scenario engine feature (transitions, completion rules).
-- New persistence behaviour (NVS, observer hooks).
-- New HTTP endpoint що affects scenario lifecycle.
-- Bug fix що can only manifest на real hardware (timing, NVS, GPIO).
+- Нова можливість рушія сценаріїв (переходи, правила завершення).
+- Нова поведінка персистентності (NVS, observer-хуки).
+- Новий HTTP-ендпоінт, що впливає на життєвий цикл сценарію.
+- Виправлення помилки, яке проявляється тільки на справжньому залізі
+  (таймінги, NVS, GPIO).
 
-### Коли НЕ писати HIL test
+### Коли НЕ писати HIL-тест
 
-- Pure FSM logic — host test faster І more deterministic.
-- Driver behaviour — needs physical hardware varieties, не single ESP32.
+- Чиста логіка FSM — хост-тест швидший і детермінованіший.
+- Поведінка драйвера — потрібне різноманіття фізичного заліза, а не
+  один ESP32.
 
-## Fuzz tests (planned)
+## Fuzz-тести (планується)
 
-Stage 2 буде introduce:
+На етапі Stage 2 буде запроваджено:
 
-- `tools/tests/fuzz_modr.py` — feeds malformed `.modr` binaries до
-  loader, asserts no crash І clean rejection з defined error code.
-- `tools/tests/fuzz_manifests/` — corpus malformed manifests щоб
-  exercise `generate_ui.py` І `compile_scenario.py` error paths.
+- `tools/tests/fuzz_modr.py` — подає малосформовані бінарники `.modr`
+  у завантажувач, перевіряє відсутність падінь і чисте відхилення з
+  визначеним кодом помилки.
+- `tools/tests/fuzz_manifests/` — корпус малосформованих маніфестів
+  для прогону шляхів помилок у `generate_ui.py` і
+  `compile_scenario.py`.
 
-Currently не implemented; track у roadmap.
+Поки що не реалізовано; стежте за дорожньою картою.
 
 ## CI
 
-GitHub Actions runs:
+GitHub Actions запускає:
 
-- `idf.py build` для всі supported targets (esp32, esp32s3, esp32c3).
-- Host tests для всі components з `tests/host/` directory.
+- `idf.py build` для всіх підтримуваних таргетів (esp32, esp32s3,
+  esp32c3).
+- Хост-тести для всіх компонентів із каталогом `tests/host/`.
 
-HIL tests run nightly АБО on-demand з PR comment. Вони require
-physical device на runner — currently self-hosted machine.
+HIL-тести виконуються щоночі АБО на вимогу за коментарем у PR. Вони
+вимагають фізичного пристрою на раннері — наразі це самостійно
+розміщена машина.
 
-## Common pitfalls
+## Типові помилки
 
-**Test passes locally, fails CI:** different gcc version або stdlib.
-Host tests target C++17 з no extensions. Avoid platform-specific
-intrinsics.
+**Тест проходить локально, падає у CI:** інша версія gcc або stdlib.
+Хост-тести націлені на C++17 без розширень. Уникайте платформо-
+специфічних інтринсиків.
 
-**Flaky HIL tests:** WiFi instability АБО slow USB-serial flash. Re-run
-twice; якщо still flaky — file issue з log.
+**Нестабільні HIL-тести:** нестабільність Wi-Fi АБО повільна
+USB-serial прошивка. Запустіть ще двічі; якщо все одно нестабільні —
+заведіть issue з логом.
 
-**Test assertions abort без message:** plain `assert()` doesn't print
-context. Wrap з helper:
+**Перевірки тесту аварійно завершуються без повідомлення:** простий
+`assert()` не друкує контекст. Огорніть хелпером:
 
 ```cpp
 #define ASSERT_EQ(a, b) do { \
@@ -176,19 +187,21 @@ context. Wrap з helper:
 } while (0)
 ```
 
-**Test depends on order:** ніколи. Кожен test_*.cpp file independent.
-Якщо need shared setup, put it у `common/`.
+**Тест залежить від порядку:** ніколи. Кожен файл `test_*.cpp`
+незалежний. Якщо потрібне спільне налаштування, кладіть його в
+`common/`.
 
 ## Що далі
 
-- **[development-setup.md](development-setup.md)** — environment що
-  makes ці tests runnable.
-- **[code-style.md](code-style.md)** — C++ conventions які tests follow.
+- **[development-setup.md](development-setup.md)** — середовище, яке
+  робить ці тести запускаваними.
+- **[code-style.md](code-style.md)** — конвенції C++, яких
+  дотримуються тести.
 - **[02-module-author-guide/debugging.md](../02-module-author-guide/debugging.md)** —
-  debugging running device коли HIL fails.
+  налагодження запущеного пристрою, коли HIL падає.
 
-## Source
+## Джерела
 
-- `components/*/tests/host/` — host test directories.
-- `tools/tests/test_hil_scenario.py` — HIL fixture.
-- `.github/workflows/` — CI configuration.
+- `components/*/tests/host/` — каталоги хост-тестів.
+- `tools/tests/test_hil_scenario.py` — фікстура HIL.
+- `.github/workflows/` — конфігурація CI.

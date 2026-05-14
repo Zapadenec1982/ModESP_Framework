@@ -1,21 +1,22 @@
-# `modesp_mqtt` — MQTT client з TLS і HA discovery
+# `modesp_mqtt` — MQTT-клієнт з TLS і HA discovery
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_mqtt.md](../../../en/03-framework-reference/components/modesp_mqtt.md)
 
-`modesp_mqtt` — default cloud backend. Wraps ESP-IDF's `esp-mqtt`
-client AND ties його до SharedState через manifest-declared publish /
-subscribe lists. Optional TLS, optional Home Assistant auto discovery,
-retained alarms, і Last-Will-Testament — все configured через
-маніфести без explicit MQTT коду від business modules.
+`modesp_mqtt` — типовий хмарний бекенд. Він обгортає клієнт `esp-mqtt`
+з ESP-IDF І прив'язує його до SharedState через оголошені у маніфестах
+списки publish / subscribe. Опціональний TLS, опціональний автопошук
+Home Assistant, збережені аварійні сповіщення та Last-Will-Testament —
+все налаштовується через маніфести, без явного MQTT-коду з боку
+бізнес-модулів.
 
-REQUIRES: `modesp_core`, `modesp_services`, `modesp_net`, `mqtt`,
-optionally `mbedtls` для TLS.
+ЗАЛЕЖНОСТІ: `modesp_core`, `modesp_services`, `modesp_net`, `mqtt`,
+опціонально `mbedtls` для TLS.
 
-Author-side perspective: [02-module-author-guide/mqtt.md](../../02-module-author-guide/mqtt.md).
-Та сторінка покриває manifest API і usage patterns. Ця сторінка
-документує implementation внутрішньо.
+Погляд з боку автора модуля: [02-module-author-guide/mqtt.md](../../02-module-author-guide/mqtt.md).
+Та сторінка описує API маніфесту та шаблони використання. Ця сторінка
+документує внутрішню реалізацію.
 
-## Component layout
+## Структура компонента
 
 ```
 components/modesp_mqtt/include/modesp/net/
@@ -23,11 +24,11 @@ components/modesp_mqtt/include/modesp/net/
 └── ota_handler.h        (shared із services)
 ```
 
-Compile-time choice: `CONFIG_MODESP_CLOUD_MQTT` (default) selects цей
-component; `CONFIG_MODESP_CLOUD_AWS` selects modesp_aws замість. Тільки
-один builds у given firmware.
+Вибір на етапі компіляції: `CONFIG_MODESP_CLOUD_MQTT` (типово) обирає
+цей компонент; `CONFIG_MODESP_CLOUD_AWS` обирає modesp_aws натомість.
+Тільки один з них збирається у конкретну прошивку.
 
-## `MqttService` — module class
+## `MqttService` — клас модуля
 
 ```cpp
 class MqttService : public modesp::BaseModule {
@@ -41,9 +42,9 @@ public:
 };
 ```
 
-Init priority: HIGH (1) — runs у Phase 2, після WiFi.
+Пріоритет ініціалізації: HIGH (1) — запускається у Phase 2, після Wi-Fi.
 
-### Timing константи
+### Часові константи
 
 ```cpp
 static constexpr uint32_t PUBLISH_INTERVAL_MS = 1000;          // 1 с
@@ -51,10 +52,10 @@ static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 30000;       // 30 с
 static constexpr uint32_t ALARM_REPUBLISH_INTERVAL_MS = 300000; // 5 хв
 ```
 
-Adjustable через Kconfig якщо треба. Defaults conservative — chatty
-deployments may want faster publish intervals.
+Налаштовуються через Kconfig за потреби. Типові значення обережні —
+балакучі розгортання можуть захотіти швидших інтервалів публікації.
 
-### Topic format
+### Формат топіка
 
 ```
 modesp/v1/<tenant>/<device_id>/<state_key_path>
@@ -62,115 +63,121 @@ modesp/v1/<tenant>/<device_id>/cmd/<state_key>
 modesp/v1/<tenant>/<device_id>/status
 ```
 
-- `<tenant>` defaults до `default` (Kconfig `CONFIG_MODESP_MQTT_TENANT`).
-- `<device_id>` derived з MAC lowercase last 6 chars (e.g., `a1b2c3`).
-- `<state_key_path>` з dots replaced by slashes
+- `<tenant>` за замовчуванням дорівнює `default` (Kconfig `CONFIG_MODESP_MQTT_TENANT`).
+- `<device_id>` походить з останніх 6 символів MAC у нижньому регістрі (напр., `a1b2c3`).
+- `<state_key_path>` — крапки замінені на слеші
   (`simple_thermo.temperature` → `simple_thermo/temperature`).
-- `cmd/` topic preserves dot у key (legacy format; буде normalise у
-  Stage 1.5).
+- Топік `cmd/` зберігає крапку у ключі (застарілий формат; буде
+  нормалізовано на Stage 1.5).
 
-### Connection lifecycle
+### Життєвий цикл з'єднання
 
-1. **on_init:** reads broker config з NVS (`mqtt` namespace) і у
-   compile-time defaults. Не connect yet — waits for WiFi.
-2. **on_update:** polls `wifi.connected`. Once true, starts esp-mqtt
-   client із LWT registered (`<base>/status` = `"offline"`).
-3. **MQTT_EVENT_CONNECTED:** publishes `"online"` до status topic (QoS 1,
-   retained), subscribes до `<base>/cmd/+`, publishes HA discovery
-   (якщо enabled).
-4. **MQTT_EVENT_DATA:** parses topic, валідує key проти allowlist,
-   writes до SharedState.
-5. **MQTT_EVENT_DISCONNECTED:** backs off, retries. Reconnect attempts
-   exponential up to ~60 с.
+1. **on_init:** читає конфігурацію брокера з NVS (простір імен `mqtt`) і
+   зі значень за замовчуванням на етапі компіляції. Ще не з'єднується —
+   чекає на Wi-Fi.
+2. **on_update:** опитує `wifi.connected`. Щойно true, запускає клієнт
+   esp-mqtt із зареєстрованим LWT (`<base>/status` = `"offline"`).
+3. **MQTT_EVENT_CONNECTED:** публікує `"online"` у топік статусу (QoS 1,
+   збережене), підписується на `<base>/cmd/+`, публікує HA discovery
+   (якщо ввімкнено).
+4. **MQTT_EVENT_DATA:** розбирає топік, перевіряє ключ за списком
+   дозволів, записує до SharedState.
+5. **MQTT_EVENT_DISCONNECTED:** робить паузу та повторює спробу. Спроби
+   повторного з'єднання експоненційні, до ~60 с.
 
-### Publish loop
+### Цикл публікації
 
 Кожні `PUBLISH_INTERVAL_MS`:
 
-1. Iterate merged publish allowlist (з `mqtt_topics.h`).
-2. Для кожного key, check SharedState's changed-keys set.
-3. Publish changed keys із QoS 0 (delta semantics).
+1. Ітерується об'єднаний список дозволів на публікацію (з `mqtt_topics.h`).
+2. Для кожного ключа перевіряється набір змінених ключів SharedState.
+3. Змінені ключі публікуються з QoS 0 (дельта-семантика).
 
-Heartbeat і alarm-republish — окремі timers; alarm keys що match list у
-`CONFIG_MODESP_MQTT_ALARM_KEYS` (TBD у Stage 1.5) отримують retained
-publishes кожні 5 хв.
+Heartbeat і повторна публікація аварій — окремі таймери; аварійні
+ключі, що відповідають списку у `CONFIG_MODESP_MQTT_ALARM_KEYS`
+(TBD у Stage 1.5), отримують збережені публікації кожні 5 хв.
 
 ### HA discovery
 
-Якщо `CONFIG_MODESP_MQTT_HA_DISCOVERY=y`, on connect MqttService publishes
-discovery payload per state key:
+Якщо `CONFIG_MODESP_MQTT_HA_DISCOVERY=y`, при з'єднанні MqttService
+публікує корисне навантаження discovery для кожного ключа стану:
 
 ```
 homeassistant/sensor/modesp_a1b2c3_simple_thermo_temperature/config
 ```
 
-Payload includes unit (`°C`, `%`, etc.), device class (`temperature`,
-`humidity`, …), state topic, value template, і common `device` block що
-groups усі entities з одного device.
+Корисне навантаження містить одиниці (`°C`, `%` тощо), клас пристрою
+(`temperature`, `humidity`, …), топік стану, шаблон значення та
+загальний блок `device`, що об'єднує всі сутності з одного пристрою.
 
-HA auto-creates entities. Без manual setup.
+HA автоматично створює сутності. Ручне налаштування не потрібне.
 
-### TLS і AWS contrast
+### TLS і відмінність від AWS
 
-Generic MQTT може run plain TCP (port 1883) або TLS (port 8883) з
-configurable CA cert. AWS IoT — окремий component (modesp_aws) з mTLS
-і Amazon-specific topic prefixes — той самий publish/subscribe contract
-з module-author perspective.
+Звичайний MQTT може працювати через звичайний TCP (порт 1883) або TLS
+(порт 8883) з налаштовуваним сертифікатом CA. AWS IoT — окремий
+компонент (modesp_aws) з mTLS і специфічними для Amazon префіксами
+топіків — той самий контракт publish/subscribe з погляду автора модуля.
 
-## HTTP API integration
+## Інтеграція з HTTP API
 
-| Method + path | Purpose |
+| Метод + шлях | Призначення |
 |---|---|
-| `GET /api/mqtt` | Return current broker config (sans password). |
-| `POST /api/mqtt` | Update broker host/port/credentials. Reconnects. |
+| `GET /api/mqtt` | Повертає поточну конфігурацію брокера (без пароля). |
+| `POST /api/mqtt` | Оновлює хост/порт/облікові дані брокера. Перепідключається. |
 
-Cert upload (TLS): `POST /api/cert` з PEM payload, type=`mqtt_ca`.
+Завантаження сертифіката (TLS): `POST /api/cert` з корисним
+навантаженням PEM, type=`mqtt_ca`.
 
-## State keys
+## Ключі стану
 
-| Key | Type | Notes |
+| Ключ | Тип | Примітки |
 |---|---|---|
-| `mqtt.connected` | bool | Broker connection status. |
-| `mqtt.broker_host` | string | Current broker hostname. |
-| `mqtt.broker_port` | int | Current port. |
-| `mqtt.publish_count` | int | Cumulative publishes since boot. |
-| `mqtt.last_disconnect_s` | int | Seconds since last disconnect event. |
-| `mqtt.subscribe_topic` | string | Current subscribe wildcard (`<base>/cmd/+`). |
+| `mqtt.connected` | bool | Статус з'єднання з брокером. |
+| `mqtt.broker_host` | string | Поточне ім'я хоста брокера. |
+| `mqtt.broker_port` | int | Поточний порт. |
+| `mqtt.publish_count` | int | Сумарна кількість публікацій від завантаження. |
+| `mqtt.last_disconnect_s` | int | Секунд від останньої події відключення. |
+| `mqtt.subscribe_topic` | string | Поточний шаблон підписки (`<base>/cmd/+`). |
 
-## Memory і resources
+## Пам'ять і ресурси
 
-| Resource | Cost |
+| Ресурс | Вартість |
 |---|---|
-| esp-mqtt client | ~6 KB heap + own task |
-| Topic prefix і allowlists | ~1 KB у `mqtt_topics.h` |
-| TLS session (якщо enabled) | ~8 KB heap |
+| Клієнт esp-mqtt | ~6 КБ купи + власний task |
+| Префікс топіка і списки дозволів | ~1 КБ у `mqtt_topics.h` |
+| Сесія TLS (якщо ввімкнено) | ~8 КБ купи |
 
-Total: ~7 KB без TLS, ~15 KB із TLS. Be mindful на RAM-constrained boards.
+Загалом: ~7 КБ без TLS, ~15 КБ з TLS. Будьте уважні на платах з
+обмеженою RAM.
 
-## Common pitfalls
+## Типові помилки
 
-**Broker hostname unresolvable:** ensure mDNS або local DNS works.
-Hardcode IPs у production.
+**Не вдається розв'язати ім'я хоста брокера:** переконайтеся, що
+працює mDNS або локальний DNS. У продакшені прописуйте IP-адреси
+жорстко.
 
-**Subscribe key not whitelisted:** missing `mqtt_subscribe: true` flag.
-Generator's `mqtt_topics.h` не include key у allowlist; MQTT ignores
-incoming commands.
+**Ключ підписки не у списку дозволів:** відсутній прапорець
+`mqtt_subscribe: true`. Згенерований `mqtt_topics.h` не включить ключ
+у список дозволів; MQTT ігноруватиме вхідні команди.
 
-**HA entities not appearing:** check `CONFIG_MODESP_MQTT_HA_DISCOVERY`
-enabled AND broker subscribes до `homeassistant/#`. HA must restart щоб
-pick up new discovery topics якщо вони arrived before HA started.
+**Сутності HA не з'являються:** перевірте, що ввімкнено
+`CONFIG_MODESP_MQTT_HA_DISCOVERY` І брокер підписаний на
+`homeassistant/#`. HA треба перезапустити, щоб підхопити нові топіки
+discovery, якщо вони з'явилися раніше за HA.
 
-**TLS handshake failures:** check certificate validity і system clock
-(SNTP sync). Expired або pre-epoch time fails TLS auth.
+**Помилки рукостискання TLS:** перевірте дійсність сертифіката та
+системний годинник (синхронізацію SNTP). Прострочений або
+дореепохальний час провалює автентифікацію TLS.
 
 ## Що далі
 
 - **[02-module-author-guide/mqtt.md](../../02-module-author-guide/mqtt.md)** —
-  manifest-side reference.
-- **[components/modesp_aws.md](modesp_aws.md)** — AWS IoT alternative.
-- **[components/modesp_net.md](modesp_net.md)** — networking prerequisite.
+  довідник з боку маніфесту.
+- **[components/modesp_aws.md](modesp_aws.md)** — альтернатива AWS IoT.
+- **[components/modesp_net.md](modesp_net.md)** — мережна передумова.
 
-## Source
+## Джерела
 
-- [`components/modesp_mqtt/`](../../../../components/modesp_mqtt/) — implementation.
-- `mqtt_service.cpp` ~1000 LOC including HA discovery і HTTP handlers.
+- [`components/modesp_mqtt/`](../../../../components/modesp_mqtt/) — реалізація.
+- `mqtt_service.cpp` ~1000 рядків коду, включно з HA discovery і HTTP-обробниками.

@@ -1,18 +1,14 @@
-# `relay` — GPIO реле actuator
+# `relay` — актуатор реле на GPIO
 
 > 📖 **In English:** [documentation/en/03-framework-reference/drivers/relay.md](../../../en/03-framework-reference/drivers/relay.md)
 
-GPIO реле actuator — один binary output per binding. Drives
-mechanical relay, SSR, MOSFET, або anything else triggered by GPIO
-high/low level. Drives typical compressor, fan, heater, valve
-у refrigeration.
+Актуатор реле на GPIO — один бінарний вихід на прив'язку. Керує механічним реле, SSR, MOSFET або будь-чим іншим, що запускається високим/низьким рівнем GPIO. Типово керує компресором, вентилятором, нагрівачем або клапаном у холодильному обладнанні.
 
-Driver registers як `actuator` з `hardware_type: gpio_output`
-і `requires_address: false`. One actuator per bound GPIO.
+Драйвер реєструється як `actuator` з `hardware_type: gpio_output` і `requires_address: false`. Один актуатор на прив'язаний GPIO.
 
-REQUIRES: `modesp_hal`. No external dependencies.
+ВИМАГАЄ: `modesp_hal`. Без зовнішніх залежностей.
 
-## Bindings
+## Прив'язки
 
 ```json
 {
@@ -24,25 +20,19 @@ REQUIRES: `modesp_hal`. No external dependencies.
 }
 ```
 
-`pin` references board-defined GPIO output. Equipment Manager
-publishes `equipment.req_compressor` (request), і це driver
-writes level до bound GPIO.
+`pin` посилається на визначений у платі вихід GPIO. Equipment Manager публікує `equipment.req_compressor` (запит), а цей драйвер записує рівень у прив'язаний GPIO.
 
-## Settings
+## Налаштування
 
-None у shipped manifest. Driver intentionally minimal — будь-яке
-debouncing, min-on/min-off times, або lockout logic належить
-upstream business module, не actuator driver.
+Немає у маніфесті, що постачається. Драйвер навмисно мінімалістичний — будь-яке усунення дребезгу, мінімальний час увімкнення/вимкнення або логіка блокування належать бізнес-модулю вище за потоком, а не драйверу актуатора.
 
-Якщо хочете polarity inversion — do it через board.json `active_low`
-flag на GPIO definition, не у driver.
+Якщо потрібна інверсія полярності, зробіть це через прапорець `active_low` у board.json для відповідного GPIO, а не у драйвері.
 
-## Provides
+## Надає
 
-`{"type": "bool"}` — current commanded state, mirrored до
-`equipment.<role>`.
+`{"type": "bool"}` — поточний скомандований стан, віддзеркалений у `equipment.<role>`.
 
-## Pattern: як business module drives це
+## Шаблон: як ним керує бізнес-модуль
 
 ```cpp
 // у вашому BaseModule::on_update:
@@ -53,47 +43,35 @@ if (heating_needed) {
 }
 ```
 
-Equipment Manager arbitrates `req_<role>` key і forwards final
-command до цього driver, що writes GPIO.
+Equipment Manager арбітражує ключ `req_<role>` і передає кінцеву команду цьому драйверу, який пише у GPIO.
 
-## Common pitfalls
+## Типові помилки
 
-**Compressor short-cycling:** relay reacts за <1 ms. Compressors hate
-short cycles. Add min-off time у вашому business module — не try push
-це у driver.
+**Часте перемикання компресора:** реле реагує менш ніж за 1 мс. Компресори не люблять коротких циклів. Додайте мінімальний час вимкнення у бізнес-модулі — не намагайтеся затягувати це у драйвер.
 
-**Inductive kick:** mechanical relays driving inductive loads (motors,
-solenoids) need flyback diodes / snubbers на load side. Driver
-не save you якщо skip це at PCB level.
+**Індуктивний кидок:** механічні реле, що керують індуктивними навантаженнями (двигуни, соленоїди), потребують захисних діодів / снаберів на боці навантаження. Драйвер не врятує, якщо це пропустити на рівні друкованої плати.
 
-**Active-low confusion:** opto-isolated relay boards typically need
-GPIO LOW щоб energize. Set `active_low: true` у board.json для того GPIO.
+**Плутанина з активним низьким рівнем:** опторозв'язані плати реле зазвичай потребують низького рівня GPIO для активації. Встановіть `active_low: true` у board.json для цього GPIO.
 
-**Cold-start glitch:** ESP32 GPIO defaults до input під час boot,
-що can read як random level externally. Add pull-down resistor на
-ваш relay control line щоб guarantee OFF on boot.
+**Глюк при холодному старті:** GPIO ESP32 за замовчуванням є входом під час завантаження, що зовнішньо може зчитуватися як випадковий рівень. Додайте підтягувальний донизу резистор на лінію керування реле, щоб гарантувати OFF при завантаженні.
 
-## UI surface
+## Інтерфейс користувача
 
-No driver-specific UI card. Operators see bound `equipment.<role>`
-state у Equipment Manager's auto-generated cards.
+Без специфічної для драйвера картки UI. Оператори бачать стан прив'язаного `equipment.<role>` у автоматично згенерованих картках Equipment Manager.
 
-## Чому це good driver to read
+## Чому це гарний драйвер для читання
 
-- Simplest possible IDriver implementation (~80 LOC).
-- Zero settings — demonstrates minimal manifest case.
-- Clear actuator pattern для consumption by Equipment Manager.
+- Найпростіша можлива реалізація IDriver (~80 рядків коду).
+- Нуль налаштувань — демонструє випадок мінімального маніфесту.
+- Чіткий патерн актуатора для споживання Equipment Manager.
 
 ## Що далі
 
-- **[drivers/pcf8574_relay.md](pcf8574_relay.md)** — I2C-expanded
-  variant (8 relays per chip).
-- **[modules/equipment.md](../modules/equipment.md)** — як `req_*` keys
-  flow до цього driver.
-- **[04-hardware/bindings.md](../../04-hardware/bindings.md)** —
-  binding schema reference.
+- **[drivers/pcf8574_relay.md](pcf8574_relay.md)** — варіант із розширенням через I2C (8 реле на чип).
+- **[modules/equipment.md](../modules/equipment.md)** — як ключі `req_*` потрапляють у цей драйвер.
+- **[04-hardware/bindings.md](../../04-hardware/bindings.md)** — довідник схеми прив'язок.
 
-## Source
+## Джерела
 
 - [`drivers/relay/manifest.json`](../../../../drivers/relay/manifest.json)
 - [`drivers/relay/include/relay_driver.h`](../../../../drivers/relay/include/relay_driver.h)

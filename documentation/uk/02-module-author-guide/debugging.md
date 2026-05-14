@@ -1,32 +1,33 @@
-# Debugging модулів і рецептів
+# Налагодження модулів і рецептів
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/debugging.md](../../en/02-module-author-guide/debugging.md)
 
-Коли ваш модуль misbehaves, ModESP exposes достатньо diagnostic surface
-щоб з'ясувати чому без debugger attached. Ця сторінка walks routine
-checks — logs, state inspection через HTTP / WebSocket / MQTT, scenario
-runtime visibility — і catalogs найпоширеніші failure modes для
-business-logic і recipe authors.
+Коли ваш модуль поводиться неправильно, ModESP надає достатньо
+діагностичної поверхні, щоб з'ясувати причину без підключеного
+відлагоджувача. Ця сторінка проходить рутинні перевірки — логи,
+інспекцію стану через HTTP / WebSocket / MQTT, видимість виконання
+сценаріїв — і каталогізує найпоширеніші типи збоїв для авторів
+бізнес-логіки та рецептів.
 
-## Diagnostic surface overview
+## Огляд діагностичної поверхні
 
-| Channel | Що дає | Коли використовувати |
+| Канал | Що дає | Коли використовувати |
 |---|---|---|
-| **ESP_LOG (UART monitor)** | Real-time per-module log lines | Перший крок завжди. Boot issues, init errors, runtime warnings. |
-| **HTTP `GET /api/state`** | Full SharedState snapshot як JSON | Verify state keys exist, hold expected values. |
-| **HTTP `GET /api/modules`** | Module list із initialization status | Confirm ваш модуль registered і init succeeded. |
-| **WebSocket `/api/ws`** | Live state changes streamed | Бачити data flow real-time без polling. |
-| **HTTP `GET /api/scenario/list`** і `info` | Scenario engine slot pool | Для recipe debugging. |
-| **MQTT broker logs** | Topic publishes / subscribes | External-facing data flow problems. |
-| **NVS dump** | Що persisted | Коли persistence не surviving reboot. |
+| **ESP_LOG (UART monitor)** | Лог-рядки на модуль у реальному часі | Завжди перший крок. Проблеми завантаження, помилки ініціалізації, попередження часу виконання. |
+| **HTTP `GET /api/state`** | Повний знімок SharedState як JSON | Перевірити, що ключі стану існують і мають очікувані значення. |
+| **HTTP `GET /api/modules`** | Список модулів зі статусом ініціалізації | Підтвердити, що ваш модуль зареєстрований і ініціалізація успішна. |
+| **WebSocket `/api/ws`** | Потокові живі зміни стану | Бачити потік даних у реальному часі без опитування. |
+| **HTTP `GET /api/scenario/list`** і `info` | Пул слотів рушія сценаріїв | Для налагодження рецептів. |
+| **Логи брокера MQTT** | Публікації / підписки на теми | Проблеми з потоком даних назовні. |
+| **Дамп NVS** | Що збережено | Коли персистентність не виживає перезавантаження. |
 
-## Logs як перший port of call
+## Логи як перший пункт виклику
 
 ```bash
 idf.py -p COM15 monitor
 ```
 
-ESP_LOG output streams до UART. Filter by tag:
+Вивід ESP_LOG передається в UART. Фільтруйте за тегом:
 
 ```
 I (1234) my_module: Initialised, setpoint=22.0
@@ -34,8 +35,9 @@ I (1235) scenario: Engine started, slot 1 = recipe_x
 W (1240) MqttService: broker unreachable, retrying у 5 с
 ```
 
-Levels: `V` (verbose), `D` (debug), `I` (info), `W` (warning), `E` (error).
-Filter через `idf.py monitor -t <module_tag>` або set log level у Kconfig:
+Рівні: `V` (verbose), `D` (debug), `I` (info), `W` (warning), `E` (error).
+Фільтруйте через `idf.py monitor -t <module_tag>` або встановіть рівень
+логу у Kconfig:
 
 ```ini
 # sdkconfig
@@ -51,91 +53,97 @@ ESP_LOGI(TAG, "Setpoint changed to %.1f°C", setpoint);
 ESP_LOGD(TAG, "Internal state: %d, %f", flag_, value_);  // лише коли level=DEBUG
 ```
 
-Logging guidelines:
-- **`E` (error):** щось failed і recovery вимагає intervention. Один
-  рядок per occurrence (не спамити).
-- **`W` (warning):** unexpected, possibly transient. Log once per
-  triggering transition.
-- **`I` (info):** notable events — init complete, mode change, alarm
-  cleared. Sparingly.
-- **`D` (debug):** під час development. Compile out для production через
-  `CONFIG_LOG_MAXIMUM_LEVEL_INFO`.
-- **`V` (verbose):** chatty internal trace. Compile out by default.
+Поради щодо логування:
+- **`E` (error):** щось зламалося і відновлення потребує втручання.
+  Один рядок на випадок (не спамити).
+- **`W` (warning):** неочікуване, можливо тимчасове. Логуйте один раз
+  на тригерний перехід.
+- **`I` (info):** примітні події — завершення ініціалізації, зміна
+  режиму, скинуто тривогу. Ощадно.
+- **`D` (debug):** під час розробки. Виключайте з компіляції для
+  продакшну через `CONFIG_LOG_MAXIMUM_LEVEL_INFO`.
+- **`V` (verbose):** балакучий внутрішній трасувальник. Типово
+  виключається з компіляції.
 
-ESP-IDF clips lines на 256 chars total — не dump big buffers; reach for
-external loggers якщо вам треба verbose telemetry.
+ESP-IDF обрізає рядки на 256 символах загалом — не вивантажуйте великі
+буфери; для багатослівної телеметрії звертайтеся до зовнішніх
+логерів.
 
-## Inspecting SharedState live
+## Інспекція SharedState наживо
 
 ```bash
 curl -u admin:modesp http://192.168.1.85/api/state | python -m json.tool
 ```
 
-Returns JSON object з кожним state key. Filter by prefix:
+Повертає JSON-об'єкт із кожним ключем стану. Фільтруйте за префіксом:
 
 ```bash
 curl -u admin:modesp http://192.168.1.85/api/state | python -m json.tool | grep simple_thermo
 ```
 
-Quick sanity checks:
-- **Key missing entirely:** module не registered його. Або `state_set`
-  ніколи не called, або ваш module не `on_init` at all. Check
-  `/api/modules` щоб confirm registration.
-- **Key has wrong type:** likely an early `state_set` із typo cast (int
-  literal where float expected). Variant type-locks на first set.
-- **Key updates stop:** module alive але `on_update` не writing цей
-  key. Або guard logic broke (sensor unhealthy → skip update?) або
-  `on_update` itself не running (priority misorder, init failed).
+Швидкі перевірки розумності:
+- **Ключ повністю відсутній:** модуль його не зареєстрував. Або
+  `state_set` ніколи не викликався, або ваш модуль взагалі не
+  виконав `on_init`. Перевірте `/api/modules`, щоб підтвердити
+  реєстрацію.
+- **Ключ має неправильний тип:** ймовірно, ранній `state_set` з
+  помилкою приведення (літерал int там, де очікується float). Варіант
+  блокує тип при першому встановленні.
+- **Оновлення ключа припинились:** модуль живий, але `on_update` не
+  пише цей ключ. Або зламалася логіка-сторож (сенсор нездоровий →
+  пропустити оновлення?), або сам `on_update` не запускається
+  (неправильний порядок пріоритетів, провал ініціалізації).
 
-## Module registration і init status
+## Реєстрація модулів і статус ініціалізації
 
 ```bash
 curl -u admin:modesp http://192.168.1.85/api/modules
 ```
 
-Returns array із module names і states:
+Повертає масив з іменами модулів і станами:
 
 ```json
 [
   {"name": "error_service", "state": "INITIALISED"},
-  {"name": "my_module",     "state": "FAILED"},          // ← problem
+  {"name": "my_module",     "state": "FAILED"},          // ← проблема
   ...
 ]
 ```
 
-Module states у lifecycle фреймворку:
+Стани модулів у життєвому циклі фреймворку:
 
-| State | Meaning |
+| Стан | Значення |
 |---|---|
-| `CREATED` | Constructed but not yet init'd. |
-| `INITIALISED` | `on_init` повернув `true`; module live і ticking. |
-| `FAILED` | `on_init` повернув `false`. Module registered але inactive. |
-| `STOPPED` | `on_stop` ran (rarely seen на live device). |
+| `CREATED` | Сконструйований, але ще не ініціалізований. |
+| `INITIALISED` | `on_init` повернув `true`; модуль живий і тикає. |
+| `FAILED` | `on_init` повернув `false`. Модуль зареєстрований, але неактивний. |
+| `STOPPED` | `on_stop` виконано (рідко зустрічається на живому пристрої). |
 
-`FAILED` — найбільш actionable — check logs навколо module's init time
-для reason.
+`FAILED` — найбільш практичний — перевірте логи навколо часу
+ініціалізації цього модуля, щоб дізнатися причину.
 
-## Real-time data flow через WebSocket
+## Потік даних у реальному часі через WebSocket
 
-Open WebUI у браузері і watch state keys update live. Кожен tick що
-змінює state key (з `track_change=true`) sends delta до connected
-WebSocket clients. WebUI's auto-generated cards reflect changes у real
-time.
+Відкрийте WebUI у браузері і спостерігайте, як ключі стану оновлюються
+наживо. Кожен такт, що змінює ключ стану (з `track_change=true`),
+надсилає дельту підключеним клієнтам WebSocket. Автоматично згенеровані
+картки WebUI відображають зміни у реальному часі.
 
-Для programmatic debugging, connect з `websocat`:
+Для програмного налагодження підключіться через `websocat`:
 
 ```bash
 websocat ws://192.168.1.85/api/ws
 ```
 
-Streams JSON messages of changed keys. Useful для:
-- Verifying mqtt delta-publish behavior.
-- Watching scenario phase transitions real time.
-- Confirming sensor reads update на expected cadence.
+Передає JSON-повідомлення про змінені ключі. Корисно для:
+- Перевірки поведінки delta-publish у MQTT.
+- Спостереження за переходами фаз сценарію у реальному часі.
+- Підтвердження того, що показники сенсорів оновлюються з очікуваною
+  частотою.
 
-## Scenario / recipe debugging
+## Налагодження сценаріїв / рецептів
 
-Якщо recipe fails to load:
+Якщо рецепт не завантажується:
 
 ```bash
 curl -u admin:modesp -X POST http://192.168.1.85/api/scenario/load \
@@ -143,19 +151,19 @@ curl -u admin:modesp -X POST http://192.168.1.85/api/scenario/load \
 # → {"ok": false, "error": "unknown_action"}
 ```
 
-Error string identifies class failure. Common codes:
+Рядок помилки ідентифікує клас збою. Поширені коди:
 
-| Error | Meaning | Fix |
+| Помилка | Значення | Виправлення |
 |---|---|---|
-| `invalid_file` | Не valid `.modr` blob (magic / size / format). | Re-run `compile_scenario.py`. |
-| `crc_mismatch` | File corrupted у transit / flash. | Re-flash. |
-| `unsupported_version` | `.modr` built для іншої engine version. | Rebuild firmware після compile fresh recipes. |
-| `unknown_action` | Recipe використовує action name не у `ActionRegistry`. | Verify domain module registered action; check `known_actions.json`. |
-| `unknown_condition` | Same але для conditions. | Same fix path. |
-| `invalid_transition` | Bad target phase, bad transition kind. | compile_scenario.py повинен був catch — check він ran cleanly. |
-| `no_slot` | Усі engine slots у use. | Unload completed scenario first. |
+| `invalid_file` | Не валідний `.modr`-блоб (magic / розмір / формат). | Перезапустити `compile_scenario.py`. |
+| `crc_mismatch` | Файл пошкоджено при передачі / у флеш. | Перепрошити. |
+| `unsupported_version` | `.modr` зібрано для іншої версії рушія. | Перезібрати прошивку після компіляції свіжих рецептів. |
+| `unknown_action` | Рецепт використовує ім'я дії, якого немає у `ActionRegistry`. | Перевірте, що доменний модуль зареєстрував дію; перевірте `known_actions.json`. |
+| `unknown_condition` | Те саме, але для умов. | Той самий шлях виправлення. |
+| `invalid_transition` | Погана цільова фаза, поганий вид переходу. | compile_scenario.py мав це впіймати — перевірте, що він відпрацював чисто. |
+| `no_slot` | Усі слоти рушія використовуються. | Спочатку вивантажте завершений сценарій. |
 
-Якщо load succeeds але `start` fails:
+Якщо завантаження успішне, але `start` падає:
 
 ```bash
 curl -u admin:modesp -X POST http://192.168.1.85/api/scenario/start \
@@ -163,10 +171,10 @@ curl -u admin:modesp -X POST http://192.168.1.85/api/scenario/start \
 # → {"ok": false, "error": "resource_contended"}
 ```
 
-`resource_contended` — інший scenario holds ваші declared resources.
-`/api/scenario/list` shows currently active instances.
+`resource_contended` — інший сценарій тримає ваші оголошені ресурси.
+`/api/scenario/list` показує поточно активні екземпляри.
 
-Once started, inspect runtime:
+Коли запущено, інспектуйте час виконання:
 
 ```bash
 curl -u admin:modesp "http://192.168.1.85/api/scenario/info?handle=1"
@@ -183,7 +191,7 @@ curl -u admin:modesp "http://192.168.1.85/api/scenario/info?handle=1"
 }
 ```
 
-Plus recipe's mirror keys у `/api/state`:
+Плюс дзеркальні ключі рецепта у `/api/state`:
 
 ```
 my_recipe.scenario_state:    "running"
@@ -191,196 +199,217 @@ my_recipe.main_phase_name:   "phase_b"
 my_recipe.watcher_state:     "running"
 ```
 
-Stuck phase:
-- `phase_elapsed_s` keeps incrementing але `phase_idx` не advances.
-- Check transition conditions — maybe waiting на state key що не arriving.
-- Manually write awaited key (`POST /api/settings`) щоб force transition
-  AND verify condition logic correct.
+Застрягла фаза:
+- `phase_elapsed_s` продовжує наростати, але `phase_idx` не просувається.
+- Перевірте умови переходу — можливо, очікується ключ стану, який не
+  надходить.
+- Запишіть очікуваний ключ вручну (`POST /api/settings`), щоб
+  примусово викликати перехід І перевірити, що логіка умови коректна.
 
-Aborted scenario:
-- `state: "failed"`. Check `last_error_code` if available, OR check logs
-  для abort reason (наприклад, global transition fired, action returned
-  FAILED_ABORT, scenario timeout exceeded).
+Перерваний сценарій:
+- `state: "failed"`. Перевірте `last_error_code`, якщо доступний, АБО
+  перевірте логи на предмет причини переривання (наприклад,
+  спрацював глобальний перехід, дія повернула FAILED_ABORT, перевищено
+  таймаут сценарію).
 
-## NVS inspection
+## Інспекція NVS
 
-Якщо value повинен persist але не doing it:
+Якщо значення має зберігатися, але не зберігається:
 
 ```bash
 idf.py -p COM15 monitor
-# У monitor, Ctrl+T then Ctrl+L sends Ctrl+L до ESP — typically nothing useful.
-# Use framework's NVS dump endpoint якщо implemented,
-# або fall back:
+# У monitor, Ctrl+T потім Ctrl+L надсилає Ctrl+L до ESP — зазвичай нічого корисного.
+# Краще використовуйте ендпоінт фреймворку для дампу NVS (якщо реалізовано),
+# або повертайтесь до:
 ```
 
-ESP-IDF's `nvs_partition_dump` tool:
+Інструмент ESP-IDF `nvs_partition_dump`:
 
 ```bash
 esp-idf-mon nvs_partition_dump --partition nvs
 ```
 
-Returns key/value list у NVS partition. Look для `persist/<your_key>`
-entries. Якщо absent, PersistService не writeкало (debounce timeout?
-value unchanged?). Якщо present але scenario не see them on boot,
-PersistService's restore step skipped your key (likely manifest's
-`persist: true` flag missing — re-check manifest).
+Повертає список ключ/значення в розділі NVS. Шукайте записи
+`persist/<your_key>`. Якщо відсутні, PersistService не записав
+(таймаут debounce? значення не змінилося?). Якщо присутні, але
+сценарій не бачить їх при завантаженні, крок відновлення PersistService
+пропустив ваш ключ (ймовірно, у маніфесті відсутній прапорець
+`persist: true` — перевірте маніфест ще раз).
 
-## MQTT message tracing
+## Трасування повідомлень MQTT
 
-External-facing data issues: subscribe to relevant topics і watch:
+Проблеми з даними назовні: підпишіться на відповідні теми і
+спостерігайте:
 
 ```bash
 mosquitto_sub -h <broker-ip> -t 'modesp/v1/+/+/#' -v
 ```
 
-Якщо key declared у `mqtt.publish` не з'являється:
-- Confirm broker reachable (`/api/state` shows `mqtt.connected = true`).
-- Check topic format — typo у key АБО `device_id` mismatch.
-- Verify key's value actually changing (delta semantics — unchanged
-  values не publish).
+Якщо ключ, оголошений у `mqtt.publish`, не з'являється:
+- Підтвердіть, що брокер досяжний (`/api/state` показує
+  `mqtt.connected = true`).
+- Перевірте формат теми — помилка у ключі АБО невідповідність
+  `device_id`.
+- Перевірте, що значення ключа дійсно змінюється (семантика дельти —
+  незмінені значення не публікуються).
 
-Якщо MQTT writes не reach SharedState:
-- Confirm `mqtt_subscribe: true` set на state key.
-- Topic format: `<base>/cmd/<key>` із DOT у `<key>` (не slash).
-- Payload format: plain ASCII (`24`, не `{"value": 24}`).
+Якщо записи MQTT не доходять до SharedState:
+- Підтвердіть, що `mqtt_subscribe: true` встановлено на ключі стану.
+- Формат теми: `<base>/cmd/<key>` із КРАПКОЮ у `<key>` (не зі слешем).
+- Формат корисного навантаження: звичайний ASCII (`24`, а не
+  `{"value": 24}`).
 
-## Common module bugs і symptoms
+## Поширені баги модулів і симптоми
 
-### Module не registered
+### Модуль не зареєстрований
 
-**Symptom:** `/api/modules` не lists ваш module. State keys missing.
-WebUI page absent.
+**Симптом:** `/api/modules` не перелічує ваш модуль. Ключі стану
+відсутні. Сторінка WebUI відсутня.
 
 **Причини:**
-- Module не у `project.json` `modules` array.
-- Missing/wrong `CMakeLists.txt` REQUIRES.
-- `module_register.h` не regenerated (CMake не re-run generate_ui.py).
+- Модуль не у масиві `modules` файлу `project.json`.
+- Відсутній / неправильний `CMakeLists.txt` REQUIRES.
+- `module_register.h` не перегенеровано (CMake не запустив повторно
+  generate_ui.py).
 
-**Fix:** ensure project.json lists name, CMakeLists builds, `idf.py
-fullclean && idf.py build`.
+**Виправлення:** переконайтеся, що project.json перелічує ім'я,
+CMakeLists збирається, `idf.py fullclean && idf.py build`.
 
-### Module registered але FAILED
+### Модуль зареєстрований, але FAILED
 
-**Symptom:** `/api/modules` shows state `"FAILED"`.
+**Симптом:** `/api/modules` показує стан `"FAILED"`.
 
 **Причини:**
 - `on_init` повернув `false` (найпоширеніше).
-- Dependency не yet initialised (priority misorder).
+- Залежність ще не ініціалізована (неправильний порядок пріоритетів).
 
-**Fix:** check logs around boot time для ESP_LOGE messages. Most modules
-log reason. Якщо dependency module needed (е.g., HAL not ready), change
-ваш priority до later phase.
+**Виправлення:** перевірте логи навколо часу завантаження на
+повідомлення ESP_LOGE. Більшість модулів логують причину. Якщо
+потрібен модуль-залежність (наприклад, HAL не готовий), змініть свій
+пріоритет на пізнішу фазу.
 
-### State key value wrong / stale
+### Значення ключа стану неправильне / застаріле
 
-**Symptom:** `/api/state` shows value що не matching що ви wrote, OR
-shows stale value хоча module wrote new one.
-
-**Причини:**
-- Wrong type passed: `state_set("key", 42)` з `int` literal на 64-bit
-  host. Use `static_cast<int32_t>(42)`.
-- Key type-locked by an earlier `state_set` від different module із
-  different type. Each key locks до first-set type.
-- `state_set` returned `false` (capacity exhausted, key too long).
-  Check `state.set_failures()` counter.
-
-**Fix:** add ESP_LOG immediately after `state_set` щоб confirm. Use
-`state_get<T>(key, out)` із explicit type щоб verify що там.
-
-### Module running але не doing anything
-
-**Symptom:** Module INITIALISED, ESP_LOG shows it ticked once during
-init, але expected behavior не happens.
+**Симптом:** `/api/state` показує значення, що не збігається з тим, що
+ви записали, АБО показує застаріле значення, хоча модуль записав нове.
 
 **Причини:**
-- `on_update` ніколи не overridden — default is no-op.
-- Guard logic wrong (`if (sensor_ok)` завжди false бо key wrong).
-- Priority misorder — ваш module ticks before sensor module fills data.
+- Передано неправильний тип: `state_set("key", 42)` з літералом `int`
+  на 64-бітному хості. Використовуйте `static_cast<int32_t>(42)`.
+- Тип ключа заблокований раннішим `state_set` з іншого модуля з іншим
+  типом. Кожен ключ блокується на тип першого встановлення.
+- `state_set` повернув `false` (вичерпано місткість, надто довгий
+  ключ). Перевірте лічильник `state.set_failures()`.
 
-**Fix:** sprinkle ESP_LOGI у `on_update` (maybe `ESP_LOGI(TAG, "tick
-temp=%.1f", temp)` — once per second, NOT every tick). Confirm `on_update`
-runs і inputs match expectations.
+**Виправлення:** додайте ESP_LOG одразу після `state_set` для
+підтвердження. Використовуйте `state_get<T>(key, out)` з явним типом,
+щоб перевірити, що там.
 
-### High CPU / watchdog reset
+### Модуль працює, але нічого не робить
 
-**Symptom:** Device reboots із "Task watchdog got triggered" у logs.
-Або sluggish WebUI.
-
-**Причини:**
-- `on_update` doing > 5 мс work consistently.
-- Heap fragmentation із allocations у hot path.
-- Tight loop у action / condition handler.
-
-**Fix:** profile ваш `on_update`. Move heavy work до окремого timer
-або task. Eliminate `new` / `std::string` з tick path. Use ETL
-fixed-size containers.
-
-### Scenario stuck або loops
-
-**Symptom:** `phase_idx` не advances OR keeps re-entering same phase.
+**Симптом:** Модуль у стані INITIALISED, ESP_LOG показує, що він
+тикнув один раз під час ініціалізації, але очікувана поведінка не
+відбувається.
 
 **Причини:**
-- Transition condition ніколи не fires (waiting на state key що ніхто
-  не writes).
-- Phase timeout = 0 (engine treats як "no timeout"; verify ваш manifest).
-- `loop_on_complete` flag на short phase із `$complete` target —
-  perpetual loop.
+- `on_update` ніколи не перевизначений — типове значення є no-op.
+- Логіка-сторож неправильна (`if (sensor_ok)` завжди false, бо ключ
+  неправильний).
+- Неправильний порядок пріоритетів — ваш модуль тикає до того, як
+  модуль-сенсор заповнить дані.
 
-**Fix:** dump mirror keys із `/api/state` — verify `phase_name`,
-`phase_elapsed_s` look right. Manually inject expected condition key
-із `POST /api/settings` щоб confirm transition logic.
+**Виправлення:** додайте ESP_LOGI у `on_update` (наприклад,
+`ESP_LOGI(TAG, "tick temp=%.1f", temp)` — раз на секунду, НЕ кожен
+такт). Підтвердіть, що `on_update` запускається і входи відповідають
+очікуванням.
 
-### Build errors
+### Високе навантаження CPU / скид сторожового таймера
 
-`compile_scenario.py` rejects:
-- Schema validation — manifest field missing / wrong type. Error message
-  points до line.
-- Cross-validation — mirror state key не declared. Add it до manifest's
-  `state` section.
-- Unknown action — name не у `known_actions.json` AND не built-in.
+**Симптом:** Пристрій перезавантажується з повідомленням «Task
+watchdog got triggered» у логах. Або повільний WebUI.
 
-generate_ui.py rejects:
-- Hardware ID не declared у board.json. Edit board.json або fix bindings.
-- Duplicate role name. Each role unique у межах модуля.
+**Причини:**
+- `on_update` стабільно робить більше 5 мс роботи.
+- Фрагментація купи через виділення на гарячому шляху.
+- Тісний цикл в обробнику дії / умови.
 
-## Production-mode debugging
+**Виправлення:** профілюйте свій `on_update`. Перенесіть важку роботу
+в окремий таймер або задачу. Усуньте `new` / `std::string` з шляху
+такту. Використовуйте контейнери ETL фіксованого розміру.
 
-На deployed device без UART:
+### Сценарій застряг або зациклюється
 
-1. **Logs go to MQTT (Stage 1.5 feature):** `logger_service` буде forward
-   ESP_LOGI/W/E messages до dedicated MQTT topic. Subscribe via broker.
-2. **WebUI logs page:** `/api/log` returns recent log buffer (~last 100
-   lines retained у RAM).
-3. **State + module status через HTTP:** усі `/api/state` і
-   `/api/modules` calls work через network connection.
+**Симптом:** `phase_idx` не просувається АБО постійно входить у ту
+саму фазу.
 
-## Pre-flight checklist (перед reporting bug)
+**Причини:**
+- Умова переходу ніколи не спрацьовує (очікування на ключ стану, який
+  ніхто не пише).
+- Таймаут фази = 0 (рушій трактує як «без таймауту»; перевірте свій
+  маніфест).
+- Прапорець `loop_on_complete` на короткій фазі з ціллю `$complete` —
+  безкінечний цикл.
 
-Перед filing bug або asking для help, gather:
+**Виправлення:** скиньте дзеркальні ключі через `/api/state` —
+перевірте, що `phase_name`, `phase_elapsed_s` виглядають правильно.
+Вручну ін'єктуйте очікуваний ключ умови через `POST /api/settings`,
+щоб підтвердити логіку переходу.
 
-1. **`/api/state` output** filtered to ваш module's prefix.
-2. **`/api/modules` output** showing ваш module's state.
-3. **Last 20-50 lines monitor output** around problem.
-4. **Manifest** of failing module (just relevant section).
-5. **Steps to reproduce** including HTTP calls / WebUI clicks / etc.
+### Помилки збірки
 
-Це usually points на root cause у межах few iterations.
+`compile_scenario.py` відхиляє:
+- Валідація схеми — відсутнє / неправильного типу поле маніфесту.
+  Повідомлення про помилку вказує на рядок.
+- Перехресна валідація — дзеркальний ключ стану не оголошений.
+  Додайте його у секцію `state` маніфесту.
+- Невідома дія — ім'я не у `known_actions.json` І не вбудоване.
+
+generate_ui.py відхиляє:
+- Апаратний ID не оголошений у board.json. Відредагуйте board.json
+  або виправте прив'язки.
+- Дубльоване ім'я ролі. Кожна роль унікальна у межах модуля.
+
+## Налагодження у продакшн-режимі
+
+На розгорнутому пристрої без UART:
+
+1. **Логи йдуть у MQTT (можливість Stage 1.5):** `logger_service` буде
+   пересилати повідомлення ESP_LOGI/W/E до спеціальної теми MQTT.
+   Підпишіться через брокер.
+2. **Сторінка логів WebUI:** `/api/log` повертає недавній буфер логів
+   (~останні 100 рядків зберігаються в RAM).
+3. **Стан + статус модулів через HTTP:** усі виклики `/api/state` і
+   `/api/modules` працюють через мережеве з'єднання.
+
+## Чек-лист перед звітом про баг
+
+Перед поданням бага або проханням про допомогу зберіть:
+
+1. **Вивід `/api/state`**, відфільтрований за префіксом вашого модуля.
+2. **Вивід `/api/modules`**, що показує стан вашого модуля.
+3. **Останні 20-50 рядків виводу monitor** навколо проблеми.
+4. **Маніфест** модуля, що падає (просто релевантну секцію).
+5. **Кроки відтворення**, включаючи виклики HTTP / кліки в WebUI / тощо.
+
+Це зазвичай вказує на корінну причину за кілька ітерацій.
 
 ## Що далі
 
-- **[best-practices.md](best-practices.md)** — patterns що avoid цих
-  problems у first place.
-- **[shared-state.md](shared-state.md)** — type rules і common pitfalls.
+- **[best-practices.md](best-practices.md)** — шаблони, що від початку
+  уникають цих проблем.
+- **[shared-state.md](shared-state.md)** — правила типів і типові
+  помилки.
 - **[scenario-engine/10_error_model.md](../03-framework-reference/scenario-engine/10_error_model.md)** —
-  full engine error taxonomy.
+  повна таксономія помилок рушія.
 - **[components/modesp_services.md](../03-framework-reference/components/modesp_services.md)**
-  *(planned)* — error_service і watchdog_service deep dive.
+  *(заплановано)* — глибоке занурення в error_service і
+  watchdog_service.
 
-## Source pointers
+## Покажчики на джерела
 
 - [`components/modesp_services/src/error_service.cpp`](../../../components/modesp_services/src/error_service.cpp)
-  — central error reporting.
+  — центральне звітування про помилки.
 - [`components/modesp_services/src/logger_service.cpp`](../../../components/modesp_services/src/logger_service.cpp)
-  — log buffer / forwarding.
+  — буфер логів / пересилання.
 - [`components/modesp_net/src/http_service.cpp`](../../../components/modesp_net/src/http_service.cpp)
-  — `/api/state`, `/api/modules` handlers.
+  — обробники `/api/state`, `/api/modules`.

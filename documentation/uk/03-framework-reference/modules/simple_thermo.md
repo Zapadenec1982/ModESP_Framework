@@ -1,63 +1,50 @@
-# `simple_thermo` — reference ON/OFF термостат
+# `simple_thermo` — еталонний ON/OFF термостат
 
 > 📖 **In English:** [documentation/en/03-framework-reference/modules/simple_thermo.md](../../../en/03-framework-reference/modules/simple_thermo.md)
 
-`simple_thermo` — reference business module фреймворку — мінімальний
-hysteresis thermostat що reads temperature з SharedState, applies
-setpoint+differential логіку, і drives binary output. Ships з фреймворком
-primarily як **перший module що ви повинні study** при learning як
-типовий business module structured.
+`simple_thermo` — це еталонний бізнес-модуль фреймворку: мінімальний термостат з гістерезисом, який читає температуру із SharedState, застосовує логіку уставки та диференціалу і керує бінарним виходом. Постачається з фреймворком насамперед як **перший модуль, який варто вивчити** при ознайомленні зі структурою типового бізнес-модуля.
 
-~150 LOC C++ + ~100-line manifest. Найкраща перша річ для читання
-після `quickstart.md` і `02-module-author-guide/overview.md`.
+Близько 150 рядків C++ та маніфест приблизно на 100 рядків. Найкраще читати одразу після `quickstart.md` і `02-module-author-guide/overview.md`.
 
-REQUIRES: `modesp_core`. Reads `equipment.air_temp`; writes
-`simple_thermo.output` (binary heating request).
+ВИМАГАЄ: `modesp_core`. Читає `equipment.air_temp`; записує `simple_thermo.output` (бінарний запит нагріву).
 
 ## Поведінка
 
-ON/OFF з symmetric hysteresis (deadband):
+ON/OFF із симетричним гістерезисом (зоною нечутливості):
 
 ```
 Output := ON  якщо temp < (setpoint - differential)
 Output := OFF якщо temp >= setpoint
-Output := unchanged otherwise (у deadband)
+Output := без змін у решті випадків (у межах зони нечутливості)
 ```
 
-Initial state OFF. Setpoint і differential — runtime-configurable і
-persist across reboots.
+Початковий стан OFF. Уставка та диференціал налаштовуються у часі виконання та зберігаються між перезавантаженнями.
 
-## State keys
+## Ключі стану
 
-| Key | Type | Notes |
+| Ключ | Тип | Примітки |
 |---|---|---|
-| `simple_thermo.temperature` | float | Current reading (mirrors equipment.air_temp). |
-| `simple_thermo.setpoint` | float | User setpoint (5-40 °C, default 22). Persisted. |
-| `simple_thermo.differential` | float | Hysteresis (0.5-5 °C, default 1). Persisted. |
+| `simple_thermo.temperature` | float | Поточне показання (дзеркалить equipment.air_temp). |
+| `simple_thermo.setpoint` | float | Уставка користувача (5-40 °C, за замовчуванням 22). Зберігається. |
+| `simple_thermo.differential` | float | Гістерезис (0,5-5 °C, за замовчуванням 1). Зберігається. |
 | `simple_thermo.state` | string | `"off"` / `"heating"` / `"idle"`. |
-| `simple_thermo.output` | bool | Heating request — connect до actuator. |
+| `simple_thermo.output` | bool | Запит нагріву — підключайте до актуатора. |
 
-`setpoint` і `differential` accept MQTT writes (`mqtt_subscribe: true`).
+`setpoint` і `differential` приймають запис через MQTT (`mqtt_subscribe: true`).
 
-## Як це wired
+## Як це підключається
 
-Reads `equipment.air_temp` (provided Equipment Manager + temperature
-driver), writes `simple_thermo.output`. Щоб actually drive relay, route
-`simple_thermo.output` до actuator role через вашу business логіку АБО
-additional binding-aware module.
+Читає `equipment.air_temp` (надається Equipment Manager + драйвером температури), записує `simple_thermo.output`. Щоб фактично керувати реле, направте `simple_thermo.output` до ролі актуатора через вашу бізнес-логіку АБО додатковий модуль, що знає про прив'язки.
 
-Typical loop:
+Типовий цикл:
 
-1. Equipment Manager reads DS18B20 sensor → writes `equipment.air_temp`.
-2. simple_thermo reads `equipment.air_temp`, applies hysteresis,
-   updates `simple_thermo.output`.
-3. (Ви wire якийсь link між `simple_thermo.output` і
-   `equipment.req_<heater_role>` — або simple module АБО Equipment
-   Manager configured щоб mirror ці keys.)
+1. Equipment Manager читає сенсор DS18B20 → записує `equipment.air_temp`.
+2. simple_thermo читає `equipment.air_temp`, застосовує гістерезис, оновлює `simple_thermo.output`.
+3. (Ви налаштовуєте якийсь зв'язок між `simple_thermo.output` і `equipment.req_<heater_role>` — або простий модуль, АБО Equipment Manager, налаштований дзеркалити ці ключі.)
 
-## C++ source overview
+## Огляд джерел C++
 
-Header (`modules/simple_thermo/include/simple_thermo_module.h`, ~28 lines):
+Заголовок (`modules/simple_thermo/include/simple_thermo_module.h`, ~28 рядків):
 
 ```cpp
 class SimpleThermoModule : public modesp::BaseModule {
@@ -70,54 +57,51 @@ private:
 };
 ```
 
-Source (~55 lines): straightforward hysteresis у `on_update`. Read code
-directly — це найпростіший BaseModule subclass у codebase.
+Реалізація (~55 рядків): прямолінійний гістерезис у `on_update`. Читайте код напряму — це найпростіший підклас BaseModule у кодовій базі.
 
-## UI surface (auto-generated)
+## Інтерфейс користувача (автоматично згенерований)
 
-Manifest declares дві cards:
+Маніфест оголошує дві картки:
 
-1. **State** (read-only): temperature value, state string, output indicator.
-2. **Settings**: setpoint slider, differential number input.
+1. **State** (тільки для читання): значення температури, рядок стану, індикатор виходу.
+2. **Settings**: повзунок уставки, числове введення диференціалу.
 
-WebUI page **"Thermostat"** з тими cards.
+Сторінка WebUI **"Thermostat"** з цими картками.
 
-## MQTT topics
+## Топіки MQTT
 
-Publishes:
+Публікує:
 - `<base>/simple_thermo/temperature`
 - `<base>/simple_thermo/state`
 - `<base>/simple_thermo/output`
 
-Accepts:
+Приймає:
 - `<base>/cmd/simple_thermo.setpoint`
 - `<base>/cmd/simple_thermo.differential`
 
-## DataLogger integration
+## Інтеграція з DataLogger
 
-Auto-logged:
-- Channel `simple_thermo.temperature` (temperature, default-on).
-- Event `simple_thermo.output` (id 30, both edges, "Heating ON" / "Heating OFF").
+Автоматично логуються:
+- Канал `simple_thermo.temperature` (температура, ввімкнено за замовчуванням).
+- Подія `simple_thermo.output` (id 30, обидва фронти, "Heating ON" / "Heating OFF").
 
-## Чому це good first read
+## Чому це гарний перший приклад
 
-- Manifest covers state, mqtt, loggable, ui — усі common sections.
-- C++ class **trivial** (~50 lines) — easy to follow.
-- Demonstrates hysteresis pattern reusable у many domains.
-- Shows `equipment.* → simple_thermo.* → equipment.req_*` data flow.
-- Persisted setpoint pattern.
+- Маніфест охоплює state, mqtt, loggable, ui — усі типові секції.
+- Клас C++ **тривіальний** (~50 рядків) — легко читати.
+- Демонструє патерн гістерезису, придатний у багатьох сферах.
+- Показує потік даних `equipment.* → simple_thermo.* → equipment.req_*`.
+- Патерн збереження уставки.
 
-Після understanding цього module, write власний variant із different
-control логіку АБО multi-zone support. Structure transfers.
+Зрозумівши цей модуль, напишіть власну варіацію з іншою керуючою логікою АБО підтримкою кількох зон. Структура переноситься.
 
 ## Що далі
 
-- **[02-module-author-guide/writing-a-module.md](../../02-module-author-guide/writing-a-module.md)** —
-  walkthrough using це pattern.
-- **[modules/equipment.md](equipment.md)** — upstream sensor provider.
-- **[modules/datalogger.md](datalogger.md)** — downstream data consumer.
+- **[02-module-author-guide/writing-a-module.md](../../02-module-author-guide/writing-a-module.md)** — покрокова інструкція з використанням цього патерну.
+- **[modules/equipment.md](equipment.md)** — провайдер сенсорів вище за потоком.
+- **[modules/datalogger.md](datalogger.md)** — споживач даних нижче за потоком.
 
-## Source
+## Джерела
 
 - [`modules/simple_thermo/manifest.json`](../../../../modules/simple_thermo/manifest.json)
 - [`modules/simple_thermo/include/simple_thermo_module.h`](../../../../modules/simple_thermo/include/simple_thermo_module.h)

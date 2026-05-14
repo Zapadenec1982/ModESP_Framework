@@ -1,35 +1,40 @@
-# Installation — toolchain і first build
+# Встановлення — інструментарій і перше збирання
 
 > 📖 **In English:** [documentation/en/01-getting-started/installation.md](../../en/01-getting-started/installation.md)
 
-Ця сторінка покриває setting up ESP-IDF toolchain, cloning repo,
-І producing ваш first firmware binary. Після цього jump до
-**[quickstart](quickstart.md)** щоб flash її.
+Ця сторінка описує налаштування інструментарію ESP-IDF, клонування
+репозиторію та створення вашого першого бінарного файлу прошивки. Після
+цього переходьте до **[швидкого старту](quickstart.md)**, щоб прошити
+пристрій.
 
-Time budget: **20-40 minutes** depending на whether ESP-IDF already
-installed.
+Орієнтовний час: **20–40 хвилин** залежно від того, чи вже встановлений
+ESP-IDF.
 
-## Prerequisites
+## Передумови
 
-- ESP32 device з USB-serial adapter (більшість dev boards мають це
-  built у). Recommended: **ESP32-S3** з 4 MB+ flash. ESP32-WROOM works.
-- USB cable з data lines (НЕ charge-only cable — common mistake).
-- Operating system: Windows 10+, Linux, АБО macOS.
-- **8 GB free disk space** (ESP-IDF + toolchain).
-- Python 3.8+ (ESP-IDF installs власний).
+- Пристрій ESP32 з USB-послідовним адаптером (більшість плат розробника
+  мають це вбудовано). Рекомендовано: **ESP32-S3** з 4 МБ+ flash.
+  ESP32-WROOM теж підходить.
+- USB-кабель з лініями даних (НЕ кабель лише для зарядки — поширена
+  помилка).
+- Операційна система: Windows 10+, Linux або macOS.
+- **8 ГБ вільного місця на диску** (ESP-IDF + інструментарій).
+- Python 3.8+ (ESP-IDF встановлює власний).
 
-## Step 1 — Install ESP-IDF
+## Крок 1 — Встановлення ESP-IDF
 
-Фреймворк targets ESP-IDF **v5.x** (any 5.x.y; tested на 5.1, 5.2, 5.3).
+Фреймворк націлений на ESP-IDF **v5.x** (будь-яка 5.x.y; протестовано на
+5.1, 5.2, 5.3).
 
-**Windows (PowerShell, recommended):**
+**Windows (PowerShell, рекомендовано):**
 
-Use official installer: <https://dl.espressif.com/dl/esp-idf/>.
-Він bundles Python, Git, і toolchain у one MSI. Pick
-"Online installer" і choose v5.x.
+Скористайтеся офіційним інсталятором: <https://dl.espressif.com/dl/esp-idf/>.
+Він об'єднує Python, Git та інструментарій в один MSI. Виберіть
+"Online installer" і версію v5.x.
 
-Після install, відкрий "ESP-IDF 5.x PowerShell" з Start Menu — це
-pre-configured shell з `$env:IDF_PATH` set.
+Після встановлення відкрийте "ESP-IDF 5.x PowerShell" зі стартового
+меню — це попередньо налаштована оболонка з установленим
+`$env:IDF_PATH`.
 
 **Linux / macOS:**
 
@@ -40,62 +45,64 @@ cd esp-idf
 ./install.sh esp32,esp32s3
 ```
 
-Add activation step до shell rc:
+Додайте крок активації до rc-файла вашої оболонки:
 
 ```bash
 echo '. $HOME/esp/esp-idf/export.sh' >> ~/.bashrc
 ```
 
-Open new terminal — `idf.py --version` should work.
+Відкрийте новий термінал — `idf.py --version` має працювати.
 
-## Step 2 — Clone framework
+## Крок 2 — Клонування фреймворку
 
 ```
 git clone https://github.com/<your-org>/modesp-v4.git
 cd modesp-v4
 ```
 
-Repo contains:
+Репозиторій містить:
 
-- `components/` — framework libraries (modesp_*).
-- `modules/` — business modules (recipe І non-recipe).
-- `drivers/` — hardware drivers.
-- `main/` — `main.cpp` з module wiring.
-- `tools/` — Python build-time generators.
-- `data/www/` — pre-built WebUI bundle.
+- `components/` — бібліотеки фреймворку (modesp_*).
+- `modules/` — бізнес-модулі (рецепти та не-рецепти).
+- `drivers/` — апаратні драйвери.
+- `main/` — `main.cpp` з підключенням модулів.
+- `tools/` — генератори часу збирання на Python.
+- `data/www/` — попередньо зібраний бандл WebUI.
 
-## Step 3 — Install Python tooling
+## Крок 3 — Встановлення Python-інструментарію
 
-Build calls кілька Python tools (`generate_ui.py`, `compile_scenario.py`).
-Вони use packages з `tools/requirements.txt`:
+Збирання викликає кілька Python-інструментів (`generate_ui.py`,
+`compile_scenario.py`). Вони використовують пакети з
+`tools/requirements.txt`:
 
 ```
 pip install -r tools/requirements.txt
 ```
 
-(Use той Python який ESP-IDF activated. На Windows ESP-IDF
-PowerShell pins it; на Linux/macOS activation script does.)
+(Використовуйте той Python, який активував ESP-IDF. На Windows
+PowerShell ESP-IDF його фіксує; на Linux/macOS це робить скрипт
+активації.)
 
-## Step 4 — First build
+## Крок 4 — Перше збирання
 
-З repo root:
+З кореня репозиторію:
 
 ```
-idf.py set-target esp32s3    # або esp32, esp32c3 — match ваше hardware
+idf.py set-target esp32s3    # or esp32, esp32c3 — match your hardware
 idf.py build
 ```
 
 Це:
 
-1. Generates UI / state metadata / MQTT topics з manifests.
-2. Compiles всі `.modr` recipes.
-3. Compiles entire project.
-4. Builds LittleFS data image.
+1. Генерує метадані UI / стану / тем MQTT з маніфестів.
+2. Компілює всі рецепти `.modr`.
+3. Компілює весь проєкт.
+4. Будує образ даних LittleFS.
 
-Total first-build time: **3-8 minutes** depending на CPU. Subsequent
-incremental builds: **5-30 seconds**.
+Загальний час першого збирання: **3–8 хвилин** залежно від CPU.
+Подальші інкрементальні збирання: **5–30 секунд**.
 
-Expected output ends з:
+Очікуваний вивід завершується на:
 
 ```
 Project build complete. To flash, run:
@@ -106,48 +113,52 @@ or
  python -m esptool ... write_flash --flash_mode dio --flash_size 4MB --flash_freq 80m 0x0 build/bootloader/bootloader.bin 0x10000 build/<project>.bin 0x8000 build/partition_table/partition-table.bin
 ```
 
-Якщо це бачите — toolchain healthy. Move до **[quickstart.md](quickstart.md)**.
+Якщо ви це бачите — інструментарій справний. Переходьте до
+**[quickstart.md](quickstart.md)**.
 
-## Step 5 — Editor setup (optional)
+## Крок 5 — Налаштування редактора (необов'язково)
 
-**VS Code:** install official **Espressif IDF** extension.
-Configure: Command Palette → "ESP-IDF: Configure ESP-IDF Extension".
-Extension wires IntelliSense, debugger, flash, І monitor
-commands.
+**VS Code:** встановіть офіційне розширення **Espressif IDF**.
+Налаштуйте: Command Palette → "ESP-IDF: Configure ESP-IDF Extension".
+Розширення підключає IntelliSense, зневаджувач, команди прошивки та
+монітора.
 
-**CLion / other:** point CMake на project. ESP-IDF generates
-`compile_commands.json` який більшість C/C++ editors recognize.
+**CLion / інші:** направте CMake на проєкт. ESP-IDF генерує
+`compile_commands.json`, який розпізнає більшість редакторів C/C++.
 
-## Troubleshooting
+## Типові помилки
 
-**`idf.py: command not found`** — IDF environment not activated.
-Run `~/esp/esp-idf/export.sh` АБО open ESP-IDF PowerShell.
+**`idf.py: command not found`** — середовище IDF не активовано.
+Запустіть `~/esp/esp-idf/export.sh` або відкрийте ESP-IDF PowerShell.
 
-**`Python is not installed correctly`** — typically WSL/MSYS Python
-conflicts з ESP-IDF. Use ESP-IDF-bundled Python; close any
-other terminal.
+**`Python is not installed correctly`** — зазвичай Python WSL/MSYS
+конфліктує з Python від ESP-IDF. Використовуйте Python, який поставляє
+ESP-IDF; закрийте будь-який інший термінал.
 
-**Build hangs at "Building ETL..."** — `marcel-cd__etlcpp` 1.0.1 has
-known `externalproject_add` bug. Fix: edit
-`managed_components/marcel-cd__etlcpp/CMakeLists.txt` І comment out
-`externalproject_add` block. (Див. engine rebuild changelog для context.)
+**Збирання зависає на "Building ETL..."** — `marcel-cd__etlcpp` 1.0.1
+має відому ваду `externalproject_add`. Виправлення: відредагуйте
+`managed_components/marcel-cd__etlcpp/CMakeLists.txt` і закоментуйте
+блок `externalproject_add`. (Див. журнал перебудови рушія для
+контексту.)
 
-**`fatal: could not read Username`** — Git asking for credentials
-щоб fetch submodules. Configure GitHub credential helper або use
-SSH URLs у `.gitmodules`.
+**`fatal: could not read Username`** — Git запитує облікові дані для
+вивантаження підмодулів. Налаштуйте помічника облікових даних GitHub
+або використовуйте SSH-URL у `.gitmodules`.
 
-**Disk space exhausted mid-build:** clean з `idf.py fullclean` І
-re-check `build/` size перед retrying. Build artefacts run ~2 GB.
+**Місце на диску вичерпалося посеред збирання:** очистіть командою
+`idf.py fullclean` і перевірте розмір `build/` перед повторною
+спробою. Артефакти збирання займають ~2 ГБ.
 
 ## Що далі
 
-- **[quickstart.md](quickstart.md)** — flash І run reference scenario.
-- **[concepts.md](concepts.md)** — 4 core mental models перед написанням
-  першого module.
+- **[quickstart.md](quickstart.md)** — прошивка й запуск еталонного
+  сценарію.
+- **[concepts.md](concepts.md)** — 4 ключові ментальні моделі перед
+  написанням вашого першого модуля.
 - **[02-module-author-guide/overview.md](../02-module-author-guide/overview.md)** —
-  start writing.
+  починаєте писати.
 
-## Source
+## Джерела
 
-- ESP-IDF docs: [Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html).
-- `tools/requirements.txt` у framework root.
+- Документація ESP-IDF: [Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html).
+- `tools/requirements.txt` у корені фреймворку.

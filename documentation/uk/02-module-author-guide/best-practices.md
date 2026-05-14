@@ -1,280 +1,311 @@
-# Best practices
+# Найкращі практики
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/best-practices.md](../../en/02-module-author-guide/best-practices.md)
 
-Digest patterns що працюють і anti-patterns що kусаються. Прочитавши, ви
-знатимете як виглядає good module / driver / recipe code у ModESP, і
-чому deviations cost performance, reliability, або maintainability.
+Стислий перелік шаблонів, що працюють, і антишаблонів, що кусаються.
+Прочитавши, ви будете знати, як виглядає добрий код модуля / драйвера /
+рецепта у ModESP і чому відхилення коштують продуктивності, надійності
+або підтримуваності.
 
-Ця сторінка concise on purpose — examples і rationale сидять у focused
-topic pages (shared-state, writing-a-module, тощо). Думайте про неї як
-про checklist.
+Ця сторінка стисла навмисне — приклади і обґрунтування лежать на
+сфокусованих тематичних сторінках (shared-state, writing-a-module
+тощо). Сприймайте її як чек-лист.
 
-## Memory і allocation
+## Пам'ять і виділення
 
-✅ **Stay heap-free у hot paths.** Modules tick at 100 Hz. Кожен `new`,
-`std::string`, `std::vector::push_back`, `std::map` insertion leaks RAM
-або fragments heap. Use ETL fixed-capacity containers (`etl::string`,
-`etl::vector`, `etl::flat_map`), C arrays, або POD types.
+✅ **Тримайтеся без купи на гарячих шляхах.** Модулі тикають з частотою
+100 Гц. Кожен `new`, `std::string`, `std::vector::push_back`, вставка у
+`std::map` витікає RAM або фрагментує купу. Використовуйте контейнери
+ETL фіксованої місткості (`etl::string`, `etl::vector`, `etl::flat_map`),
+C-масиви або POD-типи.
 
-✅ **Allocate once при init, reuse forever.** Якщо вашому модулю треба
-buffer, make it member вашого class. Не allocate per call.
+✅ **Виділяйте один раз на ініціалізації, перевикористовуйте назавжди.**
+Якщо вашому модулю потрібен буфер, зробіть його членом вашого класу.
+Не виділяйте на кожен виклик.
 
-❌ **Не `new` object у `on_update`. Period.**
+❌ **Не робіть `new` об'єкта в `on_update`. Крапка.**
 
-❌ **Не зберігайте JSON blobs у SharedState.** Strings 32 chars max;
-larger values потребують raw NVS або LittleFS file.
+❌ **Не зберігайте JSON-блоби у SharedState.** Рядки максимум 32
+символи; більші значення потребують сирого NVS або файлу LittleFS.
 
-## Lifecycle і timing
+## Життєвий цикл і таймінг
 
-✅ **Use `on_init` для setup, `on_update` для work.** Read persisted
-config, log initial state, cache references у init. Do actual business
-logic у update.
+✅ **Використовуйте `on_init` для налаштування, `on_update` для
+роботи.** Читайте збережену конфігурацію, логуйте початковий стан,
+кешуйте посилання в ініціалізації. Власне бізнес-логіку — в update.
 
-✅ **Choose priority wisely.** CRITICAL (0): error_service, watchdog
-лише. HIGH (1): WiFi, HAL, drivers, scenario engine. NORMAL (2): business
-logic — більшість modules. LOW (3): HTTP, WebSocket, datalogger —
-залежать від всього вище.
+✅ **Вибирайте пріоритет мудро.** CRITICAL (0): лише error_service,
+watchdog. HIGH (1): Wi-Fi, HAL, драйвери, рушій сценаріїв. NORMAL (2):
+бізнес-логіка — більшість модулів. LOW (3): HTTP, WebSocket,
+datalogger — залежать від усього вищезазначеного.
 
-✅ **Tick budget < 1 мс per module.** Багато modules running у одному
-10 мс tick. Anything heavier потребує окремий timer / task / scenario.
+✅ **Бюджет такту < 1 мс на модуль.** Багато модулів виконуються в
+одному такті 10 мс. Усе важче потребує окремого таймера / задачі /
+сценарію.
 
-❌ **Не `vTaskDelay` / sleep у `on_update`.** Blocks every other
-module. Use accumulator pattern:
+❌ **Не робіть `vTaskDelay` / sleep в `on_update`.** Блокує кожен
+інший модуль. Використовуйте шаблон з акумулятором:
 
 ```cpp
 elapsed_ms_ += dt_ms;
 if (elapsed_ms_ < interval_ms_) return;
 elapsed_ms_ = 0;
-// ... do periodic work ...
+// ... виконати періодичну роботу ...
 ```
 
-❌ **Не write NVS у `on_update`.** Synchronous I/O, 5-50 мс per write.
-Use `persist: true` flag на state keys, OR explicit `nvs_helper` calls
-з one-shot event handler.
+❌ **Не пишіть у NVS в `on_update`.** Синхронний I/O, 5-50 мс на
+запис. Використовуйте прапорець `persist: true` на ключах стану АБО
+явні виклики `nvs_helper` з одноразового обробника події.
 
-❌ **Не log on every tick.** UART floods, monitor lags. Один ESP_LOGI
-per state change, не per tick.
+❌ **Не логуйте кожен такт.** UART затоплюється, monitor лагає. Один
+ESP_LOGI на зміну стану, а не на такт.
 
-## State management
+## Керування станом
 
-✅ **Read inputs at top of `on_update`, write outputs at bottom.**
-Sequential per-tick pattern. Clear to read.
+✅ **Читайте входи на початку `on_update`, пишіть виходи в кінці.**
+Послідовний потактовий шаблон. Зрозуміло читається.
 
-✅ **Cast int literals to `int32_t`.** `state_set("key", 42)` fragile
-across hosts; use `state_set("key", static_cast<int32_t>(42))` або `42L`.
+✅ **Приводьте літерали int до `int32_t`.** `state_set("key", 42)`
+крихкий на різних хостах; використовуйте
+`state_set("key", static_cast<int32_t>(42))` або `42L`.
 
-✅ **Use typed accessors:** `read_float(key, 0.0f)`, не `state_get(key)
-+ etl::get_if`. Менше code, fail-safe defaults.
+✅ **Використовуйте типізовані аксесори:** `read_float(key, 0.0f)`,
+а не `state_get(key) + etl::get_if`. Менше коду, безпечні типові
+значення.
 
-✅ **Provide sensible defaults у `read_*`.** Якщо key не set yet (інший
-module не tick), default — ваш fallback. Choose conservatively (safe
-values, не zero unless safe).
+✅ **Надавайте розумні типові значення в `read_*`.** Якщо ключ ще не
+встановлений (інший модуль не тикнув), типове значення — ваш запасний
+варіант. Вибирайте консервативно (безпечні значення, не нуль, якщо
+тільки це не безпечно).
 
-❌ **Не construct dynamic state keys.** `"my_module.item_" + std::to_string(i)`
-fills bounded state map fast і breaks compile-time validation. Declare
-fixed set у manifest.
+❌ **Не конструюйте динамічні ключі стану.**
+`"my_module.item_" + std::to_string(i)` швидко заповнює обмежену мапу
+стану і ламає валідацію часу компіляції. Оголошуйте фіксований набір у
+маніфесті.
 
-❌ **Не type-flip keys.** Once key set as float, all subsequent writes
-must be float. Variant rejects type changes silently — log warning якщо
-suspect це happens.
+❌ **Не перемикайте тип ключів.** Як тільки ключ встановлений як
+float, усі наступні записи мають бути float. Варіант мовчки відхиляє
+зміни типу — логуйте попередження, якщо підозрюєте, що це сталося.
 
-## Cross-module communication
+## Зв'язок між модулями
 
-✅ **Default to pure state-key data flow.** Module A writes key, module
-B reads it. No pointers, no message passing.
+✅ **Типово — чистий потік даних через ключі стану.** Модуль A пише
+ключ, модуль B читає його. Без вказівників, без передачі повідомлень.
 
-✅ **Declare producer modules before consumers у `project.json`.**
-Determines update order у priority bucket. Producer's writes від same
-tick visible to consumer's reads.
+✅ **Оголошуйте модулі-продюсери перед споживачами в `project.json`.**
+Визначає порядок оновлення в межах одного відра пріоритету. Записи
+продюсера з того ж такту видимі для читань споживача.
 
-✅ **Для edge detection, keep `prev_value_` member.** No engine-level
-edge tracking у MVP. Pattern:
+✅ **Для детекції фронту тримайте член `prev_value_`.** Відстеження
+фронтів на рівні рушія в MVP немає. Шаблон:
 
 ```cpp
 bool fault = read_bool("equipment.fault", false);
-if (fault && !prev_fault_) { /* rising edge */ }
+if (fault && !prev_fault_) { /* висхідний фронт */ }
 prev_fault_ = fault;
 ```
 
-❌ **Не poke other modules' internals.** No `manager.get_module<X>()`
-patterns. State keys only.
+❌ **Не лізьте у внутрішнощі інших модулів.** Жодних шаблонів
+`manager.get_module<X>()`. Лише ключі стану.
 
-❌ **Не use messages для periodic data.** State keys simpler і more
-observable. Messages лише для discrete events (alarm fired, mode change
-command).
+❌ **Не використовуйте повідомлення для періодичних даних.** Ключі
+стану простіші й більш спостережувані. Повідомлення — лише для
+дискретних подій (спрацювала тривога, команда зміни режиму).
 
-## Manifests і generation
+## Маніфести і генерація
 
-✅ **One file per topic / unit.** Не sprawl across many manifests for
-related state. One module = one manifest.
+✅ **Один файл на тему / одиницю.** Не розпорошуйтесь по багатьох
+маніфестах для пов'язаного стану. Один модуль = один маніфест.
 
-✅ **Declare all state keys upfront.** Generator emits constexpr
-metadata; dynamic state keys break it.
+✅ **Оголошуйте всі ключі стану заздалегідь.** Генератор формує
+constexpr-метадані; динамічні ключі стану це ламають.
 
-✅ **Match manifest types to code types.** `"type": "float"` у manifest
-means write із `float`/`f32`, не `int`. Generator не cross-validate але
-runtime variance hurts.
+✅ **Узгоджуйте типи маніфесту з типами коду.** `"type": "float"` у
+маніфесті означає запис з `float`/`f32`, а не `int`. Генератор не
+робить перехресну валідацію, але розбіжності у часі виконання болять.
 
-✅ **Keep key prefixes short.** `<module>.<key>` ≤ 32 chars budget,
-recipe names ≤ 12, track names ≤ 8.
+✅ **Тримайте префікси ключів короткими.** `<module>.<key>` ≤ 32
+символів у бюджет, імена рецептів ≤ 12, імена треків ≤ 8.
 
-❌ **Не забудьте `priority` field для non-default modules.** Default —
-NORMAL (2). HAL or driver-hosting modules need HIGH (1).
+❌ **Не забувайте поле `priority` для модулів з нетиповим
+пріоритетом.** Типове значення — NORMAL (2). HAL або модулі-хости
+драйверів потребують HIGH (1).
 
-❌ **Не ставте `persist: true` на fast-changing keys.** Debounce window
-— 5 с; counter incrementing per second flushes too often. Persist
-user-controlled config, calibration constants, mode selections.
+❌ **Не ставте `persist: true` на швидкозмінні ключі.** Вікно дебаунсу
+— 5 с; лічильник, що інкрементується кожну секунду, скидається надто
+часто. Зберігайте конфігурацію користувача, калібрувальні константи,
+вибори режиму.
 
-## Drivers
+## Драйвери
 
-✅ **Implement health monitoring.** Track consecutive failures; set
-`is_healthy() = false` після threshold. Business modules check `_ok`
-suffix на equipment.* keys.
+✅ **Реалізуйте моніторинг здоров'я.** Відстежуйте послідовні збої;
+встановлюйте `is_healthy() = false` після порогу. Бізнес-модулі
+перевіряють суфікс `_ok` на ключах equipment.*.
 
-✅ **Respect `min_switch_ms` for actuators.** Compressors і pumps fail
-mechanically із rapid switching. Encode lockout у driver, не expecting
-business module discipline.
+✅ **Поважайте `min_switch_ms` для актуаторів.** Компресори і помпи
+механічно виходять з ладу при швидкому перемиканні. Кодуйте блокування
+в драйвері, не очікуючи дисципліни від бізнес-модуля.
 
-✅ **Apply calibration at read time, не at store time.** Changes до
-`offset` setting affect next read immediately, не після reboot.
+✅ **Застосовуйте калібрування під час читання, а не під час
+зберігання.** Зміни налаштування `offset` впливають на наступне
+читання негайно, а не після перезавантаження.
 
-❌ **Не block у `update()`.** Slow protocols (DS18B20 conversion = 750
-мс) потребують state-machine pattern across multiple ticks, не
-synchronous waits.
+❌ **Не блокуйте в `update()`.** Повільні протоколи (конверсія DS18B20
+= 750 мс) потребують шаблону машини станів через кілька тактів, а не
+синхронного очікування.
 
-❌ **Не allocate per read.** Use stack buffers для parsing / formatting.
+❌ **Не виділяйте при кожному читанні.** Використовуйте стекові буфери
+для парсингу / форматування.
 
-## Scenarios і recipes
+## Сценарії і рецепти
 
-✅ **Set phase timeout завжди.** Навіть якщо conditions завжди повинні
-fire, `timeout_ms` — defense у depth. ADR-0007 makes them mandatory.
+✅ **Завжди встановлюйте таймаут фази.** Навіть якщо умови мають
+завжди спрацьовувати, `timeout_ms` — це захист у глибину. ADR-0007
+робить його обов'язковим.
 
-✅ **Declare усі mirror keys у recipe manifest's `state` section.**
-Engine cross-validates і fails build otherwise.
+✅ **Оголошуйте усі дзеркальні ключі в секції `state` маніфесту
+рецепта.** Рушій робить перехресну валідацію і інакше валить збірку.
 
-✅ **Use transition `time_elapsed_ms` над `wait_ms` action.** Transitions
-zero-cost per tick; actions invoke handler.
+✅ **Використовуйте перехід `time_elapsed_ms` замість дії `wait_ms`.**
+Переходи нульової вартості на такт; дії викликають обробник.
 
-✅ **Declare producer tracks перед consumer tracks.** Cross-track sync
-— tick-order. Watcher track що waits для main's phase_name must come
-після main у `tracks` array.
+✅ **Оголошуйте треки-продюсери перед треками-споживачами.**
+Синхронізація між треками — це порядок тактів. Трек-watcher, що чекає
+на phase_name головного, має йти після main у масиві `tracks`.
 
-❌ **Не put side effects у conditions.** Conditions — pure reads.
-Evaluated multiple times per tick during transition checks. Side effects
-accumulate unpredictably.
+❌ **Не вкладайте побічні ефекти в умови.** Умови — це чисті
+читання. Обчислюються кілька разів за такт під час перевірок переходів.
+Побічні ефекти накопичуються непередбачувано.
 
-❌ **Не rely на snapshot consistency across tracks.** Tracks tick
-serially. Track 1 reads track 0's same-tick writes (good). Track 0 не
-може see track 1's writes від same tick (bad assumption).
+❌ **Не покладайтеся на консистентність знімків між треками.** Треки
+тикають послідовно. Трек 1 читає записи треку 0 з того ж такту
+(добре). Трек 0 не може побачити записи треку 1 з того ж такту (погане
+припущення).
 
-❌ **Не write long recipes як one giant track.** Use parallel tracks
-для monitors, supervisors, timeouts. Easier to reason about.
+❌ **Не пишіть довгі рецепти як один гігантський трек.**
+Використовуйте паралельні треки для моніторів, супервізорів,
+таймаутів. Легше міркувати.
 
-## MQTT і external API
+## MQTT і зовнішнє API
 
-✅ **Use manifest, ніколи не raw esp_mqtt_client.** Фреймворк handles
-TLS, reconnect, throttling, HA discovery, LWT — все вашими словами:
-`mqtt.publish: [...]`.
+✅ **Використовуйте маніфест, ніколи raw esp_mqtt_client.** Фреймворк
+обробляє TLS, перепідключення, тротлінг, HA discovery, LWT — усе
+вашими словами: `mqtt.publish: [...]`.
 
-✅ **Validate `mqtt_subscribe: true` flag** на кожному writable key
-exposed через MQTT. Generator catches missing flags при build.
+✅ **Валідуйте прапорець `mqtt_subscribe: true`** на кожному
+записуваному ключі, виставленому через MQTT. Генератор ловить
+відсутні прапорці при збірці.
 
-✅ **Plain ASCII payloads на `cmd/` topics.** Не JSON. `"24"`, не
-`"{"value": 24}"`.
+✅ **Звичайний ASCII у корисному навантаженні на темах `cmd/`.** Не
+JSON. `"24"`, не `"{"value": 24}"`.
 
-❌ **Не expose internal config keys для external write.** Keep
-`mqtt_subscribe` selective — user-facing setpoints, не debug counters.
+❌ **Не виставляйте внутрішні конфігураційні ключі на запис назовні.**
+Тримайте `mqtt_subscribe` вибірковим — уставки для користувача, а не
+налагоджувальні лічильники.
 
-❌ **Не assume atomic multi-key writes через MQTT.** Each topic delivers
-independently. Use composite state key (наприклад, JSON-encoded string)
-якщо atomicity matters.
+❌ **Не припускайте атомарні записи кількох ключів через MQTT.** Кожна
+тема доставляється незалежно. Використовуйте композитний ключ стану
+(наприклад, рядок з JSON-кодуванням), якщо атомарність важлива.
 
-## Persistence
+## Персистентність
 
-✅ **`persist: true` для user-tunable settings.** Setpoints, calibration,
-operating modes. Survives reboot transparently.
+✅ **`persist: true` для налаштувань, які перевизначає користувач.**
+Уставки, калібрування, режими роботи. Переживає перезавантаження
+прозоро.
 
-✅ **Provide `default` value** для кожного persisted key. First boot
-(no NVS data) falls back gracefully.
+✅ **Надавайте `default` значення** для кожного збереженого ключа.
+Перше завантаження (без даних NVS) елегантно повертається до нього.
 
-✅ **Для migration при renaming persisted key**, add explicit migration
-code у `on_init` вашого module (read old key, write new key, erase old).
+✅ **Для міграції при перейменуванні збереженого ключа** додайте явний
+код міграції в `on_init` вашого модуля (прочитати старий ключ,
+записати новий ключ, стерти старий).
 
-❌ **Не `persist: true` counters / sensor readings.** Debounce не keep
-up; flash wear, slow boot.
+❌ **Не ставте `persist: true` на лічильниках / показниках сенсорів.**
+Дебаунс не встигає; зношення флешу, повільне завантаження.
 
-❌ **Не bypass PersistService casually.** Direct `nvs_helper` calls у
-ваш own namespace — fine; mixing із `"persist"` namespace causes
-conflicts.
+❌ **Не оминайте PersistService недбало.** Прямі виклики `nvs_helper`
+у вашому власному просторі імен — нормально; змішування з простором
+імен `"persist"` спричиняє конфлікти.
 
-## Build і CI
+## Збірка і CI
 
-✅ **Run `idf.py fullclean && idf.py build` після major changes.**
-Generated headers можуть go stale; fullclean forces regeneration.
+✅ **Запускайте `idf.py fullclean && idf.py build` після великих
+змін.** Згенеровані заголовки можуть застаріти; fullclean форсує
+перегенерацію.
 
-✅ **Use host tests для state-machine логіки.** `tests/host/` runs з
-stub SharedState backend. Fast iteration без flashing.
+✅ **Використовуйте хост-тести для логіки машин станів.**
+`tests/host/` запускається з заглушкою бекенду SharedState. Швидка
+ітерація без прошивки.
 
-✅ **Check size budget periodically.** `idf.py size-components` shows
-RAM / IRAM usage per component. Surprises у growth point на heap leaks
-або static-init bloat.
+✅ **Періодично перевіряйте бюджет розміру.** `idf.py size-components`
+показує використання RAM / IRAM на компонент. Сюрпризи у зростанні
+вказують на витоки купи або роздування static-init.
 
-❌ **Не ignore compiler warnings.** `-Wall -Wextra` produces signal,
-не noise. Address them або document why suppression OK.
+❌ **Не ігноруйте попередження компілятора.** `-Wall -Wextra` дають
+сигнал, а не шум. Усуньте їх або задокументуйте, чому пригнічення
+допустиме.
 
-❌ **Не commit code без flashing і testing на hardware.** Host tests
-catch much але WiFi / NVS / display behaviors emerge лише на real chip.
+❌ **Не комітьте код без прошивки і тестування на залізі.** Хост-тести
+ловлять багато, але поведінка Wi-Fi / NVS / дисплея проявляється лише
+на реальному чипі.
 
-## Naming і structure
+## Іменування і структура
 
-✅ **`snake_case` для state keys, module names, action names.** Reserved
-для фреймворку, consistent across усіх manifests.
+✅ **`snake_case` для ключів стану, імен модулів, імен дій.**
+Зарезервовано для фреймворку, узгоджено в усіх маніфестах.
 
-✅ **`CamelCase` для C++ class names.** Module class = `<Name>Module`
-(suffix). Driver class = `<Name>Driver`.
+✅ **`CamelCase` для імен класів C++.** Клас модуля = `<Name>Module`
+(суфікс). Клас драйвера = `<Name>Driver`.
 
-✅ **Short module names** (≤ 12 chars). Long names eat state key budget.
+✅ **Короткі імена модулів** (≤ 12 символів). Довгі імена з'їдають
+бюджет ключа стану.
 
-✅ **Group related state keys з common prefix.** Усі thermostat keys під
-`simple_thermo.*`, усі equipment під `equipment.*`.
+✅ **Групуйте пов'язані ключі стану зі спільним префіксом.** Усі
+ключі термостата під `simple_thermo.*`, усе обладнання — під
+`equipment.*`.
 
-❌ **Не put framework-level keys у ваш module.** `system.time`,
-`_ota.version` reserved.
+❌ **Не вкладайте ключі рівня фреймворку у ваш модуль.** `system.time`,
+`_ota.version` зарезервовані.
 
-## Documentation і code style
+## Документація і стиль коду
 
-✅ **One-line module description у `manifest.json`.** First sentence
-повинен answer "що це робить?".
+✅ **Однорядковий опис модуля у `manifest.json`.** Перше речення має
+відповідати на «що це робить?».
 
-✅ **Document edge cases у file-header comments.** "Lifecycle: configure
-→ init → update → emergency_stop". Specific, не generic.
+✅ **Документуйте крайові випадки в коментарях-заголовках файлу.**
+«Lifecycle: configure → init → update → emergency_stop». Конкретно, не
+загально.
 
-✅ **ESP_LOGI states — valid runtime documentation.** "Setpoint changed
-to 22.5" — debugger gold dust шість months later.
+✅ **Стани ESP_LOGI — це валідна документація часу виконання.**
+«Setpoint changed to 22.5» — золотий пил для відлагоджувача через
+шість місяців.
 
-❌ **Не comment що код робить — comment чому.** "Increment count" —
-noise. "Increment until threshold; resetting у `reset()`" — useful.
+❌ **Не коментуйте, що робить код — коментуйте чому.** «Increment
+count» — шум. «Increment until threshold; resetting у `reset()`» —
+корисно.
 
-## Коли doubt
+## Коли є сумніви
 
-Read existing modules first:
-1. **`simple_thermo`** — minimal service module. Найкраща перша річ
-   для читання.
-2. **`datalogger`** — bigger module із features і channels.
-3. **`equipment`** — most coupled module, read after basics.
-4. **`abs_test`** — recipe-only module із 2 parallel tracks.
+Спочатку прочитайте існуючі модулі:
+1. **`simple_thermo`** — мінімальний сервісний модуль. Найкраще
+   почати з нього.
+2. **`datalogger`** — більший модуль з можливостями і каналами.
+3. **`equipment`** — найбільш зв'язаний модуль, читайте після основ.
+4. **`abs_test`** — модуль лише з рецептом з 2 паралельними треками.
 
-Reading 50 lines of working code beats reading 500 lines documentation.
+Прочитання 50 рядків робочого коду краще за прочитання 500 рядків
+документації.
 
 ## Що далі
 
-Ця сторінка — end of Module Author Guide. Звідси:
+Ця сторінка — кінець Гіда автора модулів. Звідси:
 
 - **[scenario-engine/](../03-framework-reference/scenario-engine/)** —
-  scenario engine internals якщо хочете understand або extend it.
-- **[components/](../03-framework-reference/components/)** *(in progress)* —
-  per-component framework reference.
-- **[04-hardware/](../04-hardware/)** — board.json, bindings, OTA, deployment.
-- **[06-contributing/](../06-contributing/)** *(planned)* — для contributing
-  до самого фреймворку.
+  внутрішня будова рушія сценаріїв, якщо ви хочете зрозуміти або
+  розширити його.
+- **[components/](../03-framework-reference/components/)** *(у роботі)* —
+  довідник фреймворку по компонентах.
+- **[04-hardware/](../04-hardware/)** — board.json, прив'язки, OTA,
+  розгортання.
+- **[06-contributing/](../06-contributing/)** *(заплановано)* — для
+  внеску у сам фреймворк.

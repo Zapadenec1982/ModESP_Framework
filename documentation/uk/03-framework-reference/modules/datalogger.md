@@ -2,51 +2,37 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/modules/datalogger.md](../../../en/03-framework-reference/modules/datalogger.md)
 
-`datalogger` — general-purpose module що logs SharedState values over
-time AND records discrete events. Data зберігаються у LittleFS files з
-configurable retention. WebUI використовує chart widget щоб plot recent
-history; HTTP API exposes data для external consumers.
+`datalogger` — це універсальний модуль, який реєструє значення SharedState у часі ТА записує дискретні події. Дані зберігаються у файлах LittleFS із налаштовуваним терміном зберігання. WebUI використовує віджет графіка для відображення нещодавньої історії; HTTP API надає дані зовнішнім споживачам.
 
-Manifest-driven — `loggable` секція вашого business module декларує які
-keys — channels (continuous) AND які — events (edge-triggered).
-DataLogger discovers їх при build time, writes records на власному
-schedule.
+Модуль керується маніфестом — секція `loggable` у маніфесті вашого бізнес-модуля оголошує, які ключі є каналами (безперервні), А ЯКІ — подіями (на фронтах). DataLogger знаходить їх під час збірки та записує дані за власним розкладом.
 
-REQUIRES: `modesp_core`, `modesp_services`, LittleFS partition.
+ВИМАГАЄ: `modesp_core`, `modesp_services`, розділ LittleFS.
 
 ## Що він робить
 
-- **Channel logging:** samples specified state keys з user-configurable
-  interval (default 60 с, range 30-300). Stores `(timestamp, value)`
-  records compactly у LittleFS.
-- **Event logging:** captures rising/falling/both edges на boolean keys.
-  Stores `(timestamp, event_id)` records.
-- **Retention:** drops oldest records once total exceeds
-  `datalogger.retention_hours` (default 48, range 12-168).
-- **WebUI access:** chart widget queries
-  `/api/datalogger/series?key=X&window=1h`.
-- **CSV export:** `GET /api/datalogger/export?key=X&from=...&to=...`.
+- **Логування каналів:** робить вибірку зазначених ключів стану з налаштовуваним користувачем інтервалом (за замовчуванням 60 с, діапазон 30-300). Зберігає записи `(timestamp, value)` компактно у LittleFS.
+- **Логування подій:** фіксує висхідні/спадні/обидва фронти на булевих ключах. Зберігає записи `(timestamp, event_id)`.
+- **Зберігання:** видаляє найстаріші записи, коли загальна кількість перевищує `datalogger.retention_hours` (за замовчуванням 48, діапазон 12-168).
+- **Доступ через WebUI:** віджет графіка запитує `/api/datalogger/series?key=X&window=1h`.
+- **Експорт CSV:** `GET /api/datalogger/export?key=X&from=...&to=...`.
 
-## State keys
+## Ключі стану
 
-| Key | Type | Notes |
+| Ключ | Тип | Примітки |
 |---|---|---|
-| `datalogger.enabled` | bool | Master enable. Default true. |
-| `datalogger.retention_hours` | int | 12-168, default 48. Persisted. |
-| `datalogger.sample_interval` | int | 30-300 с, default 60. Persisted. |
-| `datalogger.records_count` | int | Total channel records у buffer. |
-| `datalogger.events_count` | int | Total event records. |
-| `datalogger.flash_used` | int | Bytes consumed (KB). |
-| `datalogger.log_<channel>` | bool | Per-channel enable flag. |
+| `datalogger.enabled` | bool | Головний перемикач. За замовчуванням true. |
+| `datalogger.retention_hours` | int | 12-168, за замовчуванням 48. Зберігається. |
+| `datalogger.sample_interval` | int | 30-300 с, за замовчуванням 60. Зберігається. |
+| `datalogger.records_count` | int | Загальна кількість записів каналів у буфері. |
+| `datalogger.events_count` | int | Загальна кількість записів подій. |
+| `datalogger.flash_used` | int | Спожиті байти (КБ). |
+| `datalogger.log_<channel>` | bool | Прапорець увімкнення для кожного каналу. |
 
-Per-channel enables (`log_evap`, `log_cond`, `log_setpoint`, тощо)
-auto-generated з registered channels' `default` flag — якщо manifest
-сказав `"default": true`, the corresponding `log_<channel>` defaults
-true.
+Поканальні прапорці увімкнення (`log_evap`, `log_cond`, `log_setpoint` тощо) автоматично генеруються з прапорця `default` зареєстрованих каналів — якщо у маніфесті вказано `"default": true`, відповідний `log_<channel>` за замовчуванням true.
 
-## Як модулі declare channels і events
+## Як модулі оголошують канали та події
 
-Manifest business module включає:
+Маніфест бізнес-модуля містить:
 
 ```json
 "loggable": {
@@ -68,48 +54,43 @@ Manifest business module включає:
 }
 ```
 
-Generator merges усі modules' `loggable` секції і emits
-`datalogger_channels.h` і `datalogger_events.h` з consolidated lists.
-DataLogger reads це при compile time AND його `on_update` samples /
-captures accordingly.
+Генератор об'єднує секції `loggable` усіх модулів і створює `datalogger_channels.h` та `datalogger_events.h` із зведеними списками. DataLogger зчитує їх під час компіляції, А його `on_update` робить вибірку та фіксацію відповідно.
 
 Див. [02-module-author-guide/manifest.md](../../02-module-author-guide/manifest.md#section-loggable-service-modules).
 
-## Storage format
+## Формат зберігання
 
-LittleFS partition (default 960 KB):
+Розділ LittleFS (за замовчуванням 960 КБ):
 
 ```
 /data/
 └── datalogger/
-    ├── channels.bin          binary records (timestamp + channel_id + value)
-    ├── events.bin            binary records (timestamp + event_id + flags)
-    └── ... (rotated files для retention pruning)
+    ├── channels.bin          бінарні записи (timestamp + channel_id + value)
+    ├── events.bin            бінарні записи (timestamp + event_id + flags)
+    └── ... (ротовані файли для очищення згідно терміну зберігання)
 ```
 
-Compact binary encoding:
-- Channel record: 12 bytes (4 timestamp + 1 channel_id + 4 float value + 3 padding).
-- Event record: 8 bytes (4 timestamp + 2 event_id + 1 edge_type + 1 padding).
+Компактне бінарне кодування:
+- Запис каналу: 12 байтів (4 timestamp + 1 channel_id + 4 float value + 3 padding).
+- Запис події: 8 байтів (4 timestamp + 2 event_id + 1 edge_type + 1 padding).
 
-48-hour buffer at 60 с sampling = ~3000 records per channel. 6 channels
-= ~18000 records = ~216 KB. Fits comfortably.
+48-годинний буфер при вибірці кожні 60 с = ~3000 записів на канал. 6 каналів = ~18000 записів = ~216 КБ. Вміщається із запасом.
 
 ## HTTP API
 
-| Endpoint | Purpose |
+| Endpoint | Призначення |
 |---|---|
-| `GET /api/datalogger/series?key=X&window=1h` | JSON: `[{t, v}, ...]` filtered by time window. |
-| `GET /api/datalogger/events?from=T&to=T` | JSON event list. |
-| `GET /api/datalogger/export?key=X&from=T&to=T` | CSV download. |
-| `POST /api/datalogger/clear` | Wipe всі logs. |
-| `POST /api/datalogger/settings` | Update enabled flags / intervals. |
+| `GET /api/datalogger/series?key=X&window=1h` | JSON: `[{t, v}, ...]` відфільтровано за вікном часу. |
+| `GET /api/datalogger/events?from=T&to=T` | JSON-список подій. |
+| `GET /api/datalogger/export?key=X&from=T&to=T` | Завантаження CSV. |
+| `POST /api/datalogger/clear` | Очистити всі логи. |
+| `POST /api/datalogger/settings` | Оновити прапорці увімкнення / інтервали. |
 
-Window strings: `10m` / `1h` / `24h` / `7d` / `30d` (limited by
-retention).
+Рядки вікон: `10m` / `1h` / `24h` / `7d` / `30d` (обмежено терміном зберігання).
 
-## Chart widget integration
+## Інтеграція з віджетом графіка
 
-UI manifest:
+Маніфест UI:
 
 ```json
 {
@@ -120,25 +101,23 @@ UI manifest:
 }
 ```
 
-Widget queries series endpoint, рендерить SVG line chart. Multi-series
-ще не supported у MVP (Stage 1.5).
+Віджет запитує endpoint серії та малює лінійний графік SVG. Кілька серій ще не підтримуються у MVP (Stage 1.5).
 
-## Performance і memory
+## Продуктивність і пам'ять
 
-| Resource | Cost |
+| Ресурс | Вартість |
 |---|---|
-| In-RAM ring buffer | ~8 KB (most recent records cached) |
-| LittleFS write batch | ~1 KB per flush (кожні 5 хвилин) |
-| Per-tick CPU | < 0.5 мс типово |
+| Кільцевий буфер у RAM | ~8 КБ (кешуються найсвіжіші записи) |
+| Пакет запису LittleFS | ~1 КБ на скидання (кожні 5 хвилин) |
+| CPU на такт | < 0,5 мс типово |
 
-Sample writes throttled — actual flash writes happen кожні ~5 хв
-(configurable). NVS-style debounce protects flash endurance.
+Записи з вибірки обмежені за частотою — фактичні записи у flash відбуваються приблизно кожні 5 хв (налаштовується). Обмеження частоти у стилі NVS захищає ресурс flash.
 
-## Common patterns
+## Типові шаблони використання
 
-### Adding new channel
+### Додавання нового каналу
 
-У business module's manifest:
+У маніфесті вашого бізнес-модуля:
 
 ```json
 "loggable": {
@@ -152,10 +131,9 @@ Sample writes throttled — actual flash writes happen кожні ~5 хв
 }
 ```
 
-Після `idf.py build`, `datalogger_channels.h` includes new channel.
-DataLogger samples його next reboot.
+Після `idf.py build` `datalogger_channels.h` міститиме новий канал. DataLogger почне робити вибірку при наступному перезавантаженні.
 
-### Querying programmatically
+### Програмний запит
 
 ```python
 import requests
@@ -167,35 +145,23 @@ data = requests.get(
 # data = [{"t": 1700000000, "v": 22.5}, ...]
 ```
 
-## Common pitfalls
+## Типові помилки
 
-**Event IDs not stable:** Не renumber event IDs у маніфестах. Existing
-LittleFS files encode old IDs; renumbering causes wrong labels.
+**Нестабільні ID подій:** не перенумеровуйте ID подій у маніфестах. Існуючі файли LittleFS кодують старі ID; перенумерування призводить до неправильних міток.
 
-**High-rate sampling burns flash:** sample interval < 30 с не allowed
-для reason. Flash endurance ~100k erase cycles per sector. При 30 с
-sampling, plausible firmware lifetime — decades. При 1 с — just months.
+**Часта вибірка зношує flash:** інтервал вибірки менше 30 с заборонений не просто так. Витривалість flash — приблизно 100 тис. циклів стирання на сектор. При вибірці кожні 30 с прогнозований термін служби прошивки — десятиліття. При 1 с — лише місяці.
 
-**Забутий enable per-channel toggles:** навіть якщо channel declared у
-manifest, `datalogger.log_<channel>` flag controls чи actually sampled.
-WebUI exposes toggles.
+**Забуто увімкнути поканальні перемикачі:** навіть якщо канал оголошено у маніфесті, прапорець `datalogger.log_<channel>` керує тим, чи фактично робиться вибірка. WebUI показує ці перемикачі.
 
-**Chart widget shows blank:** check key registered у
-`datalogger.channels`. Якщо business module's loggable section був added
-mid-development, datalogger may не мати any records yet. Wait 1-2 sample
-intervals.
+**Віджет графіка показує порожньо:** перевірте, чи ключ зареєстровано у `datalogger.channels`. Якщо секцію `loggable` бізнес-модуля було додано посеред розробки, datalogger може ще не мати жодних записів. Зачекайте 1-2 інтервали вибірки.
 
 ## Що далі
 
-- **[02-module-author-guide/manifest.md](../../02-module-author-guide/manifest.md#section-loggable-service-modules)** —
-  manifest declaration syntax.
-- **[02-module-author-guide/ui-widgets.md](../../02-module-author-guide/ui-widgets.md)** —
-  chart widget reference.
+- **[02-module-author-guide/manifest.md](../../02-module-author-guide/manifest.md#section-loggable-service-modules)** — синтаксис оголошення у маніфесті.
+- **[02-module-author-guide/ui-widgets.md](../../02-module-author-guide/ui-widgets.md)** — довідник віджета графіка.
 
-## Source
+## Джерела
 
-- [`modules/datalogger/`](../../../../modules/datalogger/) — implementation.
-- [`generated/datalogger_channels.h`](../../../../generated/datalogger_channels.h)
-  — auto-generated channel list.
-- [`generated/datalogger_events.h`](../../../../generated/datalogger_events.h)
-  — auto-generated event list.
+- [`modules/datalogger/`](../../../../modules/datalogger/) — реалізація.
+- [`generated/datalogger_channels.h`](../../../../generated/datalogger_channels.h) — автоматично згенерований список каналів.
+- [`generated/datalogger_events.h`](../../../../generated/datalogger_events.h) — автоматично згенерований список подій.

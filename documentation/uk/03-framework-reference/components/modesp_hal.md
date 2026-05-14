@@ -1,23 +1,23 @@
-# `modesp_hal` — Hardware Abstraction Layer і DriverManager
+# `modesp_hal` — шар апаратної абстракції та DriverManager
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_hal.md](../../../en/03-framework-reference/components/modesp_hal.md)
 
-`modesp_hal` provides hardware абстракції що decouple business logic від
-фізичного I/O. Він owns: HAL сам (GPIO/ADC/I²C/OneWire setup based на
-board.json), driver interfaces (`ISensorDriver`, `IActuatorDriver`), і
-`DriverManager` що instantiates і drives driver instances з
-`bindings.json`.
+`modesp_hal` надає апаратні абстракції, що відокремлюють бізнес-логіку
+від фізичного вводу-виводу. Він володіє: самим HAL (налаштування
+GPIO/ADC/I²C/OneWire на основі board.json), інтерфейсами драйверів
+(`ISensorDriver`, `IActuatorDriver`) і `DriverManager`, який створює та
+керує екземплярами драйверів з `bindings.json`.
 
-Business modules не interact із цим layer напряму — вони читають
-`equipment.<role>` state keys що Equipment Manager produces. Drivers
-implement interfaces; HAL дає їм access до peripherals. Ця сторінка
-документує як layer structured і які extension points exist.
+Бізнес-модулі не взаємодіють з цим шаром напряму — вони читають ключі
+стану `equipment.<role>`, які створює Equipment Manager. Драйвери
+реалізують інтерфейси; HAL дає їм доступ до периферії. Ця сторінка
+описує, як структурований шар і які точки розширення доступні.
 
-REQUIRES: `modesp_core`, `modesp_services` (config_service для reading
-board.json/bindings.json), ESP-IDF peripheral drivers (`driver`,
+REQUIRES: `modesp_core`, `modesp_services` (config_service для читання
+board.json/bindings.json), периферійні драйвери ESP-IDF (`driver`,
 `esp_adc`).
 
-## Component layout
+## Розташування компонента
 
 ```
 components/modesp_hal/include/modesp/hal/
@@ -27,7 +27,7 @@ components/modesp_hal/include/modesp/hal/
 └── driver_manager.h        ← DriverManager — factory + lifecycle owner
 ```
 
-## `HAL` — peripheral initialisation
+## `HAL` — ініціалізація периферії
 
 ```cpp
 #include "modesp/hal/hal.h"
@@ -49,30 +49,31 @@ public:
 };
 ```
 
-`init(board)` walks parsed `BoardConfig` (з ConfigService) і:
+`init(board)` проходить розібрану структуру `BoardConfig` (з
+ConfigService) і:
 
-1. Configures GPIO outputs (relays, LEDs).
-2. Configures GPIO inputs з pull-up/down.
-3. Sets up OneWire buses (GPIO mode, pull-up, bus driver).
-4. Initialises I²C bus controllers (clock, pins).
-5. Probes I²C expanders (PCF8574 тощо) і registers їх.
-6. Configures ADC units і channels з calibrated attenuation.
+1. Налаштовує GPIO-виходи (реле, світлодіоди).
+2. Налаштовує GPIO-входи з підтяжкою вгору/вниз.
+3. Готує шини OneWire (режим GPIO, підтяжка, драйвер шини).
+4. Ініціалізує контролери шин I²C (частота, виводи).
+5. Опитує I²C-розширювачі (PCF8574 та подібні) і реєструє їх.
+6. Налаштовує блоки та канали ADC з відкаліброваним ослабленням.
 
-Drivers не call ESP-IDF напряму — вони access ці peripherals через HAL
-accessors. Це centralises pin / clock / power-domain management і lets
-HAL handle conflicts (наприклад, GPIO 25 не може бути одночасно relay
-і ADC).
+Драйвери не викликають ESP-IDF напряму — вони отримують доступ до цієї
+периферії через методи доступу HAL. Це централізує керування виводами,
+тактуванням і доменами живлення, та дозволяє HAL обробляти конфлікти
+(наприклад, GPIO 25 не може бути одночасно реле та ADC).
 
-State keys (debugging):
+Ключі стану (для діагностики):
 
-| Key | Notes |
+| Ключ | Примітки |
 |---|---|
 | `hal.initialised` | true після успішного `init()`. |
-| `hal.onewire_count` | Number OneWire buses active. |
-| `hal.i2c_count` | Number I²C buses active. |
-| `hal.adc_channels` | Number ADC channels configured. |
+| `hal.onewire_count` | Кількість активних шин OneWire. |
+| `hal.i2c_count` | Кількість активних шин I²C. |
+| `hal.adc_channels` | Кількість налаштованих каналів ADC. |
 
-## Driver interfaces
+## Інтерфейси драйверів
 
 ```cpp
 #include "modesp/hal/driver_interfaces.h"
@@ -110,15 +111,16 @@ public:
 }
 ```
 
-Two-flavor підхід бо sensors і actuators мають fundamentally different
-shapes — sensor — це "read value", actuator — це "command state із
-safety і feedback".
+Підхід з двома різновидами, тому що сенсори й актуатори мають принципово
+різні форми: сенсор — це "прочитати значення", актуатор — це "наказати
+стан із безпекою та зворотним зв'язком".
 
-Authors implement це щоб add new hardware support. Див.
+Автори реалізують ці інтерфейси, щоб додати підтримку нового обладнання.
+Див.
 [writing-a-driver.md](../../02-module-author-guide/writing-a-driver.md)
-для author-side walkthrough.
+для покрокового проходження з боку автора.
 
-## `DriverManager` — driver factory і lifecycle
+## `DriverManager` — фабрика і життєвий цикл драйверів
 
 ```cpp
 #include "modesp/hal/driver_manager.h"
@@ -127,13 +129,13 @@ class DriverManager {
 public:
     DriverManager();
 
-    // Read bindings.json, instantiate drivers, call init() на кожному.
+    // Read bindings.json, instantiate drivers, call init() on each.
     bool init(const BindingTable& bindings, HAL& hal);
 
-    // Drive update() на всіх drivers кожен tick.
+    // Drive update() on all drivers every tick.
     void update_all(uint32_t dt_ms);
 
-    // Accessors для Equipment Manager.
+    // Accessors for Equipment Manager.
     ISensorDriver* find_sensor(const char* role);
     IActuatorDriver* find_actuator(const char* role);
 
@@ -145,25 +147,27 @@ public:
 };
 ```
 
-Workflow:
+Робочий процес:
 
-1. Equipment Manager calls `driver_manager.init(bindings, hal)` у власному
-   `on_init`.
-2. `init` iterates `bindings.bindings` array. Для кожного entry:
-   - Look up `type` string (наприклад, "ds18b20") у factory table.
-   - Call factory: `new MySensorDriver()`.
-   - Call `driver->configure(role, hardware_params...)` із values з
-     binding і board.json.
-   - Call `driver->init()`. При failure, log і continue (інші drivers
-     should still try).
-3. Після init, Equipment Manager queries `find_sensor`/`find_actuator`
-   by role і wires їх у `equipment.*` SharedState keys.
-4. Кожен tick, Equipment Manager calls `driver_manager.update_all(dt_ms)`,
-   що fans out до `update(dt_ms)` кожного driver.
+1. Equipment Manager викликає `driver_manager.init(bindings, hal)` у
+   власному `on_init`.
+2. `init` ітерує масив `bindings.bindings`. Для кожного запису:
+   - Шукає рядок `type` (наприклад, "ds18b20") у таблиці фабрик.
+   - Викликає фабрику: `new MySensorDriver()`.
+   - Викликає `driver->configure(role, hardware_params...)` зі значеннями
+     з прив'язки та board.json.
+   - Викликає `driver->init()`. При невдачі — записує в журнал і
+     продовжує (інші драйвери все одно мають спробувати).
+3. Після ініціалізації Equipment Manager опитує `find_sensor`/
+   `find_actuator` за роллю і підключає їх до ключів SharedState
+   `equipment.*`.
+4. Щотакту Equipment Manager викликає
+   `driver_manager.update_all(dt_ms)`, який віялом викликає `update(dt_ms)`
+   кожного драйвера.
 
-## Factory dispatch (current Stage 1)
+## Диспетчер фабрик (поточна Stage 1)
 
-Factory table — hand-coded у `driver_manager.cpp`:
+Таблиця фабрик закодована вручну у `driver_manager.cpp`:
 
 ```cpp
 // driver_manager.cpp (simplified)
@@ -183,13 +187,13 @@ ISensorDriver* DriverManager::create_sensor(const char* type, ...) {
 }
 ```
 
-Додавання driver вимагає edit цей dispatch — одне місце де
-manifest-driven generation ще не reach. Stage 1.5 plans
-auto-registration через compile-time-generated factory table з driver
-маніфестів. Track [tools/generate_ui.md](../../05-tools/generate_ui.md)
-*(planned)*.
+Додавання драйвера вимагає редагування цього диспетчера — це єдине місце,
+куди ще не сягнула генерація з маніфестів. Stage 1.5 планує
+автоматичну реєстрацію через таблицю фабрик, згенеровану на етапі
+складання з маніфестів драйверів. Слідкуйте за
+[tools/generate_ui.md](../../05-tools/generate_ui.md) *(планується)*.
 
-## BoardConfig і BindingTable structures
+## Структури BoardConfig і BindingTable
 
 ```cpp
 struct GpioOutputCfg {
@@ -243,38 +247,38 @@ struct BindingTable {
 };
 ```
 
-Усі ETL strings — no heap, deterministic capacity.
+Усі рядки ETL — без купи, з детермінованою місткістю.
 
-## Initialisation timing
+## Часування ініціалізації
 
-`HAL` і `DriverManager` НЕ `BaseModule` subclasses. Вони owned напряму
-main.cpp і initialised explicitly:
+`HAL` і `DriverManager` НЕ є підкласами `BaseModule`. Ними напряму
+володіє main.cpp, ініціалізація виконується явно:
 
 ```cpp
 // main.cpp (simplified)
 static modesp::HAL hal;
 static modesp::DriverManager driver_manager;
-// ... і modules що use them ...
+// ... and modules що use them ...
 
-// У app_main, після ConfigService loaded board/bindings:
+// In app_main, after ConfigService loaded board/bindings:
 hal.init(config_service.board());                       // step 5
 driver_manager.init(config_service.bindings(), hal);    // step 6
 
-// Потім equipment.bind_drivers(driver_manager) (step 7)
+// Then equipment.bind_drivers(driver_manager) (step 7)
 equipment.bind_drivers(driver_manager);
 
-// Потім register equipment і інші modules з manager;
+// Then register equipment і other modules with manager;
 // equipment's on_init reads driver_manager's discovered drivers і wires
-// їх у SharedState.
+// them into SharedState.
 ```
 
-Це sits між Phase 1 (ConfigService gives us board/bindings) і Phase 2
-(Equipment registered, business modules ticking).
+Це знаходиться між Фазою 1 (ConfigService дає плату й прив'язки) та
+Фазою 2 (Equipment зареєстровано, бізнес-модулі тактують).
 
-## Equipment Manager bridge
+## Місток до Equipment Manager
 
-Equipment Manager (modules/equipment) consumes DriverManager's discovered
-drivers і exposes їх як state keys. З business module's perspective:
+Equipment Manager (modules/equipment) використовує драйвери, виявлені
+DriverManager, і подає їх як ключі стану. З погляду бізнес-модуля:
 
 ```
    bindings.json says: role=air_temp uses driver=ds18b20 on ow_1, addr=28:...
@@ -285,124 +289,132 @@ drivers і exposes їх як state keys. З business module's perspective:
             ▼ Equipment.bind_drivers
    Driver registered під role "air_temp"
             │
-            ▼ Equipment.on_update (кожен tick)
+            ▼ Equipment.on_update (every tick)
    driver->read(value);
    state_set("equipment.air_temp", value);
    state_set("equipment.air_temp_ok", driver->is_healthy());
 ```
 
-Business modules читають `equipment.air_temp` — вони ніколи не see
-DS18B20Driver class.
+Бізнес-модулі читають `equipment.air_temp` — вони ніколи не бачать клас
+DS18B20Driver.
 
-## Health і failure modes
+## Стан здоров'я і режими відмов
 
-Drivers expose `is_healthy()` і `error_count()`. Equipment Manager:
+Драйвери надають `is_healthy()` і `error_count()`. Equipment Manager:
 
-- Reads `is_healthy()` кожен tick.
-- Після 3 consecutive failed reads, sets `equipment.<role>_ok = false`.
-- Logs ESP_LOGW для кожного healthy↔unhealthy transition.
+- Зчитує `is_healthy()` щотакту.
+- Після 3 невдалих читань поспіль встановлює
+  `equipment.<role>_ok = false`.
+- Журналює ESP_LOGW при кожному переході здоровий↔нездоровий.
 
-DriverManager не deactivate failed drivers — вони keep ticking (retry на
-next `update`). Більшість sensor failures transient (DS18B20 momentary
-CRC error тощо) і recover у межах few ticks.
+DriverManager не деактивує драйвери, що відмовили — вони продовжують
+тактувати (повторна спроба при наступному `update`). Більшість відмов
+сенсорів — тимчасові (миттєва помилка CRC у DS18B20 тощо) і відновлюються
+за кілька тактів.
 
-Якщо driver's `init()` returns false (hardware not detected), Equipment
-Manager logs fatal error AND sets binding's role keys до defaults
-forever. Application може still boot — just без що role's functionality.
+Якщо `init()` драйвера повертає false (обладнання не виявлено),
+Equipment Manager записує фатальну помилку ТА встановлює ключі ролі
+прив'язки у значення за замовчуванням назавжди. Застосунок все одно може
+завантажитись — просто без функціоналу цієї ролі.
 
-## Memory і allocation
+## Пам'ять і виділення
 
-Drivers — **heap-allocated** by DriverManager's factory. Вони живуть
-до firmware reboots — no per-tick allocation, no destruction.
+Драйвери — **виділяються у купі** фабрикою DriverManager. Вони живуть до
+перезавантаження прошивки — без виділень на такт, без знищення.
 
-Heap budget на ESP32: ~65 KB free після framework init. Driver instances
-average ~200 bytes each (state, role string, hardware refs). 20 drivers
-= 4 KB. Comfortable headroom.
+Бюджет купи на ESP32: ~65 КБ вільно після ініціалізації фреймворка.
+Екземпляри драйверів у середньому займають ~200 байт кожен (стан, рядок
+ролі, посилання на обладнання). 20 драйверів = 4 КБ. Комфортний запас.
 
-Якщо вам коли-небудь потрібен driver із significantly larger state
-(наприклад, calibration tables, FIFO buffers), document це і pre-allocate
-у `configure` щоб init/runtime не surprise.
+Якщо колись знадобиться драйвер зі значно більшим станом (наприклад,
+таблиці калібрування, буфери FIFO), задокументуйте це і виділіть пам'ять
+заздалегідь у `configure`, щоб ініціалізація та виконання не дивували.
 
-## Memory і size budget
+## Пам'ять і бюджет розміру
 
-| Item | Cost |
+| Стаття | Вартість |
 |---|---|
-| HAL instance | ~400 bytes (peripheral pointers + GPIO bookkeeping) |
-| DriverManager | ~600 bytes (driver pointer arrays + factory table) |
-| Per-driver instance | 100-300 bytes typical |
-| OneWire bus (з libonewire) | ~150 bytes per bus |
-| I²C bus (ESP-IDF driver) | ~200 bytes per bus |
+| Екземпляр HAL | ~400 байт (вказівники на периферію + облік GPIO) |
+| DriverManager | ~600 байт (масиви вказівників на драйвери + таблиця фабрик) |
+| Екземпляр одного драйвера | зазвичай 100-300 байт |
+| Шина OneWire (через libonewire) | ~150 байт на шину |
+| Шина I²C (драйвер ESP-IDF) | ~200 байт на шину |
 
-Total HAL overhead із typical KC868-A6 binding (~10 drivers): ~5 KB RAM.
+Загальні накладні витрати HAL із типовою прив'язкою KC868-A6 (~10
+драйверів): ~5 КБ RAM.
 
-## Common patterns
+## Типові шаблони
 
-### Add support для нового sensor
+### Додавання підтримки нового сенсора
 
-1. Write driver class implementing `ISensorDriver`. Див.
+1. Напишіть клас драйвера, що реалізує `ISensorDriver`. Див.
    [writing-a-driver.md](../../02-module-author-guide/writing-a-driver.md).
-2. Add driver manifest у `drivers/<name>/manifest.json`.
-3. Edit `driver_manager.cpp`'s `create_sensor` factory щоб dispatch новий
-   `type` string.
-4. Update `bindings.json` для test board з binding using новий driver.
-5. Rebuild і flash.
+2. Додайте маніфест драйвера у `drivers/<name>/manifest.json`.
+3. Відредагуйте фабрику `create_sensor` у `driver_manager.cpp`, щоб
+   диспетчер обробляв новий рядок `type`.
+4. Оновіть `bindings.json` тестової плати, додавши прив'язку з новим
+   драйвером.
+5. Перезберіть і прошийте.
 
-### Inspect що bound
+### Перевірити, що прив'язано
 
 ```bash
 curl -u admin:modesp http://192.168.1.85/api/state | grep equipment.
 ```
 
-`equipment.<role>` keys list кожен successfully-instantiated binding.
-Якщо role's key відсутній, driver init failed.
+Ключі `equipment.<role>` перелічують кожну успішно створену прив'язку.
+Якщо ключ ролі відсутній — ініціалізація драйвера завершилась невдачею.
 
-### Manual driver reload (Stage 1.5)
+### Ручне перезавантаження драйверів (Stage 1.5)
 
-Зараз bindings read once при boot. Stage 1.5 plans
-`POST /api/bindings/reload` щоб reinitialise driver layer без reboot —
-корисно для swapping sensor types або rewiring у field.
+Наразі прив'язки читаються один раз при завантаженні. Stage 1.5
+планує `POST /api/bindings/reload`, щоб перезапустити шар драйверів без
+перезавантаження — корисно для заміни типів сенсорів або перепідключення
+"в полі".
 
-## Common pitfalls
+## Типові помилки
 
-**GPIO conflicts:** binding declares role using GPIO 14, але board.json
-already maps GPIO 14 до relay. HAL `init` aborts з conflict message.
-Edit bindings або board.json.
+**Конфлікти GPIO:** прив'язка оголошує роль на GPIO 14, але board.json
+вже відображає GPIO 14 на реле. `init` HAL припиняє роботу з повідомленням
+про конфлікт. Відредагуйте прив'язки або board.json.
 
-**Address mismatches на OneWire:** binding says address
-`28:8C:5E:45:D4:08:44:09`, але physical sensor has different ROM.
-Driver reports `not_found` після retries; sensor's `_ok` key never goes
-true. Use discovery endpoint щоб get correct addresses.
+**Невідповідність адрес на OneWire:** прив'язка вказує адресу
+`28:8C:5E:45:D4:08:44:09`, але фізичний сенсор має інший ROM. Драйвер
+повідомляє `not_found` після повторних спроб; ключ `_ok` сенсора ніколи
+не стає true. Скористайтесь точкою доступу для виявлення, щоб отримати
+правильні адреси.
 
-**ADC2 used для sensor:** GPIO 0, 2, 4, 12-15, 25-27 — ADC2 channels що
-conflict з WiFi. board.json validator should catch це; якщо ні, ваш
-sensor reads jitter wildly коли WiFi active.
+**ADC2 використовується для сенсора:** GPIO 0, 2, 4, 12-15, 25-27 — це
+канали ADC2, що конфліктують з Wi-Fi. Валідатор board.json має це
+впіймати; якщо не впіймає, ваші читання сенсора сильно стрибатимуть,
+коли Wi-Fi активний.
 
-**Driver factory not updated:** added новий driver type у manifest але
-forgot to add dispatch case у `driver_manager.cpp`. DriverManager
-silently skips його; симптоми look like missing binding
-(`equipment.<role>` key не appears).
+**Фабрика драйверів не оновлена:** додали новий тип драйвера у маніфест,
+але забули додати випадок диспетчера у `driver_manager.cpp`. DriverManager
+тихо пропускає його; симптоми схожі на відсутню прив'язку (ключ
+`equipment.<role>` не з'являється).
 
-**Heap allocation у `update()`:** drivers tick at 100 Hz. `new` у
-`update` leaks per-tick. Use stack buffers і ETL.
+**Виділення купи у `update()`:** драйвери тактують на 100 Гц. `new` у
+`update` тече щотакту. Використовуйте буфери на стеку та ETL.
 
 ## Що далі
 
 - **[writing-a-driver.md](../../02-module-author-guide/writing-a-driver.md)**
-  — author-side walkthrough.
+  — покрокове проходження з боку автора.
 - **[components/modesp_services.md](modesp_services.md)** — ConfigService
-  provides BoardConfig і BindingTable.
+  надає BoardConfig і BindingTable.
 - **[modules/equipment.md](../modules/equipment.md)** — Equipment Manager
-  consumes driver_manager's drivers.
+  використовує драйвери driver_manager.
 - **[04-hardware/board-config.md](../../04-hardware/board-config.md)** —
-  `board.json` schema.
-- **[04-hardware/bindings.md](../../04-hardware/bindings.md)** —
-  `bindings.json` schema.
+  схема `board.json`.
+- **[04-hardware/bindings.md](../../04-hardware/bindings.md)** — схема
+  `bindings.json`.
 
-## Source
+## Джерела
 
 - [`components/modesp_hal/include/modesp/hal/`](../../../../components/modesp_hal/include/modesp/hal/)
-  — public headers.
+  — публічні заголовки.
 - [`components/modesp_hal/src/`](../../../../components/modesp_hal/src/)
-  — HAL і DriverManager implementations.
-- [`drivers/`](../../../../drivers/) — driver implementations що use ці
-  interfaces.
+  — реалізації HAL і DriverManager.
+- [`drivers/`](../../../../drivers/) — реалізації драйверів, що
+  використовують ці інтерфейси.

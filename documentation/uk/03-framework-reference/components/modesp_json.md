@@ -1,23 +1,24 @@
-# `modesp_json` — JSON parsing і serialization utilities
+# `modesp_json` — утиліти розбору і серіалізації JSON
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_json.md](../../../en/03-framework-reference/components/modesp_json.md)
 
-Thin wrapper навколо `jsmn` parser з helpers для common patterns
-used у фреймворку — parsing HTTP POST bodies, JSON key extraction,
-type-safe value coercion. Більшість module authors не interact із цим
-component напряму; framework code (HTTP handlers, MQTT command parsing,
-ConfigService) використовує його internally.
+Тонка обгортка навколо розбирача `jsmn` зі службовими функціями для
+типових шаблонів, що використовуються у фреймворку, — розбір тіл
+HTTP POST, витягнення ключів JSON, типобезпечне приведення значень.
+Більшість авторів модулів не взаємодіють з цим компонентом напряму;
+код фреймворку (обробники HTTP, розбір команд MQTT, ConfigService)
+використовує його внутрішньо.
 
-REQUIRES: `jsmn` (external).
+ЗАЛЕЖНОСТІ: `jsmn` (зовнішній).
 
-## Що він provides
+## Що він надає
 
-- `jsmn` re-exported (parser із fixed token allocation, no heap).
-- Helpers для finding value by key у parsed token array.
-- Type-coerced extraction (`extract_int`, `extract_float`, `extract_bool`,
-  `extract_string`).
+- Реекспортований `jsmn` (розбирач з фіксованим виділенням токенів, без купи).
+- Помічники для пошуку значення за ключем у розібраному масиві токенів.
+- Витягнення з приведенням типу (`extract_int`, `extract_float`,
+  `extract_bool`, `extract_string`).
 
-## Typical usage у HTTP handlers
+## Типове використання у обробниках HTTP
 
 ```cpp
 #include "modesp/net/json_helper.h"
@@ -38,10 +39,10 @@ esp_err_t my_handler(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
-    // Find "key" і extract його value
+    // Find "key" і extract its value
     float value = 0;
     if (modesp::json::extract_float(body, tokens, r, "key", value)) {
-        // value тепер 23.5
+        // value is now 23.5
         app.state().set("some.target", value);
     }
 
@@ -50,16 +51,16 @@ esp_err_t my_handler(httpd_req_t* req) {
 }
 ```
 
-## Helpers
+## Помічники
 
 ```cpp
 namespace modesp::json {
 
-// Returns token index value для key, або -1.
+// Returns token index of value for key, or -1.
 int find_key(const char* body, jsmntok_t* tokens, int n_tokens, const char* key);
 
-// Extract typed value у out parameter. Returns false при missing key
-// або type mismatch.
+// Extract typed value into out parameter. Returns false on missing key
+// or type mismatch.
 bool extract_int(const char* body, jsmntok_t* tokens, int n_tokens,
                  const char* key, int32_t& out);
 bool extract_float(const char* body, jsmntok_t* tokens, int n_tokens,
@@ -74,44 +75,46 @@ bool extract_string(const char* body, jsmntok_t* tokens, int n_tokens,
 
 ## Чому не `cJSON`?
 
-`cJSON` — heap-heavy і more complete. `jsmn` — fixed-token tokeniser що
-allocates на stack — much cheaper для small JSON payloads фреймворка
-(HTTP request bodies, manifest snippets, MQTT command parsing). Для
-CPU-constrained device handling REST traffic at modest rates,
-zero-allocation parsing matters.
+`cJSON` важкий для купи і більш повний. `jsmn` — це токенайзер з
+фіксованим набором токенів, що виділяє пам'ять на стеку — значно
+дешевший для невеликих корисних навантажень JSON у фреймворку (тіла
+HTTP-запитів, фрагменти маніфестів, розбір команд MQTT). Для пристрою
+з обмеженим CPU, що обробляє REST-трафік з помірною інтенсивністю,
+розбір без виділень має значення.
 
-Configuration files load через `ConfigService` що uses окремий heavier
-parser (manageable бо runs once при boot).
+Конфігураційні файли завантажуються через `ConfigService`, який
+використовує окремий важчий розбирач (це прийнятно, бо він
+запускається один раз при завантаженні).
 
-## Memory і resources
+## Пам'ять і ресурси
 
-| Resource | Cost |
+| Ресурс | Вартість |
 |---|---|
-| jsmn parser state | ~16 bytes на stack |
-| Token array (typical 16-32 tokens) | ~256-512 bytes на stack |
+| Стан розбирача jsmn | ~16 байт на стеку |
+| Масив токенів (типово 16-32 токени) | ~256-512 байт на стеку |
 
-Zero heap. Per-call cost.
+Нуль купи. Вартість на виклик.
 
-## Common pitfalls
+## Типові помилки
 
-**Token array too small:** complex JSON з many keys може overflow.
-`jsmn_parse` returns `JSMN_ERROR_NOMEM`. Increase token buffer або parse
-у chunks.
+**Замалий масив токенів:** складний JSON з багатьма ключами може
+переповнити його. `jsmn_parse` повертає `JSMN_ERROR_NOMEM`. Збільшіть
+буфер токенів або розбирайте частинами.
 
-**Unicode escapes у strings:** jsmn parses них як raw bytes; downstream
-code should validate UTF-8 якщо necessary.
+**Unicode-екранування у рядках:** jsmn розбирає їх як сирі байти;
+наступний код має валідувати UTF-8 за потреби.
 
-**Trailing data:** parser stops при першому complete value. Trailing
-chars ignored; для strict validation check `r > 0` AND що нічого не
-remains.
+**Дані у хвості:** розбирач зупиняється на першому повному значенні.
+Хвостові символи ігноруються; для суворої валідації перевіряйте
+`r > 0` І що нічого не залишилося.
 
 ## Що далі
 
-- **[components/modesp_net.md](modesp_net.md)** — HTTP service що uses
-  це heavily.
-- **[components/modesp_mqtt.md](modesp_mqtt.md)** — MQTT command parsing.
+- **[components/modesp_net.md](modesp_net.md)** — HTTP-сервіс, який
+  активно це використовує.
+- **[components/modesp_mqtt.md](modesp_mqtt.md)** — розбір команд MQTT.
 
-## Source
+## Джерела
 
-- [`components/modesp_json/`](../../../../components/modesp_json/) — helpers.
-- [`components/jsmn/`](../../../../components/jsmn/) — external parser.
+- [`components/modesp_json/`](../../../../components/modesp_json/) — помічники.
+- [`components/jsmn/`](../../../../components/jsmn/) — зовнішній розбирач.

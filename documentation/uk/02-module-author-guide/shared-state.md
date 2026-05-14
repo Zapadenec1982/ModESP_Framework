@@ -2,168 +2,175 @@
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/shared-state.md](../../en/02-module-author-guide/shared-state.md)
 
-SharedState — це data backbone ModESP. Це типізована, thread-safe,
-in-memory key-value сховище що кожен модуль читає і пише. У common case
-point-to-point messages між модулями нема — вони обмінюються даними лише
-через state keys. Ця сторінка покриває read/write патерни, type system,
-change tracking, і поширені pitfalls.
+SharedState — це інформаційний хребет ModESP. Це типізоване, потокобезпечне
+сховище ключ-значення в оперативній пам'яті, з якого кожен модуль читає та
+до якого пише. У типовому випадку між модулями немає прямих повідомлень
+точка-точка — вони обмінюються даними виключно через ключі стану. Ця
+сторінка охоплює патерни читання/запису, систему типів, відстеження змін
+та типові пастки.
 
-Прочитавши, ви знатимете який API call reach-ити, як уникнути поширених
-data-loss багів, і коли state — не правильний інструмент (рідко, але
-реально).
+Прочитавши, ви знатимете, який виклик API обрати, як уникати поширених
+помилок втрати даних і коли стан — це не той інструмент (рідко, але буває).
 
 ## Ментальна модель
 
-Уявіть одну велику `std::map<string, variant>` з mutex навколо неї. Це
-SharedState. Map має bounded capacity (compile-time константа
-`MODESP_MAX_STATE_ENTRIES`, auto-generated з маніфестів), fixed-size keys
-(32 chars max), і fixed type set для values:
+Уявіть одну велику `std::map<string, variant>` з м'ютексом навколо неї. Це
+і є SharedState. Мапа має обмежену місткість (константа часу компіляції
+`MODESP_MAX_STATE_ENTRIES`, автоматично згенерована з маніфестів), ключі
+фіксованого розміру (до 32 символів) та фіксований набір типів значень:
 
 ```cpp
 using StateValue = etl::variant<int32_t, float, bool, etl::string<32>>;
 ```
 
-ETL containers всюди — без heap, deterministic memory footprint. Reads і
-writes — O(1) average через unordered_map hash lookup.
+ETL-контейнери всюди — без купи, детермінований розмір пам'яті. Читання
+й запис у середньому O(1) через хеш-пошук unordered_map.
 
-## Для чого SharedState
+## Для чого призначений SharedState
 
-- **Module-to-module data flow** — sensor values, control state, computed
-  values, user setpoints.
-- **System-to-WebUI broadcast** — кожна зміна з `track_change=true`
-  queues delta для WebSocket clients.
-- **Module-to-MQTT publish** — keys у `mqtt.publish` arrays auto-publish
-  при зміні.
-- **Module-to-NVS persist** — keys із `persist: true` flag round-trip
-  через PersistService.
+- **Потік даних між модулями** — значення сенсорів, стан керування,
+  обчислені значення, користувацькі уставки.
+- **Трансляція з системи до WebUI** — кожна зміна з `track_change=true`
+  ставить дельту в чергу для WebSocket-клієнтів.
+- **Публікація з модуля в MQTT** — ключі в масивах `mqtt.publish`
+  автоматично публікуються при зміні.
+- **Збереження модуля в NVS** — ключі з прапорцем `persist: true`
+  проходять цикл збереження-відновлення через PersistService.
 
-## Для чого SharedState НЕ
+## Для чого SharedState НЕ призначений
 
-- **Large payloads** — keys ≤ 32 chars, string values ≤ 32 chars. Не
-  зберігайте JSON blobs, image data, log lines.
-- **Cross-task messaging із семантикою** — це `etl::imessage` через
-  `ModuleManager::send_message()`. Use для typed events з multiple fields.
-- **High-frequency time-series** — datalogger має власні ring buffers з
-  compact encoding. SharedState writes при >10 Hz спамлять WebSocket clients.
-- **Persistent storage non-config даних** — використовуйте NVS напряму
-  через PersistService для blobs, custom encodings.
+- **Великі корисні навантаження** — ключі до 32 символів, рядкові значення
+  до 32 символів. Не зберігайте JSON-блоби, дані зображень, рядки логів.
+- **Міжзадачний обмін повідомленнями з семантикою** — для цього є
+  `etl::imessage` через `ModuleManager::send_message()`. Використовуйте
+  для типізованих подій із кількома полями.
+- **Часові ряди високої частоти** — datalogger має власні кільцеві
+  буфери з компактним кодуванням. Запис у SharedState частіше за 10 Гц
+  засмічує WebSocket-клієнтів.
+- **Постійне зберігання неконфігураційних даних** — використовуйте NVS
+  напряму через PersistService для блобів та власних кодувань.
 
 ## API через BaseModule
 
-Кожен модуль отримує ці helpers через inheritance. Повний SharedState
-interface exposed для contexts що не модулі (HTTP handlers, ActionContext
-для scenarios, тощо).
+Кожен модуль отримує ці помічники через наслідування. Повний інтерфейс
+SharedState доступний для контекстів, що не є модулями (HTTP-обробники,
+ActionContext для сценаріїв тощо).
 
 ### Запис
 
 ```cpp
-// Typed overloads — оберіть той що match-ить ваш value type.
+// Типізовані перевантаження — оберіть те, яке відповідає типу значення.
 state_set("my_module.temperature", 23.5f);           // float
-state_set("my_module.count", static_cast<int32_t>(42));  // int (зверніть увагу cast)
+state_set("my_module.count", static_cast<int32_t>(42));  // int (зверніть увагу на cast — уникає неявного збою int→int32_t)
 state_set("my_module.active", true);                 // bool
 state_set("my_module.label", "running");             // const char* → StringValue
 
-// Всі return bool. false означає: store rejected (capacity exhausted,
-// key length > 32, або internal mutex failure). Track failures через
-// SharedState's set_failures() counter для diagnostics.
+// Усі повертають bool. false означає: сховище відхилило запис (вичерпано
+// місткість, довжина ключа > 32 або внутрішня помилка м'ютекса).
+// Відстежуйте збої через лічильник set_failures() SharedState для діагностики.
 
-// Silent update — не тригерить WebSocket broadcast. Use для:
-// - Counters (`*_count` keys) — flood-ити WS кожним incrementом — wasteful
-// - Fast-changing internal state що UI не потребує display
+// Тихе оновлення — не запускає WebSocket-трансляцію. Використовуйте для:
+// - Лічильників (ключі `*_count`) — затоплювати WS кожним інкрементом марно
+// - Внутрішнього стану, що швидко змінюється, який UI не потребує відображати
 state_set("my_module.tick_count", n, /*track_change=*/false);
 ```
 
 ### Читання
 
 ```cpp
-// Typed reads з default fallback — return default якщо key відсутній або
-// type mismatch.
+// Типізоване читання зі значенням за замовчуванням — повертає default,
+// якщо ключ відсутній або тип не збігається.
 float temp = read_float("equipment.air_temp", 0.0f);
 int32_t count = read_int("my_module.count", 0);
 bool active = read_bool("simple_thermo.output", false);
 
-// Generic — повертає etl::optional<StateValue>. Use коли тип не фіксований
-// або вам потрібно detect type mismatch explicitly.
+// Загальне — повертає etl::optional<StateValue>. Використовуйте, коли тип
+// не фіксований або потрібно явно виявити невідповідність типу.
 auto opt = state_get("some.key");
 if (!opt.has_value()) {
-    // Key відсутній.
+    // Ключ відсутній.
 } else {
     auto& v = *opt;
     if (auto* f = etl::get_if<float>(&v)) {
-        // Це float, use *f
+        // Це float, використовуйте *f
     } else if (auto* s = etl::get_if<modesp::StringValue>(&v)) {
-        // Це string, use s->c_str()
+        // Це рядок, використовуйте s->c_str()
     }
 }
 ```
 
-## Правила type system
+## Правила системи типів
 
-Variant має 4 cases. Кожен key locks на його first-set type:
+Варіант має 4 випадки. Кожен ключ фіксується на типі, заданому першим:
 
 ```cpp
 state_set("foo", 1.5f);       // foo тепер float
-state_set("foo", true);       // ← REJECTED. Returns false. foo лишається float.
+state_set("foo", true);       // ← ВІДХИЛЕНО. Повертає false. foo лишається float.
 
-// Щоб змінити type: спочатку remove, потім re-set.
+// Щоб змінити тип: спочатку видалити, потім встановити заново.
 state_->remove("foo");
-state_set("foo", true);       // OK тепер
+state_set("foo", true);       // Тепер OK
 ```
 
-**Common surprise:** integer literals у C++ — це `int`, не `int32_t`. Якщо
-забудете cast, overload resolution обирає `int32_t` лише якщо `int` ≤
-32 bits (true на ESP32 і host). На 64-bit hosts call ambiguous або обирає
-неправильний overload — завжди cast-уйте або use explicit suffix:
+**Типова несподіванка:** цілочисельні літерали в C++ — це `int`, а не
+`int32_t`. Якщо забудете cast, розв'язання перевантаження вибере
+`int32_t` лише за умови, що `int` ≤ 32 бітів (істина на ESP32 і хості).
+На 64-бітних хостах виклик неоднозначний або вибирає неправильне
+перевантаження — завжди приводьте тип або використовуйте явний суфікс:
 
 ```cpp
-state_set("foo", static_cast<int32_t>(42));  // safe
-state_set("foo", 42L);                       // long — picks right overload
-state_set("foo", 42);                        // works на ESP32, fragile у host tests
+state_set("foo", static_cast<int32_t>(42));  // безпечно
+state_set("foo", 42L);                       // long — обирає правильне перевантаження
+state_set("foo", 42);                        // працює на ESP32, ламке в хост-тестах
 ```
 
-## Change tracking і WebSocket broadcast
+## Відстеження змін і WebSocket-трансляція
 
-Кожен `set` call з `track_change=true` (default) appends key до
-`changed_keys_` vector. WebSocket service flushes vector кожні ~500 мс:
+Кожен виклик `set` з `track_change=true` (за замовчуванням) додає ключ до
+вектора `changed_keys_`. Сервіс WebSocket очищає вектор приблизно кожні
+500 мс таким чином:
 
-1. Якщо `changed_keys_.size() ≤ MAX_CHANGED_KEYS` (32): надсилає delta
-   payload з лише цими keys і їхніми current values.
-2. Якщо вище 32 (overflow): надсилає **full state snapshot** усім
-   subscribed clients. Marker: `SharedState::needs_full_broadcast()`
+1. Якщо `changed_keys_.size() ≤ MAX_CHANGED_KEYS` (32): надсилає дельта-
+   корисне навантаження лише з цими ключами та їхніми поточними значеннями.
+2. Якщо більше 32 (переповнення): надсилає **повний знімок стану** усім
+   підписаним клієнтам. Маркер: `SharedState::needs_full_broadcast()`
    повертає `true`.
 
-**Performance implication:** якщо ваш модуль пише > 32 distinct keys per
-500 мс tick, кожен WS broadcast — full-state. На pull-heavy WebUIs це
-стає visible latency. Use `track_change=false` для high-frequency keys
-що не потребують real-time UI display.
+**Наслідок для продуктивності:** якщо ваш модуль записує понад 32
+різних ключі за такт у 500 мс, кожна WS-трансляція буде повним
+знімком. На WebUI з активним опитуванням це стає помітною затримкою.
+Використовуйте `track_change=false` для високочастотних ключів, які не
+потребують відображення в UI в реальному часі.
 
-## State changes що persist
+## Зміни стану, що зберігаються
 
-Якщо state key декларує `"persist": true` у маніфесті, PersistService
-hooks SharedState через `set_persist_callback`. На кожній зміні такого
-key, PersistService:
+Якщо ключ стану декларує `"persist": true` у маніфесті, PersistService
+підключається до SharedState через `set_persist_callback`. На кожну
+зміну такого ключа PersistService:
 
-1. Throttles writes (один per 30 с per key за замовчуванням).
-2. Serializes value до NVS під key `state.<key_name>`.
-3. При boot, restore-ить value перед запуском будь-якого модуля `on_init()`.
+1. Обмежує частоту запису (один запис на 30 с на ключ за замовчуванням).
+2. Серіалізує значення до NVS під ключем `state.<key_name>`.
+3. При завантаженні відновлює значення до того, як виконається `on_init()`
+   будь-якого модуля.
 
-Ваш модуль читає persisted value через regular `read_float/int/bool` call
-— без спеціального API. PersistService transparently робить value "sticky".
+Ваш модуль читає збережене значення звичайним викликом
+`read_float/int/bool` — без спеціального API. PersistService прозоро
+робить значення "липким".
 
-**Limits:**
-- Throttle = 30 с default. Налаштовується у PersistService config якщо
-  треба
+**Обмеження:**
+- Дросель = 30 с за замовчуванням. Налаштовується в конфігурації
+  PersistService за потреби
   ([components/modesp_services.md](../03-framework-reference/components/modesp_services.md)
-  *(planned)*).
-- Value sizes pay-aть for themselves на NVS — 16-byte typed values,
-  including short strings — fine. Не `persist: true` keys що змінюються
-  кожен tick.
+  *(заплановано)*).
+- Розміри значень виправдовують себе в NVS — 16-байтні типізовані
+  значення, включно з короткими рядками, цілком прийнятні. Не позначайте
+  `persist: true` для ключів, що змінюються щотакт.
 
 ## Патерни доступу
 
-### Pull pattern (sensor reading)
+### Pull-патерн (читання сенсора)
 
-Module читає inputs у верху `on_update`, computes, writes outputs:
+Модуль читає входи на початку `on_update`, обчислює, записує виходи:
 
 ```cpp
 void ThermoModule::on_update(uint32_t dt_ms) {
@@ -174,178 +181,192 @@ void ThermoModule::on_update(uint32_t dt_ms) {
 }
 ```
 
-Це **default pattern**. Модулі не subscribe-яться і не get notified —
-кожен tick вони re-read що їм треба.
+Це **типовий патерн**. Модулі не підписуються і не отримують сповіщень —
+кожного такту вони перечитують те, що їм потрібно.
 
-### Edge detection
+### Виявлення фронту
 
-Щоб trigger логіку лише на transitions, тримайте `prev_value_` member і
+Щоб запускати логіку лише на переходах, тримайте поле `prev_value_` і
 порівнюйте:
 
 ```cpp
 void Module::on_update(uint32_t dt_ms) {
     bool fault = read_bool("equipment.fault", false);
     if (fault && !prev_fault_) {
-        // Rising edge: fault just appeared
+        // Передній фронт: щойно з'явилася несправність
         state_set("my_module.fault_count", ++count_);
     }
     prev_fault_ = fault;
 }
 ```
 
-> 💡 **Tip:** built-in scenario condition `state_key_changed{key}` — це
-> placeholder у MVP (повертає "no edge"). True edge detection — module
-> author's responsibility. Stage 1.5 буде wire engine-side edge tracking.
+> 💡 **Порада:** вбудована умова сценарію `state_key_changed{key}` —
+> заглушка в MVP (повертає "немає фронту"). Реальне виявлення фронту —
+> обов'язок автора модуля. Stage 1.5 додасть відстеження фронту на
+> стороні рушія.
 
-### Atomic compute-and-write
+### Атомарне обчислення-і-запис
 
-Якщо ваше обчислення залежить від current value, read-compute-write НЕ
-race-ається бо всі module updates відбуваються serially у тому ж task —
-але лише якщо ви stay у межах одного `on_update` call:
+Якщо ваше обчислення залежить від поточного значення, послідовність
+читання-обчислення-запис НЕ створює гонитви, бо всі оновлення модулів
+відбуваються послідовно в тій самій задачі — але лише якщо ви лишаєтесь
+у межах одного виклику `on_update`:
 
 ```cpp
-// Safe — single tick, single thread.
+// Безпечно — один такт, один потік.
 void on_update(uint32_t dt_ms) {
     int32_t n = read_int("my_module.count", 0);
     state_set("my_module.count", n + 1);
 }
 
-// NOT safe — split across ticks дозволяє іншому task interleave.
-// (HTTP handler може write між ticks.)
+// НЕ безпечно — розбиття між тактами дозволяє іншій задачі вклинитися.
+// (HTTP-обробник може записати між тактами.)
 ```
 
-Якщо value може бути написане HTTP / MQTT (`access: "readwrite"`),
-assume external writes interleave. Для counters, prefer per-tick deltas,
-не cumulative reads.
+Якщо значення може записуватись через HTTP / MQTT
+(`access: "readwrite"`), припускайте, що зовнішні записи можуть
+вклинюватись. Для лічильників віддавайте перевагу дельтам за такт, а
+не накопичувальному читанню.
 
-## Iteration і bulk operations
+## Ітерація та масові операції
 
-Іноді вам треба scan all keys (debug dump, full snapshot для WebSocket
-initial sync):
+Іноді треба просканувати всі ключі (відлагоджувальний дамп, повний знімок
+для початкової синхронізації WebSocket):
 
 ```cpp
 state.for_each([](const StateKey& key, const StateValue& value, void* user) {
-    // Callback runs UNDER the mutex. Не:
-    //   - Block (sleep, log to UART, NVS write)
-    //   - Call інші SharedState методи (deadlock)
-    //   - Throw exceptions (no exceptions у цьому codebase anyway)
+    // Зворотний виклик виконується ПІД м'ютексом. Не можна:
+    //   - Блокувати (sleep, лог до UART, запис у NVS)
+    //   - Викликати інші методи SharedState (взаємне блокування)
+    //   - Кидати винятки (винятків у цій кодовій базі немає в принципі)
     //
-    // Do:
-    //   - Append to buffer (your `user` context)
-    //   - Filter by key prefix
+    // Можна:
+    //   - Дописувати в буфер (ваш контекст `user`)
+    //   - Фільтрувати за префіксом ключа
 }, this);
 ```
 
-Для change-tracking-aware iteration (WebSocket delta path):
+Для ітерації з урахуванням відстеження змін (шлях дельти WebSocket):
 
 ```cpp
 bool had_changes = state.for_each_changed_and_clear(callback, ctx);
-// `changed_keys_` reset-иться atomically. Майбутні writes start fresh delta.
+// `changed_keys_` скидається атомарно. Майбутні записи розпочнуть нову дельту.
 ```
 
-## Capacity і budget
+## Місткість і бюджет
 
-Compile-time constant `MODESP_MAX_STATE_ENTRIES` (declared у
-`state_meta.h`, auto-generated) caps загальну кількість keys. Поточний
-default — 96, sized щоб fit all declared keys across modules у проекті
-plus headroom для recipe mirror keys, OTA status, system stats.
+Константа часу компіляції `MODESP_MAX_STATE_ENTRIES` (оголошена в
+`state_meta.h`, автоматично згенерована) обмежує загальну кількість
+ключів. Поточне значення за замовчуванням — 96, розраховане так, щоб
+вмістити всі оголошені ключі модулів у проєкті плюс запас для
+дзеркальних ключів рецептів, статусу OTA та системної статистики.
 
-**Якщо ви hit cap:**
+**Якщо ви досягли межі:**
 
-1. Look на ваш manifest's `state` section — кожна entry рахується.
-2. Check `state_meta.h`'s `MODESP_MAX_STATE_ENTRIES` value.
-3. Bump у Kconfig (`CONFIG_MODESP_MAX_STATE_ENTRIES`) ТІЛЬКИ якщо ви
-   справді додали keys і потребуєте їх усі. Cost — ~80 bytes RAM per entry.
+1. Перегляньте секцію `state` свого маніфесту — кожен запис рахується.
+2. Перевірте значення `MODESP_MAX_STATE_ENTRIES` у `state_meta.h`.
+3. Збільште в Kconfig (`CONFIG_MODESP_MAX_STATE_ENTRIES`) ЛИШЕ якщо ви
+   справді додали ключі й усі вони потрібні. Ціна — приблизно 80 байтів
+   RAM на запис.
 
-> ⚠️ **Warning:** кожен `state_set` call із новим key allocates entry.
-> Якщо ваш модуль dynamically constructs key names (`"my_module.item_X"`
-> per якийсь `X`), ви заповните table швидко і `set()` починає
-> повертати `false`. Dynamic keys — anti-pattern. Декларуйте що ви будете
-> писати і тримайте set фіксованим.
+> ⚠️ **Попередження:** кожен виклик `state_set` з новим ключем виділяє
+> запис. Якщо ваш модуль динамічно конструює імена ключів
+> (`"my_module.item_X"` для деякого `X`), ви швидко заповните таблицю,
+> і `set()` почне повертати `false`. Динамічні ключі — антипатерн:
+> декларуйте, що збираєтесь писати, і тримайте набір фіксованим.
 
-## Thread safety
+## Потокобезпека
 
-SharedState методи acquire FreeRTOS mutex. Safe для виклику з:
+Методи SharedState захоплюють м'ютекс FreeRTOS. Безпечно викликати з:
 
-- Module `on_init`, `on_update`, `on_stop` (завжди)
-- Module `on_message` (завжди)
-- HTTP request handlers (так, вони run на httpd task)
-- MQTT subscribe handlers (так, separate task)
-- Recipe action handlers (engine task)
-- ISR? **НІ.** Mutex acquisition може block. Use task-side queue якщо вам
-  треба pipe ISR data до SharedState.
+- Модульних `on_init`, `on_update`, `on_stop` (завжди)
+- Модульного `on_message` (завжди)
+- Обробників HTTP-запитів (так, вони виконуються в задачі httpd)
+- Обробників MQTT-підписок (так, окрема задача)
+- Обробників дій рецепта (задача рушія)
+- ISR? **НІ.** Захоплення м'ютекса може блокувати. Використовуйте
+  чергу на боці задачі, якщо потрібно передати дані з ISR до
+  SharedState.
 
-Mutex timeout сконфігурований до 100 мс; якщо contention starves вас на
-це довго, `set` returns false і increments `set_failures_`. Перевіряйте
-`state.set_failures()` періодично — non-zero натякає на contention bugs.
+Тайм-аут м'ютекса налаштований на 100 мс; якщо конкуренція тримає вас
+голодним так довго, `set` повертає false і збільшує `set_failures_`.
+Періодично перевіряйте `state.set_failures()` — ненульове значення
+натякає на помилки конкуренції.
 
-## Diagnostic API
+## Діагностичний API
 
-- `state.size()` — current entry count.
-- `state.version()` — monotonic counter, increment-иться при кожному
-  tracked `set`. Корисно для polling clients.
-- `state.has_changes()` — true якщо `changed_keys_` non-empty.
-- `state.needs_full_broadcast()` — true якщо останній delta overflowed.
-- `state.set_failures()` — count `set()` calls що returned false.
-  Якщо non-zero, dig у логи.
+- `state.size()` — поточна кількість записів.
+- `state.version()` — монотонний лічильник, інкрементується на кожен
+  відстежуваний `set`. Корисно для опитувальних клієнтів.
+- `state.has_changes()` — true, якщо `changed_keys_` не порожній.
+- `state.needs_full_broadcast()` — true, якщо остання дельта переповнилась.
+- `state.set_failures()` — кількість викликів `set()`, що повернули
+  false. Якщо ненульове — копайте в логах.
 
-External diagnostic endpoint: `GET /api/state` повертає всі keys і values
-як JSON. Корисно для debugging без monitor connection.
+Зовнішня діагностична точка: `GET /api/state` повертає всі ключі і
+значення як JSON. Зручно для відлагодження без під'єднання монітора.
 
-## Коли use messages замість
+## Коли натомість використовувати повідомлення
 
-SharedState найкраща для **continuous data flow**. Messages
-(`etl::imessage` через `ModuleManager::send_message`) найкращі для:
+SharedState найкраще підходить для **безперервного потоку даних**.
+Повідомлення (`etl::imessage` через `ModuleManager::send_message`)
+найкращі для:
 
-- **Дискретні events з typed payload** — "OTA download started, size = N
-  bytes, partition = ota_1". State keys потребували б 3 separate writes
-  і нема consistency guarantees.
-- **Cross-module commands** — "shutdown gracefully", "reload config".
-- **One-shot signals** — fire-and-forget, no state needed afterwards.
+- **Дискретних подій з типізованим корисним навантаженням** — "розпочато
+  завантаження OTA, розмір = N байтів, розділ = ota_1". Через ключі
+  стану знадобились би 3 окремі записи без гарантій узгодженості.
+- **Міжмодульних команд** — "коректно завершити роботу", "перезавантажити
+  конфігурацію".
+- **Одноразових сигналів** — "запусти і забудь", стан після цього не
+  потрібен.
 
-Messages у ModESP — stateless і треба declare-ти у C++ через etl message
-classes. Ми не генеруємо їх з маніфестів. Use sparingly; більшість речей
-fit-яться краще у SharedState.
+Повідомлення в ModESP — без стану і їх потрібно декларувати в C++ через
+класи повідомлень etl. Ми не генеруємо їх з маніфестів. Використовуйте
+помірковано; більшість речей краще лягають у SharedState.
 
-## Поширені помилки
+## Типові помилки
 
-**Читання key перед тим як будь-який модуль set-ить його:**
-`read_float("key", 0.0f)` повертає `0.0f` бо key не існує. Ваша business
-логіка може поводитись неправильно (наприклад, compute setpoint relative
-до "current temp" коли temp — 0). Завжди надавайте sensible default АБО
-check `state_get().has_value()` explicitly перед computing.
+**Читання ключа до того, як будь-який модуль його встановив:**
+`read_float("key", 0.0f)` повертає `0.0f`, бо ключ не існує. Ваша
+бізнес-логіка може поводитись некоректно (наприклад, обчислювати
+уставку відносно "поточної температури", поки temp = 0). Завжди
+надавайте розумне значення за замовчуванням АБО явно перевіряйте
+`state_get().has_value()` перед обчисленням.
 
-**Забутий `static_cast<int32_t>(...)` для int literals:** integer literals
-— `int`, який на 64-bit hosts (test environments) — 64-bit. Overload
-resolution fails або обирає wrong overload. Завжди cast-уйте або use
-literal suffixes.
+**Забутий `static_cast<int32_t>(...)` для цілочисельних літералів:**
+цілочисельні літерали — `int`, який на 64-бітних хостах (тестові
+середовища) є 64-бітним. Розв'язання перевантаження або провалюється,
+або вибирає неправильне перевантаження. Завжди приводьте тип або
+використовуйте суфікси літералів.
 
-**Spamming high-frequency writes з `track_change=true`:** кожна зміна йде
-до WebSocket delta queue. > 64 distinct keys per delta window forces
-full snapshots, що costs CPU і WS bandwidth. Use `false` для fast-changing
-internal counters.
+**Спам високочастотними записами з `track_change=true`:** кожна зміна
+йде в чергу дельт WebSocket. Понад 64 різних ключі за вікно дельти
+змушують надсилати повні знімки, що коштує CPU і смуги WS.
+Використовуйте `false` для внутрішніх лічильників, що швидко змінюються.
 
-**Забутий types match manifest:** declar-ючи `"type": "int"` у маніфесті
-але writing з `state_set("key", 1.5f)` — set succeeds (variant type-locks
-на float), але manifest тепер lies. WebUI displays number input з int
-constraints для float value. Match types між manifest і code.
+**Забуття узгодити типи з маніфестом:** оголошуючи `"type": "int"` у
+маніфесті, але записуючи через `state_set("key", 1.5f)` — запис
+вдається (варіант фіксований на float), але маніфест тепер бреше.
+WebUI відображає числове поле з цілочисельними обмеженнями для
+значення з плаваючою комою. Узгоджуйте типи між маніфестом і кодом.
 
-**Recipe mirror keys writing без manifest declaration:** scenario engine
-пише mirror keys (`<recipe>.scenario_state`, etc.) автоматично. Якщо
-вони не pre-declared у recipe's `state` section, вони йдуть у SharedState
-fine але `state_meta.h` не знає їх, і UI widgets що reference-ять їх
-silently fail. Завжди declare-уйте що engine буде писати.
+**Запис дзеркальних ключів рецепта без декларації в маніфесті:** рушій
+сценаріїв пише дзеркальні ключі (`<recipe>.scenario_state` тощо)
+автоматично. Якщо вони не задекларовані заздалегідь у секції `state`
+рецепта, вони все одно потрапляють до SharedState, але `state_meta.h`
+про них не знає, і UI-віджети, що на них посилаються, мовчки
+не працюють. Завжди декларуйте те, що буде писати рушій.
 
 ## Що далі
 
-- **[ui-widgets.md](ui-widgets.md)** *(planned)* — як WebUI рендерить
-  ваші state keys.
-- **[mqtt.md](mqtt.md)** *(planned)* — auto-publish патерни, subscribe
-  семантика.
-- **[persistence.md](persistence.md)** *(planned)* — `persist: true`
-  flag, PersistService internals.
-- **[debugging.md](debugging.md)** *(planned)* — using `/api/state` і WS
-  щоб inspect SharedState live.
+- **[ui-widgets.md](ui-widgets.md)** *(заплановано)* — як WebUI рендерить
+  ваші ключі стану.
+- **[mqtt.md](mqtt.md)** *(заплановано)* — патерни автопублікації,
+  семантика підписки.
+- **[persistence.md](persistence.md)** *(заплановано)* — прапорець
+  `persist: true`, внутрішня будова PersistService.
+- **[debugging.md](debugging.md)** *(заплановано)* — як використовувати
+  `/api/state` і WS для інспектування SharedState наживо.
 - **[components/modesp_core.md](../03-framework-reference/components/modesp_core.md)**
-  *(planned)* — повний SharedState reference (raw interface, для non-module
-  callers).
+  *(заплановано)* — повний довідник SharedState (низькорівневий інтерфейс
+  для викликів поза модулями).

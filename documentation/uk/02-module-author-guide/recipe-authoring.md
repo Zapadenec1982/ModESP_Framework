@@ -1,39 +1,41 @@
-# Написання рецепту
+# Написання рецептів
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/recipe-authoring.md](../../en/02-module-author-guide/recipe-authoring.md)
 
-**Рецепт** — це time-bounded процес — програма приготування, цикл batch
-reactor, irrigation sequence, defrost routine — закодований як декларативна
-state machine у `scenario` секції вашого маніфесту. Build pipeline компілює
-це у бінарний `.modr` blob; scenario engine виконує його у runtime. C++ не
-потрібен.
+**Рецепт** — це обмежений у часі процес — програма приготування, цикл
+реактора, послідовність поливу, процедура відтайки — закодований як
+декларативна машина станів у секції `scenario` вашого маніфесту. Конвеєр
+збірки компілює його у бінарний `.modr`-блоб; рушій сценаріїв виконує
+його у середовищі виконання. C++ не потрібен.
 
-Ця сторінка покриває як структурувати сценарії — tracks, phases, transitions,
-completion rules — і як recipe-as-manifest pipeline land-иться на пристрій.
-Для built-in і custom actions всередині фаз, дивіться
-[recipe-actions.md](recipe-actions.md). Для PID / hysteresis / ramp
-controllers що run-яться всередині фаз, дивіться
+Ця сторінка пояснює, як структурувати сценарії — треки, фази, переходи,
+правила завершення — і як конвеєр «рецепт-як-маніфест» потрапляє на
+пристрій. Про вбудовані та користувацькі дії всередині фаз дивіться
+[recipe-actions.md](recipe-actions.md). Про контролери PID, гістерезису
+та лінійної зміни, що працюють всередині фаз, дивіться
 [continuous-behaviors.md](continuous-behaviors.md).
 
-## Recipe = manifest з `scenario` секцією
+## Рецепт = маніфест із секцією `scenario`
 
-Recipe модуль має ту саму shape маніфесту що і service module, окрім:
+Модуль-рецепт має ту саму форму `manifest.json`, що й сервісний модуль,
+окрім:
 
-- `"module_type": "recipe"` каже build pipeline пропустити C++ генерацію.
-- Нова `"scenario"` секція містить декларацію FSM.
-- Без `CMakeLists.txt`, `src/`, `include/`. Просто manifest.
+- `"module_type": "recipe"` повідомляє конвеєру збірки пропустити
+  генерацію C++-коду.
+- Нова секція `"scenario"` містить декларацію FSM.
+- Жодного `CMakeLists.txt`, `src/`, `include/`. Лише маніфест.
 
 ```
 modules/my_recipe/
-└── manifest.json          ← entire module
+└── manifest.json          ← увесь модуль
 ```
 
-При build time, `tools/compile_scenario.py` читає `scenario` секцію і
-emit-ить `data/scenarios/<recipe_name>.modr` (CRC-validated binary).
-LittleFS bundle-ить це; engine завантажує у runtime через
-`engine.load_path("/data/scenarios/<recipe_name>.modr")`.
+Під час збірки `tools/compile_scenario.py` читає секцію `scenario` і
+формує `data/scenarios/<recipe_name>.modr` (двійковий файл із перевіркою
+CRC). LittleFS включає його в образ; рушій завантажує під час виконання
+через `engine.load_path("/data/scenarios/<recipe_name>.modr")`.
 
-## Ментальна модель: tracks і phases
+## Ментальна модель: треки і фази
 
 ```
    Scenario
@@ -45,22 +47,24 @@ LittleFS bundle-ить це; engine завантажує у runtime через
    └── (optional) global transitions to $abort
 ```
 
-**Tracks** — паралельні state machines що працюють concurrently. Кожен
-track має власну phase і progress-ить independently. Tracks комунікують
-через SharedState (writes від одного track стають readable для інших
-наступний tick).
+**Треки** — це паралельні машини станів, які виконуються одночасно.
+Кожен трек має власну фазу і просувається незалежно. Треки спілкуються
+через SharedState (записи з одного треку стають доступними для читання
+іншим у наступному такті).
 
-**Phases** — nodes у track's FSM. Phase має:
-- `entry` actions — runned коли entering phase (sequenced одна на tick).
-- `transitions` — умови для moving до іншої phase.
-- `exit` actions — runned коли leaving (перед applying transition target).
-- Optional `timeout_ms` — auto-transition до next phase після time.
-- Optional `phase_resources` — claim resources на тривалість phase.
+**Фази** — це вузли FSM треку. Фаза має:
+- `entry` дії — виконуються при вході у фазу (по одній на такт);
+- `transitions` — умови переходу до іншої фази;
+- `exit` дії — виконуються при виході (перед застосуванням цілі переходу);
+- Необов'язковий `timeout_ms` — автоматичний перехід до наступної фази
+  після спливання часу;
+- Необов'язковий `phase_resources` — захоплення ресурсів на час фази.
 
-**Targets** для transitions:
-- Інше phase name (`"to": "phase_b"`) — advance у тому ж track.
-- `"$complete"` — track succeeds (track state → COMPLETED).
-- `"$abort"` — track fails (track state → FAILED, scenario може abort).
+**Цілі** переходів:
+- Інше ім'я фази (`"to": "phase_b"`) — просування у межах того ж треку;
+- `"$complete"` — трек успішно завершився (стан треку → COMPLETED);
+- `"$abort"` — трек завершився невдало (стан треку → FAILED, сценарій
+  може перерватися).
 
 ## Мінімальний рецепт
 
@@ -114,41 +118,41 @@ track має власну phase і progress-ить independently. Tracks ком�
 }
 ```
 
-Run: load через `POST /api/scenario/load`, start через
-`POST /api/scenario/start`. Engine тикає `main` track через `warmup` (5 с)
-→ `soak` (10 с) → `$complete`. Mirror keys `my_recipe.main_phase_name`
-тощо оновлюються live.
+Запуск: завантажте через `POST /api/scenario/load`, стартуйте через
+`POST /api/scenario/start`. Рушій проганяє трек `main` через `warmup`
+(5 с) → `soak` (10 с) → `$complete`. Дзеркальні ключі
+`my_recipe.main_phase_name` тощо оновлюються в реальному часі.
 
-## Обов'язкові mirror state keys
+## Обов'язкові дзеркальні ключі стану
 
-Engine пише mirror keys у SharedState кожен tick. Ці МУСЯТЬ бути
-pre-declared у `state` секції рецепту, інакше build fails з
-cross-validation помилкою.
+Рушій записує дзеркальні ключі у SharedState кожен такт. Вони МУСЯТЬ
+бути попередньо оголошені у секції `state` рецепта, інакше збірка
+впаде з помилкою перехресної валідації.
 
-На scenario:
+На рівні сценарію:
 
-| Key | Type | Description |
+| Ключ | Тип | Опис |
 |---|---|---|
 | `<recipe>.scenario_state` | string | `"idle"`/`"loaded"`/`"running"`/`"paused"`/`"aborting"`/`"completed"`/`"failed"` |
-| `<recipe>.scenario_elapsed_s` | int | Секунди з моменту scenario start |
+| `<recipe>.scenario_elapsed_s` | int | Секунди від старту сценарію |
 
-На track:
+На рівні треку:
 
-| Key | Type | Description |
+| Ключ | Тип | Опис |
 |---|---|---|
-| `<recipe>.<track>_state` | string | Track FSM state |
-| `<recipe>.<track>_phase_name` | string | Current phase name |
-| `<recipe>.<track>_phase_idx` | int | Phase index у track (0-based) |
-| `<recipe>.<track>_elapsed_s` | int | Секунди у current phase |
+| `<recipe>.<track>_state` | string | Стан FSM треку |
+| `<recipe>.<track>_phase_name` | string | Ім'я поточної фази |
+| `<recipe>.<track>_phase_idx` | int | Індекс фази у треку (з 0) |
+| `<recipe>.<track>_elapsed_s` | int | Секунди у поточній фазі |
 
-Для рецепту з tracks `main` і `watcher`, declare 2 + (2 × 4) = 10 mirror
-keys у state секції.
+Для рецепта з треками `main` і `watcher` оголосіть 2 + (2 × 4) = 10
+дзеркальних ключів у секції state.
 
-**Naming budget:** SharedState keys ≤ 32 chars. Recipe name ≤ 12 chars,
-track name ≤ 8 chars. Приклад: `recipe_plov.watcher_phase_name` = 30
-символів — fit-иться.
+**Бюджет імен:** ключі SharedState ≤ 32 символів. Ім'я рецепта ≤ 12,
+ім'я треку ≤ 8 символів. Приклад: `recipe_plov.watcher_phase_name` =
+30 символів — вкладається.
 
-## Поля scenario-level
+## Поля рівня сценарію
 
 ```json
 "scenario": {
@@ -161,52 +165,52 @@ track name ≤ 8 chars. Приклад: `recipe_plov.watcher_phase_name` = 30
 }
 ```
 
-| Field | Required | Notes |
+| Поле | Обов'язкове | Примітки |
 |---|---|---|
-| `default_phase_timeout_ms` | yes | Default timeout per phase (mandatory per ADR-0007). Phases можуть override індивідуально. |
-| `scenario_timeout_max_ms` | recommended | Hard cap на total scenario duration. Engine aborts якщо exceeded. |
-| `completion_rule` | yes | `"all_tracks_complete"` / `"any_track_complete"` / `"main_track_complete"` — коли scenario сам finish-иться? |
-| `resources` | optional | Scenario-scope resource claims (see below). |
-| `global_transitions` | optional | Conditions evaluated FIRST кожен tick, перед per-track transitions. |
-| `tracks` | yes | Масив track definitions (1-6). |
+| `default_phase_timeout_ms` | так | Типовий таймаут фази (обов'язковий згідно з ADR-0007). Фази можуть перевизначати індивідуально. |
+| `scenario_timeout_max_ms` | рекомендовано | Жорстке обмеження загальної тривалості сценарію. Рушій перериває при перевищенні. |
+| `completion_rule` | так | `"all_tracks_complete"` / `"any_track_complete"` / `"main_track_complete"` — коли сам сценарій завершується? |
+| `resources` | необов'язкове | Захоплення ресурсів на рівні сценарію (див. нижче). |
+| `global_transitions` | необов'язкове | Умови, що обчислюються ПЕРШИМИ кожен такт, до переходів на рівні треку. |
+| `tracks` | так | Масив визначень треків (1-6). |
 
-## Tracks
+## Треки
 
 ```json
 {
-  "name": "main",                          // ≤ 8 chars, snake_case
-  "flags": ["main_track"],                 // optional flags
-  "initial_phase": 0,                      // default 0 (first phase)
-  "phases": [...]                          // array of phase definitions
+  "name": "main",                          // ≤ 8 символів, snake_case
+  "flags": ["main_track"],                 // необов'язкові прапорці
+  "initial_phase": 0,                      // типове 0 (перша фаза)
+  "phases": [...]                          // масив визначень фаз
 }
 ```
 
-| Flag | Effect |
+| Прапорець | Ефект |
 |---|---|
-| `"main_track"` | Marks primary track. Used by `completion_rule: "main_track_complete"` і scenario-level failure detection. Точно один track повинен мати цей flag. |
-| `"loop_on_complete"` | Коли track reaches `$complete`, re-enter initial phase. Used для long-running monitors. |
+| `"main_track"` | Позначає головний трек. Використовується `completion_rule: "main_track_complete"` і детектором збою на рівні сценарію. Цей прапорець повинен мати рівно один трек. |
+| `"loop_on_complete"` | Коли трек досягає `$complete`, повторно входить у початкову фазу. Використовується для довгограючих моніторів. |
 
-## Phases
+## Фази
 
 ```json
 {
-  "name": "phase_a",                       // unique у track, snake_case
-  "timeout_ms": 10000,                     // optional, overrides default_phase_timeout_ms
-  "phase_resources": [],                   // optional
-  "entry": [...],                          // optional — actions on phase entry
-  "transitions": [...],                    // required — at least 1
-  "exit": []                               // optional — actions on phase exit
+  "name": "phase_a",                       // унікальне у межах треку, snake_case
+  "timeout_ms": 10000,                     // необов'язкове, перевизначає default_phase_timeout_ms
+  "phase_resources": [],                   // необов'язкове
+  "entry": [...],                          // необов'язкове — дії при вході у фазу
+  "transitions": [...],                    // обов'язкове — щонайменше 1
+  "exit": []                               // необов'язкове — дії при виході з фази
 }
 ```
 
-### Entry і exit actions
+### Дії entry і exit
 
-Sequenced одна на tick. Engine runs `entry[0]` першим tick після phase
-begins, `entry[1]` наступний tick, тощо. Після того як всі entry actions
-finish, engine starts evaluating transitions.
+Виконуються послідовно, по одній на такт. Рушій запускає `entry[0]` у
+першому такті після початку фази, `entry[1]` — у наступному тощо. Коли
+всі entry-дії завершилися, рушій починає обчислювати переходи.
 
-Exit actions run коли transition fires, перед тим як target phase стає
-active. Same per-tick sequencing.
+Exit-дії запускаються при спрацюванні переходу, перед тим як цільова
+фаза стає активною. Та сама посекторна послідовність.
 
 ```json
 "entry": [
@@ -218,9 +222,9 @@ active. Same per-tick sequencing.
 ]
 ```
 
-Повний action catalog у [recipe-actions.md](recipe-actions.md).
+Повний каталог дій — у [recipe-actions.md](recipe-actions.md).
 
-### Transitions
+### Переходи
 
 ```json
 "transitions": [
@@ -229,91 +233,93 @@ active. Same per-tick sequencing.
 ]
 ```
 
-Evaluated у declaration order кожен tick. Перша firing wins. Як тільки
-transition fires, engine runs `exit` actions поточної phase, потім applies
-target.
+Обчислюються у порядку оголошення кожен такт. Перший, що спрацював,
+перемагає. Як тільки перехід спрацював, рушій виконує `exit`-дії
+поточної фази, потім застосовує ціль.
 
-Special targets:
-- `"$complete"` — track succeeds (state COMPLETED).
-- `"$abort"` — track fails (state FAILED).
-- `"phase_name"` — advance до specific phase.
+Спеціальні цілі:
+- `"$complete"` — трек успішно завершився (стан COMPLETED);
+- `"$abort"` — трек завершився невдало (стан FAILED);
+- `"phase_name"` — перехід до конкретної фази.
 
-### Transition kinds (`when` shapes)
+### Види переходів (форми `when`)
 
-`when` clause може бути:
+Конструкція `when` може мати такі форми:
 
-**Time only:**
+**Лише час:**
 ```json
 {"time_elapsed_ms": 5000}
 ```
-Fires коли `phase_elapsed_ms >= 5000`.
+Спрацьовує, коли `phase_elapsed_ms >= 5000`.
 
-**Condition only:**
+**Лише умова:**
 ```json
 {"state_key_gt": {"key": "equipment.air_temp", "value": 25}}
 ```
-Fires коли condition evaluates true. Conditions read SharedState live.
+Спрацьовує, коли умова обчислюється у true. Умови читають SharedState
+у реальному часі.
 
-**Time AND condition** (`time_and_cond` kind, encoded as composite):
+**Час І умова** (вид `time_and_cond`, кодується як композит):
 ```json
 {"all_of": [
   {"time_elapsed_ms": 5000},
   {"state_key_gt": {"key": "equipment.air_temp", "value": 25}}
 ]}
 ```
-Обидва повинні hold.
+Обидві умови мають виконуватися.
 
-**Time OR condition** (`time_or_cond` kind):
+**Час АБО умова** (вид `time_or_cond`):
 ```json
 {"any_of": [
   {"time_elapsed_ms": 30000},
   {"state_key_eq": {"key": "user.skip", "value": true}}
 ]}
 ```
-Будь-яке fire-ить.
+Будь-яка спрацьовує.
 
-**Unconditional** (omit `when`):
+**Безумовний** (пропустіть `when`):
 ```json
 {"to": "$complete"}
 ```
-Fires immediately. Used після того як entry actions complete — natural
-advance.
+Спрацьовує негайно. Використовується після завершення entry-дій —
+природне просування.
 
-### Каталог conditions
+### Каталог умов
 
 Дивіться [recipe-actions.md → Conditions](recipe-actions.md#conditions)
 для повного списку. Поширені:
 
-| Condition | Purpose |
+| Умова | Призначення |
 |---|---|
-| `time_elapsed_ms` | phase_elapsed_ms ≥ threshold |
-| `state_key_eq` / `_ne` | exact match / not-match |
-| `state_key_gt` / `_lt` / `_ge` / `_le` | numeric comparisons |
-| `state_key_in_range` | inclusive bounds check |
-| `state_key_changed` | edge detection (Stage 1.5) |
-| `all_of` / `any_of` / `not` | composite logic |
+| `time_elapsed_ms` | phase_elapsed_ms ≥ порогу |
+| `state_key_eq` / `_ne` | точна відповідність / невідповідність |
+| `state_key_gt` / `_lt` / `_ge` / `_le` | числові порівняння |
+| `state_key_in_range` | перевірка включних меж |
+| `state_key_changed` | детекція фронту (Stage 1.5) |
+| `all_of` / `any_of` / `not` | композитна логіка |
 
-## Completion rules
+## Правила завершення
 
-Коли scenario сам reaches terminal state?
+Коли сам сценарій досягає термінального стану?
 
-| Rule | Trigger |
+| Правило | Тригер |
 |---|---|
-| `all_tracks_complete` | Кожен track повинен бути COMPLETED. |
-| `any_track_complete` | Перший track що COMPLETE wins; remaining tracks abort. |
-| `main_track_complete` | Лише `main_track`-flagged track matters. |
+| `all_tracks_complete` | Кожен трек повинен бути COMPLETED. |
+| `any_track_complete` | Перший трек, що став COMPLETE, перемагає; решта треків перериваються. |
+| `main_track_complete` | Має значення лише трек із прапорцем `main_track`. |
 
-Failure handling:
-- Якщо main track reaches FAILED, scenario → FAILED regardless of
-  completion_rule.
-- Якщо `completion_rule: "main_track_complete"` і main fails →
-  scenario FAILED.
-- Інші tracks failing не обов'язково fail scenario (depends on rule).
+Обробка збоїв:
+- Якщо головний трек переходить у FAILED, сценарій → FAILED незалежно
+  від completion_rule.
+- Якщо `completion_rule: "main_track_complete"` і головний трек впав →
+  сценарій FAILED.
+- Падіння інших треків не обов'язково валить сценарій (залежить від
+  правила).
 
-## Global transitions
+## Глобальні переходи
 
-Evaluated FIRST кожен tick, перед per-track логікою. Used для "abort if
-fault detected" patterns.
+Обчислюються ПЕРШИМИ кожен такт, до логіки на рівні треку.
+Використовуються для шаблонів «перервати, якщо виявлено несправність».
 
 ```json
 "global_transitions": [
@@ -326,22 +332,23 @@ fault detected" patterns.
 ]
 ```
 
-| Field | Notes |
+| Поле | Примітки |
 |---|---|
-| `to` | Лише `"$abort"` meaningful (інші targets ignored). |
-| `when` | Той самий syntax як у track transitions. |
-| `priority` | 0-255. Higher fires first якщо multiple match. |
-| `scope` | `"abort_scenario"` (all tracks fail) або `"abort_only_main_track"` (лише main fails, completion_rule decides). |
+| `to` | Значущим є лише `"$abort"` (інші цілі ігноруються). |
+| `when` | Той самий синтаксис, що й у переходах треку. |
+| `priority` | 0-255. Вищий спрацьовує першим, якщо збігається кілька. |
+| `scope` | `"abort_scenario"` (усі треки падають) або `"abort_only_main_track"` (падає лише головний, далі вирішує completion_rule). |
 
-Use sparingly — global transitions — fast-path safety checks. Більшість
-логіки живе у per-track transitions.
+Використовуйте ощадливо — глобальні переходи призначені для швидких
+перевірок безпеки. Більшість логіки живе у переходах треків.
 
-## Resources (scenario і phase scope)
+## Ресурси (область сценарію і фази)
 
-Resources запобігають двом scenarios contolling той самий actuator
-simultaneously.
+Ресурси не дають двом сценаріям одночасно керувати одним і тим же
+актуатором.
 
-**Scenario-scope** (claimed at `start`, released at scenario end):
+**Область сценарію** (захоплюється при `start`, звільняється у кінці
+сценарію):
 
 ```json
 "resources": [
@@ -349,10 +356,12 @@ simultaneously.
 ]
 ```
 
-Engine attempts atomically claim all resources при `start`. Якщо будь-який
-held, `start` returns `RESOURCE_CONTENDED` і scenario stays LOADED.
+Рушій намагається атомарно захопити всі ресурси при `start`. Якщо
+будь-який з них уже зайнятий, `start` повертає `RESOURCE_CONTENDED` і
+сценарій залишається у стані LOADED.
 
-**Phase-scope** (claimed at phase entry, released at exit):
+**Область фази** (захоплюється при вході у фазу, звільняється при
+виході):
 
 ```json
 {
@@ -364,24 +373,26 @@ held, `start` returns `RESOURCE_CONTENDED` і scenario stays LOADED.
 }
 ```
 
-Якщо phase resource contended, track enters `WAITING_FOR_RESOURCE` state і
-retries each tick. Phase timeout still applies.
+Якщо ресурс фази зайнятий, трек переходить у стан
+`WAITING_FOR_RESOURCE` і повторює спробу кожен такт. Таймаут фази при
+цьому продовжує діяти.
 
 Повні деталі: [scenario-engine/06_resource_arbitration.md](../03-framework-reference/scenario-engine/06_resource_arbitration.md).
 
-## Cross-track синхронізація
+## Синхронізація між треками
 
-Tracks тикають у declaration order кожен engine update. У межах одного
-tick:
-- Track 0 reads / writes state.
-- Track 1 (later) reads fresh — including changes made by track 0 цей
-  самий tick.
+Треки тикають у порядку оголошення кожне оновлення рушія. У межах
+одного такту:
+- Трек 0 читає / пише стан.
+- Трек 1 (пізніший) читає свіжі дані — включно зі змінами, які трек 0
+  зробив у цьому самому такті.
 
-Це **tick-order semantics** (ADR-0003). Declare producer tracks before
-consumer tracks. Не rely on snapshot consistency across tracks.
+Це **семантика порядку тактів** (ADR-0003). Оголошуйте треки-продюсери
+перед треками-споживачами. Не покладайтеся на консистентність знімків
+між треками.
 
-Worked pattern: `watcher` track waits для main's `phase_name` дійти до
-value, потім completes.
+Робочий шаблон: трек `watcher` чекає, поки `phase_name` головного
+треку досягне певного значення, потім завершується.
 
 ```json
 {
@@ -397,14 +408,15 @@ value, потім completes.
 }
 ```
 
-Engine writes mirror key `my_recipe.main_phase_name` після того як main
-track ticks. Watcher (declared після main) reads це і може fire transition
-on same tick.
+Рушій записує дзеркальний ключ `my_recipe.main_phase_name` після такту
+головного треку. Watcher (оголошений після main) читає його і може
+спрацювати перехід у тому ж такті.
 
-## Параметри і dynamic values
+## Параметри і динамічні значення
 
-Recipe authors можуть declare **overridable parameters** що оператор
-adjust-ить перед starting scenario. Defined у `scenario` секції:
+Автори рецептів можуть оголошувати **перевизначувані параметри**, які
+оператор налаштовує перед запуском сценарію. Визначаються у секції
+`scenario`:
 
 ```json
 "parameters": {
@@ -413,7 +425,7 @@ adjust-ить перед starting scenario. Defined у `scenario` секції:
 }
 ```
 
-Reference у actions через `@param:<name>`:
+Посилання у діях — через `@param:<name>`:
 
 ```json
 {"action": "set_state", "params": {
@@ -423,27 +435,27 @@ Reference у actions через `@param:<name>`:
 }}
 ```
 
-Compiler resolves `@param:warm_setpoint` у param table index; engine
-substitutes value (with optional runtime override) при phase execution
-time.
+Компілятор перетворює `@param:warm_setpoint` в індекс таблиці
+параметрів; рушій підставляє значення (з можливим перевизначенням під
+час виконання) при виконанні фази.
 
 Дивіться [scenario-engine/02_binary_format.md](../03-framework-reference/scenario-engine/02_binary_format.md)
-для wire format.
+для формату на проводі.
 
-## Build і loading
+## Збірка і завантаження
 
 ```bash
-# 1. Build firmware (compile_scenario.py runs як pre-build)
+# 1. Збірка прошивки (compile_scenario.py запускається як pre-build)
 idf.py build
 
-# 2. .modr file appears у:
+# 2. Файл .modr з'являється у:
 #    build/data/scenarios/<recipe_name>.modr
-#    і bundled у LittleFS image
+#    і вбудовується у образ LittleFS
 
-# 3. Flash:
+# 3. Прошивка:
 idf.py -p COM15 flash
 
-# 4. Load і run на device:
+# 4. Завантаження і запуск на пристрої:
 curl -u admin:modesp -X POST http://192.168.1.85/api/scenario/load \
      -d '{"path": "/data/scenarios/my_recipe.modr"}'
 # → {"handle": 1}
@@ -452,69 +464,75 @@ curl -u admin:modesp -X POST http://192.168.1.85/api/scenario/start \
      -d '{"handle": 1}'
 ```
 
-WebUI exposes ті ж controls під auto-generated сторінкою рецепта
-(використовуйте `visible_when` cards щоб показати controls лише коли
-scenario loaded чи running).
+WebUI пропонує ті самі елементи керування на автогенерованій сторінці
+рецепта (використовуйте картки `visible_when`, щоб показувати елементи
+керування лише коли сценарій завантажений або працює).
 
-## Workflow для написання нового recipe
+## Робочий процес для написання нового рецепта
 
-1. **Sketch tracks і phases на папері.** Що runs concurrently? Який linear
-   sequence у межах кожного track?
-2. **Identify mirror keys.** Recipe name + track names + scenario/track
-   state keys. Fit budget (recipe ≤ 12, track ≤ 8).
-3. **Write `state` section** з mirror keys.
-4. **Write `scenario.tracks`** з entry actions і transitions.
-5. **Add `default_phase_timeout_ms`** і pick completion rule.
-6. **Compile** — `python tools/compile_scenario.py modules/my_recipe`.
-   Iterate на errors (compiler points на specific manifest lines).
-7. **Flash і HIL test** через `/api/scenario/*` endpoints.
-8. **Iterate** — adjust timings, add conditions, refine UI.
+1. **Накидайте треки і фази на папері.** Що працює одночасно? Яка
+   лінійна послідовність у межах кожного треку?
+2. **Визначте дзеркальні ключі.** Ім'я рецепта + імена треків + ключі
+   стану сценарію/треку. Вкладіться в бюджет (рецепт ≤ 12, трек ≤ 8).
+3. **Запишіть секцію `state`** з дзеркальними ключами.
+4. **Запишіть `scenario.tracks`** із entry-діями і переходами.
+5. **Додайте `default_phase_timeout_ms`** і виберіть правило завершення.
+6. **Скомпілюйте** — `python tools/compile_scenario.py modules/my_recipe`.
+   Ітеруйте по помилках (компілятор вказує на конкретні рядки маніфесту).
+7. **Прошийте і протестуйте на залізі** через ендпоінти `/api/scenario/*`.
+8. **Ітеруйте** — налаштуйте тайминги, додайте умови, доопрацюйте UI.
 
-## Поширені помилки
+## Типові помилки
 
-**Missing mirror state declarations:** engine tries write `<recipe>.main_state`
-але manifest's `state` section не declare it. Compile fails з clear
-"mirror key X not declared in state".
+**Відсутні оголошення дзеркальних ключів стану:** рушій намагається
+записати `<recipe>.main_state`, але секція `state` маніфесту його не
+оголошує. Компіляція падає з чітким повідомленням «mirror key X not
+declared in state».
 
-**Recipe name too long:** budget — ≤ 12 chars total. `refrigeration_master`
-— 20 — не fit-иться. Use shorter codes: `refrig_v1`.
+**Занадто довге ім'я рецепта:** бюджет — ≤ 12 символів усього.
+`refrigeration_master` має 20 — не вкладається. Використовуйте коротші
+коди: `refrig_v1`.
 
-**`$abort` з phase transition не aborting scenario:** track-level `$abort`
-puts track у FAILED. Інші tracks continue. Щоб abort entire scenario, use
-`global_transitions` з `scope: "abort_scenario"`.
+**`$abort` з переходу фази не перериває сценарій:** `$abort` на рівні
+треку переводить трек у FAILED. Інші треки продовжують. Щоб перервати
+весь сценарій, використовуйте `global_transitions` зі
+`scope: "abort_scenario"`.
 
-**Забутий phase timeout:** якщо no transition fires і no `timeout_ms` set,
-phase runs forever (well, until `scenario_timeout_max_ms`). Завжди ставте
-timeouts навіть якщо conditions завжди повинні fire — defense у depth.
+**Забутий таймаут фази:** якщо жодний перехід не спрацьовує і
+`timeout_ms` не встановлено, фаза працює вічно (точніше, до
+`scenario_timeout_max_ms`). Завжди встановлюйте таймаути, навіть якщо
+умови мають завжди спрацьовувати — захист у глибину.
 
-**Cross-track race condition assumption:** "Track A пише, track B читає —
-вони happen simultaneously." Ні. Tracks тикають sequentially. Declare
-producers before consumers; expect 1-tick delay якщо order reversed.
+**Припущення про гонку між треками:** «Трек A пише, трек B читає — вони
+відбуваються одночасно». Ні. Треки тикають послідовно. Оголошуйте
+продюсерів перед споживачами; очікуйте затримки в один такт, якщо
+порядок зворотний.
 
-**Built-in conditions written like Python:** `{"state_key_eq": "test.x == 5"}`
-не працює. Conditions — structured JSON, не expressions:
+**Вбудовані умови, записані як у Python:** `{"state_key_eq": "test.x == 5"}`
+не працює. Умови — це структурований JSON, а не вирази:
 `{"state_key_eq": {"key": "test.x", "value": 5}}`.
 
 ## Що далі
 
-- **[recipe-actions.md](recipe-actions.md)** — built-in actions (`log`,
-  `set_state`, `wait_ms`) і custom registration.
-- **[continuous-behaviors.md](continuous-behaviors.md)** — PID, hysteresis,
-  ramp controllers що run-яться всередині phases.
+- **[recipe-actions.md](recipe-actions.md)** — вбудовані дії (`log`,
+  `set_state`, `wait_ms`) і реєстрація користувацьких.
+- **[continuous-behaviors.md](continuous-behaviors.md)** — контролери
+  PID, гістерезису, лінійної зміни, що працюють всередині фаз.
 - **[scenario-engine/04_state_machines.md](../03-framework-reference/scenario-engine/04_state_machines.md)** —
-  per-track і scenario-level FSM diagrams.
+  діаграми FSM на рівні треку і сценарію.
 - **[scenario-engine/05_synchronization.md](../03-framework-reference/scenario-engine/05_synchronization.md)** —
-  cross-track sync deep dive з ADR-0003 rationale.
+  глибоке занурення у синхронізацію між треками з обґрунтуванням ADR-0003.
 - **[scenario-engine/06_resource_arbitration.md](../03-framework-reference/scenario-engine/06_resource_arbitration.md)** —
-  resource claim semantics.
+  семантика захоплення ресурсів.
 
-## Worked example: `modules/abs_test`
+## Робочий приклад: `modules/abs_test`
 
-Reference recipe shipped з фреймворком. Два паралельні tracks:
-- `main`: phase_a → phase_b → phase_c → $complete (≈6 секунд).
-- `watcher`: waits для `main.main_phase_name == "phase_c"` потім completes.
+Еталонний рецепт, що постачається з фреймворком. Два паралельні треки:
+- `main`: phase_a → phase_b → phase_c → $complete (≈6 секунд);
+- `watcher`: чекає на `main.main_phase_name == "phase_c"`, потім
+  завершується.
 
-Demonstrates: entry actions, conditional transitions з `all_of` composite,
-cross-track sync через mirror keys, `$complete` target.
+Демонструє: entry-дії, умовні переходи з композитом `all_of`,
+синхронізацію між треками через дзеркальні ключі, ціль `$complete`.
 
-Source: [`modules/abs_test/manifest.json`](../../../modules/abs_test/manifest.json).
+Джерело: [`modules/abs_test/manifest.json`](../../../modules/abs_test/manifest.json).

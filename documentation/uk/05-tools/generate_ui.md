@@ -1,60 +1,66 @@
-# `generate_ui.py` — manifest validator І code generator
+# `generate_ui.py` — валідатор маніфестів і генератор коду
 
 > 📖 **In English:** [documentation/en/05-tools/generate_ui.md](../../en/05-tools/generate_ui.md)
 
-`tools/generate_ui.py` — build-time entry point що turns
-**module manifests** на:
+`tools/generate_ui.py` — це точка входу під час складання, яка
+перетворює **маніфести модулів** на:
 
-1. **`data/ui.json`** — merged UI schema served at runtime через `GET /api/ui`.
-2. **`generated/state_meta.h`** — `constexpr` metadata used by API
-   handlers І SharedState для validation.
-3. **`generated/mqtt_topics.h`** — pre-computed MQTT topic strings.
-4. **`generated/display_screens.h`** — display/LCD menu data.
+1. **`data/ui.json`** — об'єднана схема UI, що подається під час
+   виконання через `GET /api/ui`.
+2. **`generated/state_meta.h`** — `constexpr`-метадані, які
+   використовують HTTP-обробники та SharedState для валідації.
+3. **`generated/mqtt_topics.h`** — попередньо обчислені рядки топіків MQTT.
+4. **`generated/display_screens.h`** — дані меню дисплея/LCD.
 
-Run з project root:
+Запускайте з кореня проєкту:
 
 ```
 python tools/generate_ui.py
 ```
 
-Output deterministic: re-running на unchanged inputs produces
-byte-identical files. ESP-IDF's build system invokes це через
-CMake custom command — generator wired у build
-graph, тому editing manifest triggers regen.
+Вивід детермінований: повторний запуск на незмінних вхідних даних
+дає байт-у-байт ідентичні файли. Система складання ESP-IDF викликає це
+через кастомну команду CMake — генератор вбудований у граф складання,
+тож редагування маніфесту запускає повторну генерацію.
 
-WebUI сам (`data/www/*.html|js|css`) — **static**. Loads
-`ui.json` at runtime — це і є те що makes framework manifest-driven.
+Сам WebUI (`data/www/*.html|js|css`) є **статичним**. Він завантажує
+`ui.json` під час виконання — саме це робить фреймворк
+manifest-driven.
 
-REQUIRES: Python 3.8+. No external packages (stdlib only).
+ВИМАГАЄ: Python 3.8+. Без зовнішніх пакетів (лише stdlib).
 
 ## Що читає
 
-| Input | Purpose |
+| Вхід | Призначення |
 |---|---|
-| `project.json` | Module list і build-time options. |
-| `modules/<name>/manifest.json` | Per-module state/ui/mqtt/loggable. |
-| `drivers/<name>/manifest.json` | Per-driver state/settings/ui. |
+| `project.json` | Список модулів і опції часу складання. |
+| `modules/<name>/manifest.json` | Стан, UI, MQTT, журналювання для модуля. |
+| `drivers/<name>/manifest.json` | Стан, налаштування, UI для драйвера. |
 
-Як module так і driver manifests loaded і cross-validated.
+Завантажуються і перехресно перевіряються як маніфести модулів, так і
+маніфести драйверів.
 
-## Що validates
+## Що валідує
 
-`ManifestValidator` runs over кожний manifest перед generation:
+`ManifestValidator` проходить кожен маніфест перед генерацією:
 
-- `manifest_version` present і matches supported (1).
-- Required top-level fields (`module`, `state`).
-- State key naming convention (`<module>.<key>`, ≤32 chars).
-- Widget-to-state-type compatibility (наприклад `slider` needs `float`/`int`).
-- Cross-module references: visible_when conditions point до real keys.
-- Recipe-specific: track names, phase references, action/condition names
-  у `tools/known_actions.json`.
+- `manifest_version` присутній і відповідає підтримуваному (1).
+- Обов'язкові поля верхнього рівня (`module`, `state`).
+- Угода про іменування ключів стану (`<module>.<key>`, ≤32 символи).
+- Сумісність типу віджета з типом стану (наприклад, `slider` потребує
+  `float`/`int`).
+- Перехресні посилання між модулями: умови `visible_when` вказують на
+  справжні ключі.
+- Специфічне для рецептів: імена доріжок, посилання на фази, імена дій
+  та умов у `tools/known_actions.json`.
 
-При error generator prints `<file>:<line>:<col>: error[<code>]: <msg>`
-і exits з code 1. Build fails.
+У разі помилки генератор виводить
+`<file>:<line>:<col>: error[<code>]: <msg>` і виходить із кодом 1.
+Складання падає.
 
-## Output 1: `data/ui.json` (runtime schema)
+## Вихід 1: `data/ui.json` (схема часу виконання)
 
-Schema structure:
+Структура схеми:
 
 ```json
 {
@@ -70,11 +76,11 @@ Schema structure:
 }
 ```
 
-WebUI fetches це once on load і re-renders якщо hash differs від
-previous load. Localised strings з кожного manifest's `i18n` blocks
-get merged у top-level dictionaries.
+WebUI отримує це один раз при завантаженні та перерендерює, якщо хеш
+відрізняється від попереднього завантаження. Локалізовані рядки з
+блоків `i18n` кожного маніфесту об'єднуються у словники верхнього рівня.
 
-## Output 2: `generated/state_meta.h`
+## Вихід 2: `generated/state_meta.h`
 
 ```cpp
 namespace modesp::generated {
@@ -90,10 +96,11 @@ namespace modesp::generated {
 }
 ```
 
-Used by HTTP handlers щоб validate POST'ed keys, by MQTT for publish
-routing, і by SharedState для type-aware coercion.
+Використовується HTTP-обробниками для валідації переданих POST-ом
+ключів, MQTT для маршрутизації публікацій та SharedState для
+типобезпечного приведення.
 
-## Output 3: `generated/mqtt_topics.h`
+## Вихід 3: `generated/mqtt_topics.h`
 
 ```cpp
 namespace modesp::generated::mqtt {
@@ -102,31 +109,32 @@ namespace modesp::generated::mqtt {
 }
 ```
 
-Pre-computed once, avoids `sprintf` at runtime. Used by `modesp_mqtt`.
+Обчислені один раз, уникають `sprintf` під час виконання.
+Використовується `modesp_mqtt`.
 
-## Output 4: `generated/display_screens.h`
+## Вихід 4: `generated/display_screens.h`
 
-Generates menu trees для LCD displays. Optional — only emitted якщо any
-module manifest contains `display:` block.
+Генерує дерева меню для LCD-дисплеїв. Опціонально — створюється, лише
+якщо будь-який маніфест модуля містить блок `display:`.
 
-## CLI options
+## Опції CLI
 
 ```
 python tools/generate_ui.py --help
 ```
 
-| Flag | Purpose |
+| Прапор | Призначення |
 |---|---|
-| `--project FILE` | Path до project.json (default: `./project.json`). |
-| `--modules-dir DIR` | Module manifest root (default: `./modules`). |
-| `--output-data DIR` | Куди write `ui.json` (default: `./data`). |
-| `--output-gen DIR` | Куди write `state_meta.h` etc. (default: `./generated`). |
-| `--strict` | Treat warnings як errors. |
+| `--project FILE` | Шлях до project.json (типово: `./project.json`). |
+| `--modules-dir DIR` | Корінь маніфестів модулів (типово: `./modules`). |
+| `--output-data DIR` | Куди писати `ui.json` (типово: `./data`). |
+| `--output-gen DIR` | Куди писати `state_meta.h` тощо (типово: `./generated`). |
+| `--strict` | Розглядати попередження як помилки. |
 
-## Integration з CMake
+## Інтеграція з CMake
 
-`CMakeLists.txt` declares custom command depending на manifest
-glob:
+`CMakeLists.txt` оголошує кастомну команду, що залежить від глобу
+маніфестів:
 
 ```cmake
 add_custom_command(
@@ -136,37 +144,38 @@ add_custom_command(
 )
 ```
 
-Editing manifest → CMake re-runs generator → regenerated headers
-→ affected components rebuild.
+Редагування маніфесту → CMake перезапускає генератор → перегенеровані
+заголовки → відповідні компоненти перезбираються.
 
-## Common pitfalls
+## Типові помилки
 
-**Encoding errors on Windows:** скрипт auto-reconfigures stdout до
-UTF-8. Якщо redirect до file і see `?` characters, use PowerShell з
-UTF-8 default або pipe through `chcp 65001`.
+**Помилки кодування на Windows:** скрипт автоматично переналаштовує
+stdout на UTF-8. Якщо перенаправляєте у файл і бачите символи `?`,
+скористайтеся PowerShell з UTF-8 за замовчуванням або пропустіть через
+`chcp 65001`.
 
-**Forgotten manifest registration:** modules not listed у `project.json`
-silently skipped. Якщо ваш new module's UI не appear, перевір
-`project.json` first.
+**Забута реєстрація маніфесту:** модулі, не перелічені у `project.json`,
+мовчки пропускаються. Якщо UI вашого нового модуля не з'являється,
+спершу перевірте `project.json`.
 
-**Widget type mismatch:** `slider` на `bool` key gives validator
-error. Або pick right widget (`toggle` для booleans), або fix
-state type.
+**Невідповідність типу віджета:** `slider` на ключі `bool` дає помилку
+валідатора. Або оберіть правильний віджет (`toggle` для bool-значень),
+або виправте тип стану.
 
-**Schema diff at rebuild:** якщо `ui.json` changes byte-for-byte без
-manifest changes — це bug — generation should be deterministic. File
-issue.
+**Розбіжність схеми при повторному складанні:** якщо `ui.json` змінює
+байти без змін у маніфестах — це баг; генерація має бути
+детермінованою. Створіть issue.
 
 ## Що далі
 
-- **[compile_scenario.md](compile_scenario.md)** — analogous tool для
-  recipe manifests producing `.modr` binaries.
+- **[compile_scenario.md](compile_scenario.md)** — аналогічний
+  інструмент для маніфестів рецептів, що видає двійкові файли `.modr`.
 - **[02-module-author-guide/manifest.md](../02-module-author-guide/manifest.md)** —
-  manifest schema reference.
+  довідник схеми маніфесту.
 - **[02-module-author-guide/ui-widgets.md](../02-module-author-guide/ui-widgets.md)** —
-  які UI widgets generator emits.
+  які віджети UI видає генератор.
 
-## Source
+## Джерела
 
 - [`tools/generate_ui.py`](../../../tools/generate_ui.py)
-- [`tools/known_actions.json`](../../../tools/known_actions.json) — action/condition catalog.
+- [`tools/known_actions.json`](../../../tools/known_actions.json) — каталог дій / умов.

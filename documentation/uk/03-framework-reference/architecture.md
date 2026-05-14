@@ -2,23 +2,24 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/architecture.md](../../en/03-framework-reference/architecture.md)
 
-ModESP v4 — layered C++ firmware framework для пристроїв класу ESP32. Ця
-сторінка документує top-down архітектуру: які компоненти існують, як вони
-залежать один від одного, що runs у якому task, і як manifest-driven
-generation pipeline зв'язує усе разом при build time.
+ModESP v4 — це шаруватий C++ фреймворк прошивки для пристроїв класу ESP32.
+Ця сторінка документує архітектуру згори донизу: які компоненти існують,
+як вони залежать один від одного, що виконується в якому завданні і як
+конвеєр генерації, керований маніфестами, зв'язує усе разом під час
+складання.
 
-Якщо ви пишете modules, ви типово interact-ите з thin slice цієї
-архітектури: BaseModule (modesp_core), state keys (SharedState), і
-можливо drivers (modesp_hal). Ця сторінка — для розуміння substrate під
-тими APIs.
+Якщо ви пишете модулі, ви зазвичай взаємодієте лише з тонким зрізом цієї
+архітектури: BaseModule (modesp_core), ключі стану (SharedState) і,
+можливо, драйверами (modesp_hal). Ця сторінка призначена для розуміння
+підвалин, що лежать під цими API.
 
-## Layered overview
+## Огляд шарів
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                        ВАШ ПРОДУКТ                               │
 │   modules/<your_module>/   modules/<your_recipe>/                │
-│   (manifest.json + C++)    (manifest.json лише)                  │
+│   (manifest.json + C++)    (лише manifest.json)                  │
 ├──────────────────────────────────────────────────────────────────┤
 │                     ФРЕЙМВОРК ModESP                             │
 │                                                                  │
@@ -39,68 +40,69 @@ generation pipeline зв'язує усе разом при build time.
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Higher layers depend на lower; lower layers know nothing про higher.
-Domain modules sit на top; core живе на bottom.
+Вищі шари залежать від нижчих; нижчі шари нічого не знають про вищі.
+Прикладні модулі сидять угорі; ядро живе внизу.
 
-## Component dependency map
+## Карта залежностей компонентів
 
-| Component | Залежить від | Provides |
+| Компонент | Залежить від | Надає |
 |---|---|---|
-| `modesp_core` | (ETL, FreeRTOS) | `App`, `ModuleManager`, `SharedState`, `BaseModule`, types |
+| `modesp_core` | (ETL, FreeRTOS) | `App`, `ModuleManager`, `SharedState`, `BaseModule`, типи |
 | `modesp_services` | core | Error, Watchdog, Config, Persist, Logger, SystemMonitor, nvs_helper |
-| `modesp_hal` | core | HAL, DriverManager, IDriver interfaces |
+| `modesp_hal` | core | HAL, DriverManager, інтерфейси IDriver |
 | `modesp_net` | core, services, hal | WiFiService, HttpService, WsService |
 | `modesp_mqtt` | core, services, net | MqttService, TLS, HA discovery |
-| `modesp_aws` | core, services, net | AwsIotService (alternative до mqtt) |
-| `modesp_json` | (jsmn) | JSON parse helpers |
+| `modesp_aws` | core, services, net | AwsIotService (альтернатива до mqtt) |
+| `modesp_json` | (jsmn) | помічники для розбору JSON |
 | `modesp_scenario` | core, services | Engine, ActionRegistry, ContinuousRegistry, IStateBackend |
-| `modules/equipment` | core, hal, services | Equipment Manager (sensors → state, state → actuators) |
-| `modules/datalogger` | core, services | Channel logging, event logging |
-| `modules/simple_thermo` | core | Reference business module |
+| `modules/equipment` | core, hal, services | Equipment Manager (сенсори → стан, стан → актуатори) |
+| `modules/datalogger` | core, services | журналювання каналів і подій |
+| `modules/simple_thermo` | core | еталонний бізнес-модуль |
 
-Build system enforces these через `idf_component_register(REQUIRES ...)`.
+Система складання забезпечує ці залежності через
+`idf_component_register(REQUIRES ...)`.
 
-## Application об'єкт (`App`)
+## Об'єкт застосунку (`App`)
 
-`modesp_core` exposes один application-level singleton — `modesp::App`.
-Створюється раз у `main.cpp`:
+`modesp_core` надає одного синглтона рівня застосунку — `modesp::App`.
+Створюється один раз у `main.cpp`:
 
 ```cpp
 auto& app = modesp::App::instance();
 app.init();             // construct SharedState, ModuleManager
 // ... register modules ...
-app.modules().init_all(app.state());     // calls on_init на registered modules
+app.modules().init_all(app.state());     // calls on_init on registered modules
 // ... later ...
-app.modules().update_all(dt_ms);         // calls on_update на every tick
+app.modules().update_all(dt_ms);         // calls on_update on every tick
 ```
 
-App owns:
-- `SharedState state_` — typed key-value store
+App володіє:
+- `SharedState state_` — типізоване сховище ключ-значення
   ([shared-state.md](../02-module-author-guide/shared-state.md)).
-- `ModuleManager modules_` — registry BaseModule instances.
+- `ModuleManager modules_` — реєстр екземплярів BaseModule.
 
-`app.state()` і `app.modules()` дають references що survive program
-lifetime.
+`app.state()` і `app.modules()` повертають посилання, що живуть протягом
+усього часу роботи програми.
 
-## ModuleManager — registration і tick driving
+## ModuleManager — реєстрація та керування тактами
 
-`ModuleManager` тримає fixed-capacity array `BaseModule*` references (no
-ownership — modules static у main.cpp). Lifecycle методи drive усі
-registered modules:
+`ModuleManager` тримає масив фіксованої місткості з посилань `BaseModule*`
+(без володіння — модулі статичні у main.cpp). Методи життєвого циклу
+керують усіма зареєстрованими модулями:
 
 ```cpp
 class ModuleManager {
 public:
-    bool register_module(BaseModule& m);     // adds до registry
-    bool init_all(SharedState& state);       // calls on_init() на кожному CREATED module
-    void update_all(uint32_t dt_ms);         // calls on_update() на кожному INITIALISED module
-    void on_message(const etl::imessage& m); // dispatches до addressed module
+    bool register_module(BaseModule& m);     // adds to registry
+    bool init_all(SharedState& state);       // calls on_init() on each CREATED module
+    void update_all(uint32_t dt_ms);         // calls on_update() on each INITIALISED module
+    void on_message(const etl::imessage& m); // dispatches to addressed module
     void stop_all();                         // calls on_stop()
     // ...
 };
 ```
 
-### Three-phase init
+### Трифазна ініціалізація
 
 `init_all` викликається ТРИ рази у main.cpp:
 
@@ -108,28 +110,29 @@ public:
 // Phase 1 — register CRITICAL modules (error, watchdog, config, persist, monitor)
 app.modules().register_module(error_service);
 // ... more CRITICAL ...
-app.modules().init_all(app.state());           // initialises CRITICAL лише
+app.modules().init_all(app.state());           // initialises CRITICAL only
 
-// Phase 2 — register HIGH і NORMAL (wifi, hal, drivers, scenario, business modules)
+// Phase 2 — register HIGH and NORMAL (wifi, hal, drivers, scenario, business modules)
 app.modules().register_module(wifi_service);
 // ... more HIGH/NORMAL ...
-app.modules().init_all(app.state());           // initialises HIGH і NORMAL
+app.modules().init_all(app.state());           // initialises HIGH and NORMAL
 
 // Phase 3 — register LOW (http, ws, datalogger)
 app.modules().register_module(http_service);
 app.modules().init_all(app.state());           // initialises LOW
 ```
 
-`init_all` skips modules що already у `INITIALISED` state, тому multiple
-calls work as expected. Modules повертають `false` з `on_init` якщо не
-змогли initialise — вони йдуть у `FAILED` state і не tick-аються.
+`init_all` пропускає модулі, що вже у стані `INITIALISED`, тому кількаразові
+виклики працюють як очікувалося. Модулі повертають `false` з `on_init`,
+якщо не змогли ініціалізуватись — вони переходять у стан `FAILED` і не
+отримують тактів.
 
-Order у межах phase — **registration order**. `update_all` ticks
-modules у тому самому order кожного виклику.
+Порядок у межах фази — це **порядок реєстрації**. `update_all` подає такти
+модулям у тому самому порядку при кожному виклику.
 
-### 100 Hz tick loop
+### Цикл тактів 100 Гц
 
-Після init, main.cpp runs:
+Після ініціалізації main.cpp виконує:
 
 ```cpp
 while (true) {
@@ -142,137 +145,143 @@ while (true) {
 }
 ```
 
-10 мс tick = 100 Hz. Кожен module's `on_update(dt_ms)` runs кожен tick у
-registration order. Total time у одному tick must stay < ~5 мс across усіх
-modules щоб avoid watchdog resets і WS broadcast jitter.
+Такт 10 мс = 100 Гц. `on_update(dt_ms)` кожного модуля виконується щотакту
+у порядку реєстрації. Загальний час одного такту має лишатись < ~5 мс по
+всіх модулях, щоб уникнути перезавантажень через сторожовий таймер і
+тремтіння WS-розсилок.
 
-## SharedState — data backbone
+## SharedState — хребет даних
 
-Один process-wide `SharedState` живе у App. Це typed, mutex-protected
-key-value store (ETL `unordered_map<StateKey, StateValue>` із bounded
-capacity з `state_meta.h`). Modules read і write keys; жодних прямих
-module-to-module pointers.
+Один процесний `SharedState` живе всередині App. Це типізоване сховище
+ключ-значення під захистом м'ютекса (ETL `unordered_map<StateKey,
+StateValue>` з обмеженою місткістю з `state_meta.h`). Модулі читають і
+пишуть ключі; жодних прямих вказівників між модулями.
 
-Три accessor styles:
+Три стилі доступу:
 
-1. **Через BaseModule helpers** (найпоширеніше):
+1. **Через помічники BaseModule** (найпоширеніше):
    ```cpp
    float t = read_float("equipment.air_temp", 0.0f);
    state_set("my_module.output", true);
    ```
-2. **Через `app.state()` напряму** (для HTTP handlers, recipe actions):
+2. **Через `app.state()` напряму** (для обробників HTTP, дій рецептів):
    ```cpp
    modesp::StateValue v;
    if (state.get("key", out)) { ... }
    ```
-3. **Через `IStateBackend`** (scenario engine):
+3. **Через `IStateBackend`** (рушій сценаріїв):
    ```cpp
    class SharedStateBackend : public IStateBackend { ... };
    ```
 
-Повний reference: [shared-state.md](../02-module-author-guide/shared-state.md).
+Повний довідник: [shared-state.md](../02-module-author-guide/shared-state.md).
 
-## Згенеровані headers і build pipeline
+## Згенеровані заголовки і конвеєр складання
 
-Фреймворк — **manifest-driven**: `tools/generate_ui.py` runs як pre-build
-CMake step і generates C++ headers з маніфестів:
+Фреймворк **керується маніфестами**: `tools/generate_ui.py` виконується як
+крок CMake перед складанням і генерує C++ заголовки з маніфестів:
 
-| Generated file | Content | Used by |
+| Згенерований файл | Вміст | Використовується |
 |---|---|---|
-| `state_meta.h` | Constexpr table declared state keys + types + max count | SharedState, PersistService, MQTT topics |
-| `mqtt_topics.h` | Topic string constants per state key | MqttService |
-| `module_includes.h` | `#include "<module>.h"` per project.json | main.cpp |
-| `module_instances.h` | Static `<Module> name;` declarations | main.cpp |
-| `module_register.h` | `manager.register_module(<name>)` calls | main.cpp's `modesp_register_modules(app)` |
-| `modules.cmake` | List module components для CMake REQUIRES | main/CMakeLists.txt |
-| `display_screens.h` | LCD widget configs | display drivers (якщо present) |
-| `datalogger_channels.h` | Channel ID mapping | datalogger |
-| `datalogger_events.h` | Event ID mapping | datalogger |
-| `features_config.h` | Compile-time feature flags | various |
+| `state_meta.h` | constexpr-таблиця оголошених ключів стану + типи + макс. кількість | SharedState, PersistService, теми MQTT |
+| `mqtt_topics.h` | константи рядків тем для кожного ключа стану | MqttService |
+| `module_includes.h` | `#include "<module>.h"` на кожен запис у project.json | main.cpp |
+| `module_instances.h` | оголошення `static <Module> name;` | main.cpp |
+| `module_register.h` | виклики `manager.register_module(<name>)` | `modesp_register_modules(app)` у main.cpp |
+| `modules.cmake` | список компонентів модулів для CMake REQUIRES | main/CMakeLists.txt |
+| `display_screens.h` | конфігурації віджетів LCD | драйвери дисплея (якщо присутні) |
+| `datalogger_channels.h` | відображення ідентифікаторів каналів | datalogger |
+| `datalogger_events.h` | відображення ідентифікаторів подій | datalogger |
+| `features_config.h` | прапорці можливостей часу складання | різне |
 
-LittleFS-bundled artifacts (`data/`):
+Артефакти, вбудовані в LittleFS (`data/`):
 
-| File | Content |
+| Файл | Вміст |
 |---|---|
-| `data/ui.json` | Merged WebUI schema served at `/api/ui` |
-| `data/board.json` | Selected board's hardware capabilities |
-| `data/bindings.json` | Selected board's driver bindings |
-| `data/scenarios/*.modr` | Compiled recipe binaries |
-| `data/www/*` | Pre-built Svelte SPA |
-| `data/www/i18n/*.json` | Translation packs (UK/EN/DE/PL) |
+| `data/ui.json` | об'єднана схема WebUI, що віддається за `/api/ui` |
+| `data/board.json` | можливості обладнання вибраної плати |
+| `data/bindings.json` | прив'язки драйверів вибраної плати |
+| `data/scenarios/*.modr` | скомпільовані бінарники рецептів |
+| `data/www/*` | попередньо складений Svelte SPA |
+| `data/www/i18n/*.json` | пакети перекладів (UK/EN/DE/PL) |
 
-`compile_scenario.py` runs як separate step для recipe modules,
-producing `.modr` blobs.
+`compile_scenario.py` виконується окремим кроком для модулів-рецептів,
+створюючи бінарні файли `.modr`.
 
-## FreeRTOS task topology
+## Топологія завдань FreeRTOS
 
-| Task | Priority | Stack | Purpose |
+| Завдання | Пріоритет | Стек | Призначення |
 |---|---|---|---|
-| `main` | low (idle equivalent після boot) | 8 KB | 100 Hz update loop. Більшість modules tick тут. |
-| `app_main` | (initial) | 4 KB | Boot setup, потім transfers до `main`. |
-| WiFi tasks | various (ESP-IDF) | 4-8 KB | WiFi stack, lwIP, network packet handling. |
-| httpd task | medium | 8 KB | HTTP request handlers run тут, НЕ на main task. |
-| WebSocket worker | medium | 4 KB | WS frames |
-| MQTT task | medium | 6 KB | esp-mqtt client |
-| ESP-IDF system tasks | various | various | IPC, timers, ESP timer, тощо. |
+| `main` | низький (еквівалент idle після завантаження) | 8 КБ | цикл оновлення 100 Гц. Більшість модулів тактує тут. |
+| `app_main` | (початковий) | 4 КБ | налаштування при завантаженні, потім передача до `main`. |
+| WiFi tasks | різні (ESP-IDF) | 4-8 КБ | стек Wi-Fi, lwIP, обробка мережевих пакетів. |
+| httpd task | середній | 8 КБ | обробники HTTP-запитів виконуються тут, НЕ у головному завданні. |
+| WebSocket worker | середній | 4 КБ | кадри WS |
+| MQTT task | середній | 6 КБ | клієнт esp-mqtt |
+| системні завдання ESP-IDF | різні | різні | IPC, таймери, ESP timer тощо. |
 
-Modules tick на main task — отже single-threaded з їхньої перспективи.
-HTTP handlers і MQTT callbacks run на різних tasks, тому вони ПОВИННІ
-йти через SharedState (mutex-protected) — не poke module state напряму.
+Модулі тактують у головному завданні — отже, з власної перспективи вони
+однопотокові. Обробники HTTP і зворотні виклики MQTT виконуються в інших
+завданнях, тому вони ПОВИННІ проходити через SharedState (захищений
+м'ютексом) — а не торкатися стану модуля напряму.
 
-## State persistence і recovery
+## Збереження та відновлення стану
 
 Два рівні:
 
-1. **PersistService** (modesp_services) — wires state keys з
-   `persist: true` до NVS. Transparent. 5-second debounce. Restore
-   happens перед any module's `on_init`.
-2. **Scenario engine NvsObserver** (modesp_scenario) — token-based
-   per-instance recovery для scenario runtime state. Magic `SCTK`,
-   throttled writes, immediate save при main-track phase changes.
+1. **PersistService** (modesp_services) — підключає ключі стану з
+   `persist: true` до NVS. Прозоро. Затримка 5 секунд. Відновлення
+   відбувається до виклику `on_init` будь-якого модуля.
+2. **NvsObserver рушія сценаріїв** (modesp_scenario) — відновлення на
+   основі токенів для кожного екземпляра стану виконання сценарію.
+   Магічне слово `SCTK`, обмежений темп записів, негайне збереження при
+   змінах фази основної гілки.
 
-NVS partitions:
-- `nvs` (24 KB) — settings, WiFi credentials, ROM-protected.
-- `otadata` — OTA selector.
+Розділи NVS:
+- `nvs` (24 КБ) — налаштування, облікові дані Wi-Fi, захищено ROM.
+- `otadata` — селектор OTA.
 
-Larger blobs (LittleFS / `data/`) — read-only after flash за замовчуванням;
-OTA updates whole partition atomically.
+Більші великі обʼєкти (LittleFS / `data/`) — лише для читання після
+прошивки за замовчуванням; OTA оновлює увесь розділ атомарно.
 
-## OTA flow (top-level)
+## Потік OTA (верхній рівень)
 
-Dual-image scheme з automatic rollback:
+Схема з двома образами та автоматичним відкатом:
 
-1. Active firmware running у `ota_0`.
-2. New firmware uploaded через HTTP `/api/ota/upload` → goes до `ota_1`.
-3. Reboot із `ota_1` як active.
-4. `app_main` checks "pending-verify" state, gives нову firmware 60
-   секунд щоб mark себе stable.
-5. Stable mark = HTTP `/api/ota/confirm` або automatic при watchdog
-   non-trigger.
-6. Otherwise rollback до `ota_0`.
+1. Активна прошивка виконується у `ota_0`.
+2. Нова прошивка завантажується через HTTP `/api/ota/upload` → потрапляє
+   у `ota_1`.
+3. Перезавантаження з `ota_1` як активним.
+4. `app_main` перевіряє стан "pending-verify", дає новій прошивці
+   60 секунд, щоб позначити себе стабільною.
+5. Позначка стабільності = HTTP `/api/ota/confirm` або автоматично, якщо
+   сторожовий таймер не спрацює.
+6. В іншому випадку — відкат до `ota_0`.
 
-Повний deployment workflow у [04-hardware/ota.md](../04-hardware/ota.md)
-*(planned)*.
+Повний робочий процес розгортання у
+[04-hardware/ota.md](../04-hardware/ota.md) *(планується)*.
 
-## Network і external API
+## Мережа і зовнішній API
 
-`modesp_net` ships:
+`modesp_net` надає:
 
-- **WiFiService:** STA mode із AP fallback (no SSID found → device opens
-  AP для credential entry). mDNS hostname `modesp-<deviceid>.local`.
-- **HttpService:** esp_http_server із ~30 REST endpoints (state, settings,
-  WiFi config, OTA, scenarios, modules info, board, bindings, тощо).
-- **WsService:** WebSocket що broadcasts state changes до connected
-  clients кожні ~500 мс (або full snapshot при overflow).
+- **WiFiService:** режим STA з резервним AP (не знайдено SSID → пристрій
+  відкриває AP для введення облікових даних). Ім'я хоста mDNS
+  `modesp-<deviceid>.local`.
+- **HttpService:** esp_http_server з ~30 REST-точками доступу (стан,
+  налаштування, конфігурація Wi-Fi, OTA, сценарії, інформація про модулі,
+  плата, прив'язки тощо).
+- **WsService:** WebSocket, що транслює зміни стану підключеним клієнтам
+  кожні ~500 мс (або повний знімок при переповненні).
 
-Optional cloud backends (mutually exclusive, Kconfig choice):
-- `modesp_mqtt`: generic MQTT, optionally TLS, з HA discovery.
-- `modesp_aws`: AWS IoT Core з cert-based auth.
+Опційні хмарні бекенди (взаємовиключні, вибір через Kconfig):
+- `modesp_mqtt`: загальний MQTT, опційно TLS, з HA discovery.
+- `modesp_aws`: AWS IoT Core з автентифікацією за сертифікатом.
 
-Обидва implement той самий publish/subscribe контракт з module author's
-view: declare у manifest, фреймворк wires the rest.
+Обидва реалізують той самий контракт публікації/підписки з погляду
+автора модуля: оголошуєш у маніфесті, фреймворк підключає решту.
 
-## Scenario engine pipeline
+## Конвеєр рушія сценаріїв
 
 ```
 modules/<recipe>/manifest.json
@@ -295,45 +304,47 @@ SharedState mirror keys updated
 WebUI / MQTT see changes
 ```
 
-Engine — regular BaseModule registered у Phase 2. Див.
-[scenario-engine/](scenario-engine/) для deep dives.
+Рушій — це звичайний BaseModule, зареєстрований у Фазі 2. Див.
+[scenario-engine/](scenario-engine/) для поглибленого розгляду.
 
-## Що ви типово не торкаєтесь напряму
+## Що ви зазвичай не торкаєтесь напряму
 
-- `app_main`, ESP-IDF tasks — pure boot scaffolding у main.cpp.
-- `modesp_core::SharedState` напряму — use BaseModule helpers.
-- HTTP / WebSocket handlers — generate UI через manifests.
-- MQTT client — declare у manifest.
-- Driver instances — bindings.json wires them; ви пишете modules що
-  читають `equipment.<role>`.
+- `app_main`, завдання ESP-IDF — чистий каркас завантаження у main.cpp.
+- `modesp_core::SharedState` напряму — використовуйте помічники
+  BaseModule.
+- Обробники HTTP / WebSocket — генеруйте UI через маніфести.
+- Клієнт MQTT — оголошуйте у маніфесті.
+- Екземпляри драйверів — bindings.json підключає їх; ви пишете модулі,
+  що читають `equipment.<role>`.
 
-## Що ви customise часто
+## Що ви часто налаштовуєте
 
-- Module manifests — declare state keys, UI, MQTT.
-- Module C++ classes — business logic у `on_update`.
-- Recipe scenario sections — phase-driven processes.
-- `bindings.json` per deployment — match hardware until ви маєте proper
-  board variant.
-- `project.json` — які modules build-аться у це firmware.
+- Маніфести модулів — оголошення ключів стану, UI, MQTT.
+- C++ класи модулів — бізнес-логіка у `on_update`.
+- Розділи сценаріїв у рецептах — процеси, керовані фазами.
+- `bindings.json` для кожного розгортання — погоджуйте з обладнанням,
+  поки не з'явиться повноцінний варіант плати.
+- `project.json` — які модулі потрапляють у цю прошивку.
 
 ## Що далі
 
-- **[components/modesp_core.md](components/modesp_core.md)** — detailed
-  core API reference: SharedState, BaseModule, ModuleManager.
+- **[components/modesp_core.md](components/modesp_core.md)** — детальний
+  довідник API ядра: SharedState, BaseModule, ModuleManager.
 - **[components/modesp_services.md](components/modesp_services.md)**
-  *(planned)* — services internals.
-- **[components/modesp_hal.md](components/modesp_hal.md)** *(planned)* —
-  HAL і DriverManager.
-- **[scenario-engine/](scenario-engine/)** — scenario engine deep dive.
+  *(планується)* — внутрішня будова служб.
+- **[components/modesp_hal.md](components/modesp_hal.md)** *(планується)*
+  — HAL і DriverManager.
+- **[scenario-engine/](scenario-engine/)** — поглиблений розгляд рушія
+  сценаріїв.
 - **[02-module-author-guide/overview.md](../02-module-author-guide/overview.md)**
-  — back to module author's perspective.
+  — повернення до перспективи автора модулів.
 
-## Source roots
+## Джерела
 
-- [`components/modesp_core/`](../../../components/modesp_core/) — core
-  types і App.
-- [`main/main.cpp`](../../../main/main.cpp) — boot sequence, init phases,
-  tick loop.
-- [`project.json`](../../../project.json) — module manifest.
-- [`tools/generate_ui.py`](../../../tools/generate_ui.py) — build-time
-  generator.
+- [`components/modesp_core/`](../../../components/modesp_core/) — типи
+  ядра і App.
+- [`main/main.cpp`](../../../main/main.cpp) — послідовність завантаження,
+  фази ініціалізації, цикл тактів.
+- [`project.json`](../../../project.json) — маніфест модулів.
+- [`tools/generate_ui.py`](../../../tools/generate_ui.py) — генератор,
+  що працює під час складання.

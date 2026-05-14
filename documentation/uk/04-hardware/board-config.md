@@ -2,56 +2,56 @@
 
 > 📖 **In English:** [documentation/en/04-hardware/board-config.md](../../en/04-hardware/board-config.md)
 
-`board.json` описує **фізичні можливості** плати — які GPIO pins доступні,
-які I2C buses існують, які expander чіпи встановлені, які 1-Wire і ADC
-канали зведені. Фреймворк читає це при build time і використовує щоб gate
-`bindings.json` validity (binding не може target-ити GPIO не declared у
-board.json).
+`board.json` описує **фізичні можливості** плати — які виводи GPIO
+доступні, які шини I2C існують, які чіпи-розширювачі встановлені, які
+канали 1-Wire та ADC підведені. Фреймворк читає його під час складання
+та використовує, щоб обмежити допустимість `bindings.json` (прив'язка не
+може націлюватися на GPIO, який не оголошений у board.json).
 
-Ця сторінка — reference для написання вашого власного `board.json` коли ви
-build-уєте кастомну PCB або port-уєте фреймворк на нову dev board. Дві
-reference boards поставляються з фреймворком: `boards/dev/` (ESP32-DevKit
-з прямими GPIO relays) і `boards/kc868a6/` (Kincony KC868-A6 з PCF8574 I2C
-expanders).
+Ця сторінка — довідник для написання власного `board.json`, коли ви
+розробляєте кастомну плату або портуєте фреймворк на нову плату
+розробника. У комплекті з фреймворком постачаються дві референсні плати:
+`boards/dev/` (ESP32-DevKit із прямими реле GPIO) і `boards/kc868a6/`
+(Kincony KC868-A6 із розширювачами PCF8574 на I2C).
 
-## Що board.json є і не є
+## Чим board.json є і чим не є
 
 **Є:**
-- Декларація hardware capability. "На цій платі GPIO 14 драйвить реле 1,
-  GPIO 15 — OneWire bus 1."
-- Static при build time. Обирається через Kconfig (`CONFIG_MODESP_BOARD`).
-- Зберігається у `boards/<name>/board.json` і копіюється у LittleFS image
-  при build.
+- Декларацією апаратних можливостей. "На цій платі GPIO 14 керує реле 1,
+  GPIO 15 — це шина OneWire 1."
+- Статичним під час складання. Обирається через Kconfig (`CONFIG_MODESP_BOARD`).
+- Зберігається у `boards/<name>/board.json` і копіюється до образу
+  LittleFS під час складання.
 
 **Не є:**
-- Driver-to-role mapping (це `bindings.json`).
-- Runtime конфігурація (file ships read-only на пристрій).
-- Schematic. Фреймворк не знає як речі wired beyond поля перераховані
-  нижче — board layout, ground planes, power topology stay у PCB design
-  tools.
+- Зіставленням драйвер-до-ролі (це робить `bindings.json`).
+- Конфігурацією часу виконання (файл потрапляє на пристрій лише для читання).
+- Принциповою схемою. Фреймворк не знає, як з'єднані елементи поза
+  переліченими нижче полями — топологія плати, площини землі, схема
+  живлення залишаються у ваших інструментах проєктування плат.
 
-## Структура папки на board
+## Структура теки плати
 
 ```
 boards/<board_name>/
-├── board.json          ← Hardware capabilities (це file)
-└── bindings.json       ← Driver assignments (наступна сторінка)
+├── board.json          ← Апаратні можливості (цей файл)
+└── bindings.json       ← Призначення драйверів (наступна сторінка)
 ```
 
-Перемикання boards без code змін: змінити `CONFIG_MODESP_BOARD=<name>` у
-sdkconfig.defaults і rebuild. Build system копіює files обраної board у
-`data/` для LittleFS bundling.
+Перемикайте плати без змін у коді: змініть `CONFIG_MODESP_BOARD=<name>` у
+`sdkconfig.defaults` і перезберіть. Система складання копіює файли
+обраної плати до теки `data/` для пакування у LittleFS.
 
-## Top-level поля
+## Поля верхнього рівня
 
 | Поле | Тип | Обов'язкове | Примітки |
 |---|---|---|---|
 | `manifest_version` | int | так | Зараз `1`. |
-| `board` | string | так | Board identifier. Match-ить ім'я папки. |
-| `version` | string | рекомендоване | Hardware revision (PCB version). |
-| `description` | string | рекомендоване | Однорядковий summary включно з form factor / target use. |
+| `board` | string | так | Ідентифікатор плати. Збігається з ім'ям теки. |
+| `version` | string | рекомендовано | Ревізія апаратури (версія плати). |
+| `description` | string | рекомендовано | Однорядковий опис із форм-фактором та цільовим застосуванням. |
 
-Приклад header:
+Приклад заголовка:
 
 ```json
 {
@@ -62,18 +62,19 @@ sdkconfig.defaults і rebuild. Build system копіює files обраної bo
 }
 ```
 
-## Секції (всі опціональні — декларуйте лише те, що ваша board має)
+## Секції (всі опціональні — оголошуйте лише те, що є на вашій платі)
 
 ### `gpio_outputs`
 
-Прямі GPIO pins що драйвлять output (реле, LED, SSR control). Кожен entry:
+Прямі виводи GPIO, які керують виходом (реле, світлодіод, керування SSR).
+Кожен запис:
 
 ```json
 {
-  "id": "relay_1",          // Унікальний ID — bindings.json references це
-  "gpio": 14,               // ESP32 GPIO number
-  "active_high": true,      // true = GPIO HIGH перемикає реле ON
-  "label": "Relay 1"        // Human label для UI / diagnostics
+  "id": "relay_1",          // Унікальний ID — bindings.json посилається на нього
+  "gpio": 14,               // Номер GPIO ESP32
+  "active_high": true,      // true = GPIO HIGH вмикає реле
+  "label": "Relay 1"        // Людська мітка для UI / діагностики
 }
 ```
 
@@ -90,21 +91,21 @@ sdkconfig.defaults і rebuild. Build system копіює files обраної bo
 
 ### `gpio_inputs`
 
-Прямі GPIO pins що читають контакт / switch / digital output сенсора:
+Прямі виводи GPIO, які зчитують контакт / перемикач / цифровий вихід сенсора:
 
 ```json
 {
   "id": "din_1",
   "gpio": 34,
-  "pull": "up",            // "up" / "down" / "none" — внутрішній pull resistor
+  "pull": "up",            // "up" / "down" / "none" — внутрішній підтягувальний резистор
   "label": "Digital input 1"
 }
 ```
 
 ### `onewire_buses`
 
-1-Wire buses (Dallas DS18B20 і compatible). Одна шина типово supports
-багато сенсорів що ділять одну data line.
+Шини 1-Wire (Dallas DS18B20 та сумісні). Одна шина зазвичай підтримує
+багато сенсорів, що поділяють спільну лінію даних.
 
 ```json
 "onewire_buses": [
@@ -113,14 +114,14 @@ sdkconfig.defaults і rebuild. Build system копіює files обраної bo
 ]
 ```
 
-GPIO повинен мати pull-up resistor на data line (4.7 kΩ типово для
-короткого кабелю; нижче для довгого). Фреймворк налаштовує internal
-pull-up, але hardware pull-up рекомендований.
+GPIO повинен мати підтягувальний резистор на лінії даних (зазвичай
+4,7 кОм для коротких кабелів; менше — для довгих). Фреймворк налаштовує
+внутрішнє підтягування, але апаратне підтягування рекомендується.
 
 ### `adc_channels`
 
-Аналогові input канали (NTC термістори, 4-20 mA loops після voltage
-divider, generic ADC reads).
+Аналогові вхідні канали (термістори NTC, петлі 4-20 мА після подільника
+напруги, загальні зчитування ADC).
 
 ```json
 "adc_channels": [
@@ -129,16 +130,17 @@ divider, generic ADC reads).
 ]
 ```
 
-`atten` — ESP32 ADC attenuation setting (`0`/`2.5`/`6`/`11` dB). `11 dB`
-дає найширший range (~0..3.3 V); нижча attenuation дає кращу resolution
-але вужчий range. Match до вашого divider design.
+`atten` — налаштування послаблення ADC ESP32 (`0`/`2.5`/`6`/`11` дБ).
+`11 dB` дає найширший діапазон (~0..3.3 В); менше послаблення дає кращу
+роздільну здатність, але вужчий діапазон. Підбирайте відповідно до
+вашого подільника.
 
-Лише ADC1 канали (GPIO 32-39) usable — ADC2 conflict-иться з Wi-Fi.
+Придатні лише канали ADC1 (GPIO 32-39) — ADC2 конфліктує з Wi-Fi.
 
 ### `i2c_buses`
 
-I2C bus декларації. Використовуються I2C-connected expanders, сенсорами,
-displays.
+Декларації шин I2C. Використовуються розширювачами на I2C, сенсорами,
+дисплеями.
 
 ```json
 "i2c_buses": [
@@ -146,13 +148,14 @@ displays.
 ]
 ```
 
-`freq_hz` типово `100000` (standard) або `400000` (fast). Вищі швидкості
-потребують коротших кабелів або bus boosters.
+`freq_hz` зазвичай `100000` (стандартна) або `400000` (швидка). Вищі
+швидкості потребують коротших кабелів або підсилювачів шини.
 
 ### `i2c_expanders`
 
-PCF8574 / подібні I/O expanders connected через I²C. Один expander
-provides 8 GPIO pins; багато expanders ділять одну шину (різні адреси).
+Розширювачі вводу/виводу PCF8574 та подібні, підключені через I²C. Один
+розширювач надає 8 виводів GPIO; кілька розширювачів поділяють шину
+(різні адреси).
 
 ```json
 "i2c_expanders": [
@@ -163,14 +166,14 @@ provides 8 GPIO pins; багато expanders ділять одну шину (р�
 
 | Поле | Примітки |
 |---|---|
-| `bus` | Повинен reference `id` declared у `i2c_buses`. |
-| `chip` | Зараз лише `"pcf8574"`. PCF8575 (16-pin) planned. |
-| `address` | I²C address — string format `"0xNN"`. PCF8574: 0x20..0x27 (з pull-up address pins). |
-| `pins` | Pin count, зазвичай `8`. |
+| `bus` | Має посилатися на `id`, оголошений у `i2c_buses`. |
+| `chip` | Зараз лише `"pcf8574"`. PCF8575 (16 виводів) у планах. |
+| `address` | Адреса I²C — у форматі рядка `"0xNN"`. PCF8574: 0x20..0x27 (з підтягнутими адресними виводами). |
+| `pins` | Кількість виводів, зазвичай `8`. |
 
 ### `expander_outputs` / `expander_inputs`
 
-Раз ви декларували expanders, expose-ите їхні pins individually для bindings:
+Після оголошення розширювачів окремо виставте їхні виводи для прив'язок:
 
 ```json
 "expander_outputs": [
@@ -184,41 +187,42 @@ provides 8 GPIO pins; багато expanders ділять одну шину (р�
 ]
 ```
 
-`active_high: false` типово для PCF8574 relays — outputs chip-а open-drain,
-тому writing `0` pulls line low і вмикає реле ON (opto-isolated relay
-modules wired through pull-ups).
+`active_high: false` типове для реле на PCF8574 — виходи чипа з відкритим
+стоком, тому запис `0` стягує лінію вниз і вмикає реле (опто-ізольовані
+релейні модулі підключені через підтягування).
 
-`invert: true` для inputs adapts the same chip: closed contact pulls line
-low, але logically це "input active" — invert у board.json і ваш driver
-бачить clean `true`/`false`.
+`invert: true` для входів адаптує той самий чип: замкнений контакт
+стягує лінію вниз, але логічно це "вхід активний" — інвертуйте у
+board.json, і ваш драйвер бачить чистий `true`/`false`.
 
 ## А як же RS-485, CAN, SPI?
 
-Stage 1.5 hardware roadmap додає:
-- `rs485_buses` для serial industrial протоколів.
-- `spi_buses` для high-speed periferals.
-- `can_buses` для automotive / industrial CAN.
+Дорожня карта апаратного забезпечення на Stage 1.5 додає:
+- `rs485_buses` для послідовних промислових протоколів.
+- `spi_buses` для високошвидкісних периферійних пристроїв.
+- `can_buses` для автомобільного / промислового CAN.
 
-Зараз відсутні з фреймворку — Stage 1 фокусувався на найпоширеніших ESP32
-hardware патернах. Якщо ви запускаєте таку periphery — file request, або
-contribute driver.
+Наразі відсутні у фреймворку — Stage 1 зосередився на найпоширеніших
+апаратних схемах ESP32. Якщо ви використовуєте таку периферію — створіть
+запит або контрибутьте драйвер.
 
-## Reference приклади
+## Референсні приклади
 
-### `boards/dev/board.json` — ESP32-DevKit мінімальний
+### `boards/dev/board.json` — мінімальний ESP32-DevKit
 
-ESP32-DevKit з 4 прямими GPIO relays, OneWire, 1 digital input, 2 ADC
-канали. Хороший для prototyping і unit-testing ваших bindings.
+ESP32-DevKit з 4 прямими реле GPIO, OneWire, 1 цифровим входом, 2
+каналами ADC. Підходить для прототипування і модульного тестування
+ваших прив'язок.
 
-### `boards/kc868a6/board.json` — Kincony KC868-A6 production
+### `boards/kc868a6/board.json` — виробничий Kincony KC868-A6
 
-Industrial controller з 6 relays через PCF8574, 6 inputs через PCF8574,
-2 OneWire buses, 4 ADC канали. Reference для PCF8574-based boards.
+Промисловий контролер із 6 реле через PCF8574, 6 входами через PCF8574,
+2 шинами OneWire, 4 каналами ADC. Референс для плат на основі PCF8574.
 
-Прочитайте обидва файли source-first — це 1-2 хвилини на кожен і clarify
-схему краще за будь-яку прозу.
+Прочитайте обидва файли source-first — це по 1-2 хвилини на кожен, і
+вони пояснюють схему краще за будь-яку прозу.
 
-## Перемикання boards
+## Перемикання плат
 
 У `sdkconfig.defaults`:
 
@@ -228,55 +232,56 @@ CONFIG_MODESP_BOARD_DEV=y
 CONFIG_MODESP_BOARD_KC868A6=y
 ```
 
-Build system обирає відповідну `boards/<name>/` папку і копіює її
-`board.json` + `bindings.json` у `data/` для LittleFS bundling.
+Система складання обирає відповідну теку `boards/<name>/` і копіює її
+`board.json` + `bindings.json` до `data/` для пакування у LittleFS.
 
-Після зміни: `idf.py fullclean && idf.py build` (board change достатньо
-structural delta щоб warrant fullclean).
+Після зміни: `idf.py fullclean && idf.py build` (зміна плати — достатньо
+структурна, щоб виправдати fullclean).
 
-## Валідація і error reporting
+## Валідація і повідомлення про помилки
 
-`generate_ui.py` запускається при build time і валідує:
+`generate_ui.py` запускається під час складання і перевіряє:
 
-1. Кожен `id` у кожній секції unique у межах board.
-2. References resolve: `expander_outputs[].expander` match-иться
-   `i2c_expanders[].id`; `i2c_expanders[].bus` match-иться `i2c_buses[].id`.
-3. GPIO numbers — valid ESP32 GPIOs (не reserved для flash, тощо).
-4. ADC channels — на ADC1 (GPIO 32-39).
+1. Кожен `id` у кожній секції унікальний у межах плати.
+2. Посилання розв'язуються: `expander_outputs[].expander` збігається з
+   `i2c_expanders[].id`; `i2c_expanders[].bus` збігається з `i2c_buses[].id`.
+3. Номери GPIO — допустимі для ESP32 (не зарезервовані під flash тощо).
+4. Канали ADC на ADC1 (GPIO 32-39).
 
-Failures abort build з конкретними повідомленнями. Misconfigured board.json
-ніколи не доходить до flash.
+Збої перериваюсь складання з конкретними повідомленнями. Невірно
+налаштований board.json ніколи не доходить до прошивки.
 
-## Поширені помилки
+## Типові помилки
 
-**Використання ADC2 каналів:** GPIO 0, 2, 4, 12-15, 25-27 — ADC2. Вони
-conflict-яться з Wi-Fi і дають intermittent reads. Дотримуйтесь ADC1
-(GPIO 32-39).
+**Використання каналів ADC2:** GPIO 0, 2, 4, 12-15, 25-27 — це ADC2.
+Вони конфліктують із Wi-Fi і дають нестабільні зчитування.
+Дотримуйтеся ADC1 (GPIO 32-39).
 
-**Забутий `active_high` для relays:** active-low relays з `active_high:
-true` інвертують вашу control логіку. Тестуйте з multimeter при driver
-init.
+**Забутий `active_high` для реле:** активно-низькі реле з
+`active_high: true` інвертують вашу логіку керування. Тестуйте
+мультиметром під час ініціалізації драйвера.
 
-**Address conflicts на I²C:** два пристрої з тією ж `address` на тій же
-шині break communication для обох. Прочитайте expander's address-pin
-schematic уважно.
+**Конфлікти адрес на I²C:** два пристрої з однаковою `address` на тій
+самій шині ламають зв'язок для обох. Уважно прочитайте схему адресних
+виводів вашого розширювача.
 
-**Reserved GPIO usage:** GPIO 6-11 — flash SPI — використання їх bricks
-chip. GPIO 0 — strapping (boot mode) і не повинен драйвити реле.
-Валідатор catches більшість цього.
+**Використання зарезервованих GPIO:** GPIO 6-11 — це flash SPI;
+використання їх виводить чип з ладу. GPIO 0 — strapping (режим
+завантаження) і не повинен керувати реле. Валідатор ловить більшість
+таких помилок.
 
-**Mismatched `pins` count:** PCF8574 — 8 pins; PCF8575 — 16. Setting
-`pins: 16` на PCF8574 corrupts індекси 8-15 silently. Фреймворк не probe-ить
-chip — довіряйте вашій schematic.
+**Невідповідна кількість `pins`:** PCF8574 має 8 виводів; PCF8575 — 16.
+Встановлення `pins: 16` на PCF8574 мовчки псує індекси 8-15. Фреймворк
+не опитує чип — довіряйте своїй схемі.
 
 ## Що далі
 
-- **[bindings.md](bindings.md)** — wire-ити drivers до board hardware
-  через `bindings.json`.
-- **[deployment.md](deployment.md)** *(planned)* — flashing, monitor,
-  factory reset, recovery.
+- **[bindings.md](bindings.md)** — підключення драйверів до апаратного
+  забезпечення плати через `bindings.json`.
+- **[deployment.md](deployment.md)** *(planned)* — прошивка, монітор,
+  скидання до заводських налаштувань, відновлення.
 - **[modules/equipment.md](../03-framework-reference/modules/equipment.md)**
-  *(planned)* — Equipment Manager — модуль що consumes обидва board.json
-  і bindings.json і exposes `equipment.*` state keys.
+  *(planned)* — Equipment Manager — модуль, що споживає і board.json,
+  і bindings.json та виставляє ключі стану `equipment.*`.
 - **[writing-a-driver.md](../02-module-author-guide/writing-a-driver.md)**
-  — додати support для нового сенсора / actuator chip ще не supported.
+  — додавання підтримки нового сенсора / актуатора, який ще не підтримується.

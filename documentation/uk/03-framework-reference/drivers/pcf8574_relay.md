@@ -1,18 +1,14 @@
-# `pcf8574_relay` — I2C-expanded реле actuator
+# `pcf8574_relay` — актуатор реле з розширенням через I2C
 
 > 📖 **In English:** [documentation/en/03-framework-reference/drivers/pcf8574_relay.md](../../../en/03-framework-reference/drivers/pcf8574_relay.md)
 
-PCF8574 — 8-bit I/O expander на I2C. Кожен chip exposes 8 quasi-bidirectional
-pins; цей driver використовує їх як outputs для relay boards. Up to 8 chips
-per bus (addresses 0x20-0x27) = 64 relays sharing 2 GPIOs. Standard choice
-коли board pin count exhausted.
+PCF8574 — це 8-бітний розширювач вводу-виводу на I2C. Кожен чип надає 8 квазі-двонапрямлених виводів; цей драйвер використовує їх як виходи для плат реле. До 8 чипів на шину (адреси 0x20-0x27) = 64 реле, що ділять 2 GPIO. Стандартний вибір, коли вичерпано кількість виводів плати.
 
-Driver registers як `actuator` з `hardware_type: i2c_expander_output`
-і `multiple_per_bus: true`. Один binding per relay (per chip pin).
+Драйвер реєструється як `actuator` з `hardware_type: i2c_expander_output` і `multiple_per_bus: true`. Одна прив'язка на кожне реле (на вивід чипа).
 
-REQUIRES: ESP-IDF I2C driver, `modesp_hal`.
+ВИМАГАЄ: драйвер I2C з ESP-IDF, `modesp_hal`.
 
-## Bindings
+## Прив'язки
 
 ```json
 {
@@ -26,81 +22,59 @@ REQUIRES: ESP-IDF I2C driver, `modesp_hal`.
 }
 ```
 
-- `bus` — board-defined I2C master.
-- `chip_address` — PCF8574 I2C address (0x20-0x27, set by А0-А2 pins).
-- `pin` — output bit 0-7 на chip.
+- `bus` — визначений у платі майстер I2C.
+- `chip_address` — I2C-адреса PCF8574 (0x20-0x27, задається виводами A0-A2).
+- `pin` — біт виходу 0-7 на чипі.
 
-Equipment Manager publishes `equipment.req_<role>`; driver
-aggregates всі bindings sharing same `(bus, chip_address)` І issues
-single I2C write per chip per change, мінімізуючи bus traffic.
+Equipment Manager публікує `equipment.req_<role>`; драйвер агрегує всі прив'язки, що мають однакові `(bus, chip_address)`, ТА виконує один запис I2C на чип за зміну, мінімізуючи трафік шини.
 
-## Settings
+## Налаштування
 
-None у shipped manifest. Та сама philosophy як `relay`: actuator drivers
-stay dumb. Inversion через board, timing через business module.
+Немає у маніфесті, що постачається. Та сама філософія, що й у `relay`: драйвери актуаторів залишаються простими. Інверсія через плату, тайминги — через бізнес-модуль.
 
-## Provides
+## Надає
 
-`{"type": "bool"}` — commanded level на bound expander pin, mirrored
-до `equipment.<role>`.
+`{"type": "bool"}` — скомандований рівень на прив'язаному виводі розширювача, віддзеркалений у `equipment.<role>`.
 
-## Hardware notes
+## Примітки щодо обладнання
 
-- PCF8574 outputs **quasi-bidirectional** — LOW strong drive, HIGH —
-  weak pull-up. Most relay modules drive ACTIVE-LOW (LED
-  forward через opto-isolator на relay board). Match accordingly
-  через `active_low: true` у board.json або conventional relay-board
-  wiring.
-- Driver caches per-chip output state і issues one I2C write per change.
-  Multiple simultaneous changes на тому ж chip coalesced у one
-  transaction.
-- І²C transaction cost ≈ 100-200 µs at 100 kHz; nearly free.
-- Driver shares bus з input expander (`pcf8574_input`) і other I2C
-  devices — `modesp_hal` serialises access через I2C mutex.
+- Виходи PCF8574 є **квазі-двонапрямленими** — LOW — це сильний драйв, HIGH — слабка підтяжка догори. Більшість модулів реле керуються активним низьким рівнем (LED проходить через оптоізолятор на платі реле). Відповідно встановіть `active_low: true` у board.json або відповідне розведення стандартної плати реле.
+- Драйвер кешує стан виходу кожного чипа та виконує один запис I2C на зміну. Кілька одночасних змін на одному чипі об'єднуються в одну транзакцію.
+- Вартість транзакції I²C ≈ 100-200 мкс при 100 кГц; майже безкоштовно.
+- Драйвер ділить шину з драйвером входу-розширювача (`pcf8574_input`) та іншими пристроями I2C — `modesp_hal` серіалізує доступ через м'ютекс I2C.
 
-## Discovery
+## Виявлення
 
-No driver-specific scan endpoint; use generic
-`POST /api/onewire/scan` analog для I2C з HAL utility (planned).
-Поки що declare chip addresses manually based on jumper settings.
+Без специфічного для драйвера endpoint сканування; використовуйте загальний аналог `POST /api/onewire/scan` для I2C з утиліти HAL (планується). Поки що оголошуйте адреси чипів вручну на основі налаштувань джамперів.
 
-## Common pitfalls
+## Типові помилки
 
-**Wrong address у bindings:** якщо `chip_address` incorrect, writes
-silently NACK і no relay fires. Verify через `i2cdetect`-equivalent у
-board's diagnostic tools.
+**Неправильна адреса у прив'язках:** якщо `chip_address` неправильна, записи мовчки NACK-аються, і жодне реле не спрацьовує. Перевіряйте за допомогою аналогу `i2cdetect` у діагностичних інструментах плати.
 
-**Shared chip across multiple drivers:** ніколи не bind PCF8574 до both
-`pcf8574_relay` AND `pcf8574_input` — driver behaviour undefined
-because outputs і inputs share same port latch. Use separate chips.
+**Спільний чип між кількома драйверами:** ніколи не прив'язуйте PCF8574 одночасно до `pcf8574_relay` І `pcf8574_input` — поведінка драйвера невизначена, оскільки виходи і входи ділять той самий захист порту. Використовуйте окремі чипи.
 
-**Power-on glitch:** chip resets із all pins HIGH (quasi-pull-up).
-На opto-coupled active-low boards, це momentarily energises all relays
-під час boot — за кілька ms. Mitigate з pull-up на relay coil або
-slow-start logic у board.json.
+**Глюк при увімкненні живлення:** чип скидається з усіма виводами у HIGH (квазі-підтяжка). На опторозв'язаних платах з активним низьким рівнем це на мить активує всі реле під час завантаження — на кілька мс. Пом'якшіть це підтяжкою на котушці реле або логікою повільного старту у board.json.
 
-**Bus voltage:** PCF8574 wants 5 V для best output drive І І²C
-swing. Use level shifter на 3.3 V ESP32 board якщо reliability matters.
+**Напруга шини:** PCF8574 хоче 5 В для найкращого драйву виходу ТА розмаху I²C. Використовуйте перетворювач рівнів на платі ESP32 з 3,3 В, якщо важлива надійність.
 
-## UI surface
+## Інтерфейс користувача
 
-None per-driver. Operators see bound `equipment.<role>` state.
+Не на рівні драйвера. Оператори бачать стан прив'язаного `equipment.<role>`.
 
-## Чому це good driver to read after `relay`
+## Чому це гарний драйвер для читання після `relay`
 
-- Same actuator contract, different transport.
-- Demonstrates `multiple_per_bus: true` з chip-level aggregation.
-- Demonstrates shared-resource caching pattern (per-chip latch).
-- ~150 LOC implementation.
+- Той самий контракт актуатора, інший транспорт.
+- Демонструє `multiple_per_bus: true` з агрегацією на рівні чипа.
+- Демонструє патерн кешування спільного ресурсу (захист кожного чипа).
+- Близько 150 рядків реалізації.
 
 ## Що далі
 
-- **[drivers/relay.md](relay.md)** — direct-GPIO variant.
-- **[drivers/pcf8574_input.md](pcf8574_input.md)** — same chip used
-  як input expander.
+- **[drivers/relay.md](relay.md)** — варіант напряму через GPIO.
+- **[drivers/pcf8574_input.md](pcf8574_input.md)** — той самий чип, використаний як розширювач входів.
 - **[modules/equipment.md](../modules/equipment.md)**
 
-## Source
+## Джерела
 
 - [`drivers/pcf8574_relay/manifest.json`](../../../../drivers/pcf8574_relay/manifest.json)
 - [`drivers/pcf8574_relay/include/pcf8574_relay_driver.h`](../../../../drivers/pcf8574_relay/include/pcf8574_relay_driver.h)

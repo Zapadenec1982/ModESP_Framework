@@ -1,94 +1,97 @@
-# UI widgets
+# UI-віджети
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/ui-widgets.md](../../en/02-module-author-guide/ui-widgets.md)
 
-WebUI фреймворку — це Svelte SPA що рендериться повністю з JSON schema
-(`data/ui.json`) згенерованої з ваших module маніфестів при build time. Ви
-не пишете Svelte код, не торкаєтесь CSS — ви декларуєте widgets, cards, і
-pages у JSON, і вони auto-рендеряться на WebUI пристрою.
+WebUI фреймворку — це Svelte-SPA, який рендериться повністю з JSON-схеми
+(`data/ui.json`), згенерованої з маніфестів ваших модулів під час
+складання. Ви не пишете коду Svelte, не торкаєтесь CSS — ви декларуєте
+віджети, картки і сторінки у JSON, і вони автоматично рендеряться у
+WebUI пристрою.
 
-Ця сторінка — каталог widgets: кожен widget type, його config поля, що він
-рендерить, коли його використовувати. Прочитавши, ви знатимете який widget
-обрати для кожного state key і як композувати їх у cards.
+Ця сторінка — каталог віджетів: кожен тип віджета, його поля
+конфігурації, що він рендерить, коли його використовувати. Після
+прочитання ви знатимете, який віджет обрати для кожного ключа стану і
+як компонувати їх у картки.
 
 ## Ментальна модель
 
-UI schema flow:
+Потік UI-схеми:
 
 ```
    modules/*/manifest.json::ui  +  drivers/*/manifest.json::ui
                   │
-                  ▼ (generate_ui.py merges + validates)
+                  ▼ (generate_ui.py об'єднує + валідує)
                   │
-   data/ui.json  ──→  serv-иться при GET /api/ui
+   data/ui.json  ──→  віддається через GET /api/ui
                   │
-                  ▼ (Svelte SPA loads при boot)
+                  ▼ (Svelte-SPA завантажує при старті)
                   │
-   Pages, cards, widgets рендеряться
+   Сторінки, картки, віджети рендеряться
 ```
 
-Widget — один із ~25 Svelte компонентів зареєстрованих у
-`WidgetRenderer.svelte`. Ви reference-ите його через `widget` поле у вашій
-manifest's UI section. Widgets read/write SharedState keys через common
-WebSocket pipeline; ви не керуєте цим wiring manually.
+Віджет — це один з приблизно 25 компонентів Svelte, зареєстрованих у
+`WidgetRenderer.svelte`. Ви посилаєтесь на нього через поле `widget` у
+UI-секції вашого маніфесту. Віджети читають/пишуть ключі SharedState
+через спільний WebSocket-конвеєр; ви не керуєте цією прокладкою вручну.
 
-## Page і card hierarchy
+## Ієрархія сторінки і картки
 
 ```
-Page (top-level navigation entry)
-└── Card (grouped panel)
-    └── Widget (один bound до одного state key або driver setting)
+Сторінка (запис верхнього рівня в навігації)
+└── Картка (згрупована панель)
+    └── Віджет (один прив'язаний до одного ключа стану або налаштування драйвера)
 ```
 
-Page-level config:
+Конфігурація на рівні сторінки:
 
 ```json
 "ui": {
-  "page": "Thermostat",          // Page title показаний у nav
-  "icon": "thermometer",          // Icon name (lucide-svelte set)
-  "page_id": "thermostat",        // Optional URL slug
+  "page": "Thermostat",          // Заголовок сторінки, що відображається в навігації
+  "icon": "thermometer",          // Назва іконки (набір lucide-svelte)
+  "page_id": "thermostat",        // Необов'язковий URL-сленґ
   "access_level": "user",         // "user" / "service" / "admin"
   "cards": [...]
 }
 ```
 
-Card-level config:
+Конфігурація на рівні картки:
 
 ```json
 {
   "title": "State",
-  "subtitle": "Current readings",   // Optional sub-header
+  "subtitle": "Current readings",   // Необов'язковий підзаголовок
   "layout": "single",               // "single" / "grid" / "split"
-  "visible_when": {                 // Optional show/hide condition
+  "visible_when": {                 // Необов'язкова умова показу/приховування
     "scenario.engine_active_count": {">": 0}
   },
   "widgets": [...]
 }
 ```
 
-## Каталог widget-ів
+## Каталог віджетів
 
-### `value` — read-only display
+### `value` — відображення лише для читання
 
-Рендерить число, рядок, або bool як текст з optional unit. Default
-fallback widget якщо `widget` поле відсутнє.
+Рендерить число, рядок або bool як текст із необов'язковою одиницею.
+Запасний віджет за замовчуванням, якщо поле `widget` опущено.
 
 ```json
 {"key": "simple_thermo.temperature", "widget": "value"}
 ```
 
-Optional config поля:
-- `unit` — appended після value (наприклад `"°C"`).
-- `format` — printf-style format string (наприклад `"%.2f"` для two
-  decimals).
-- `prefix` / `suffix` — text wrappers.
+Необов'язкові поля конфігурації:
+- `unit` — додається після значення (наприклад, `"°C"`).
+- `format` — рядок форматування у стилі printf (наприклад, `"%.2f"` для
+  двох знаків після коми).
+- `prefix` / `suffix` — текстові обгортки.
 
-Use для sensor readings, computed metrics, status text. Найпоширеніший
-widget.
+Використовуйте для показань сенсорів, обчислених метрик, тексту статусу.
+Найпоширеніший віджет.
 
-### `indicator` — LED-style on/off
+### `indicator` — увімк/вимк у стилі світлодіода
 
-Рендерить кольоровий circle для boolean state. Default green=on, gray=off.
+Рендерить кольорове коло для булевого стану. За замовчуванням
+зелений = увімк, сірий = вимк.
 
 ```json
 {
@@ -99,15 +102,17 @@ widget.
 }
 ```
 
-Поля `on_label` / `off_label` у manifest's `state` declaration provide
-default labels; widget-level overrides win.
+Поля `on_label` / `off_label` у декларації `state` маніфесту надають
+підписи за замовчуванням; перевизначення на рівні віджета мають
+пріоритет.
 
-Use для alarm states, equipment ON/OFF, fault flags.
+Використовуйте для станів тривог, увімк/вимк обладнання, прапорців
+несправностей.
 
-### `slider` — range slider з live update
+### `slider` — повзунок діапазону з оновленням у реальному часі
 
-Drag-to-set numeric input з min/max/step з state's manifest declaration
-(або widget-level overrides).
+Числове введення перетягуванням з min/max/step, узятими з декларації
+стану в маніфесті (або перевизначень на рівні віджета).
 
 ```json
 {
@@ -116,8 +121,8 @@ Drag-to-set numeric input з min/max/step з state's manifest declaration
 }
 ```
 
-Defaults: pulls min/max/step з state declaration. Override на widget
-level якщо треба:
+За замовчуванням підтягує min/max/step з декларації стану.
+Перевизначте на рівні віджета за потреби:
 
 ```json
 {
@@ -127,16 +132,18 @@ level якщо треба:
 }
 ```
 
-Debounce: 300 мс після last move щоб avoid network spam. Pending state
-показаний during write; flashes green при success.
+Антидрижання: 300 мс після останнього руху, щоб уникнути спаму
+мережі. Очікуваний стан показано під час запису; на успіх мигає
+зеленим.
 
-Use для setpoints, gains, deadbands. Найкращий для continuous values з
-meaningful range.
+Використовуйте для уставок, коефіцієнтів підсилення, мертвих зон.
+Найкраще для безперервних значень із значущим діапазоном.
 
-### `number_input` — spin-box numeric input
+### `number_input` — числове введення зі спін-кнопкою
 
-Discrete numeric input з +/− кнопками і keyboard typing. Кращий ніж slider
-для high-resolution values або wide ranges (наприклад, 1-3600 секунд).
+Дискретне числове введення з кнопками +/− і набором з клавіатури.
+Краще за повзунок для значень високої роздільності або широких
+діапазонів (наприклад, 1–3600 секунд).
 
 ```json
 {
@@ -145,11 +152,12 @@ Discrete numeric input з +/− кнопками і keyboard typing. Кращи�
 }
 ```
 
-Той самий min/max/step inheritance як slider.
+Те саме наслідування min/max/step, що й у повзунка.
 
-### `toggle` — bool switch
+### `toggle` — перемикач bool
 
-Sliding ON/OFF toggle з tactile feedback. Writes immediately при tap.
+Ковзний перемикач ON/OFF із тактильним відгуком. Записує одразу при
+натисканні.
 
 ```json
 {
@@ -158,12 +166,13 @@ Sliding ON/OFF toggle з tactile feedback. Writes immediately при tap.
 }
 ```
 
-Відрізняється від `indicator` — indicator — read-only display, toggle —
-writable input.
+Відрізняється від `indicator` — індикатор лише для читання, перемикач
+дозволяє запис.
 
-### `select` — dropdown з enum
+### `select` — випадайка з переліку
 
-Picks one of fixed set of values. State type може бути `int` або `string`.
+Вибирає одне з фіксованого набору значень. Тип стану може бути `int`
+або `string`.
 
 ```json
 {
@@ -177,11 +186,12 @@ Picks one of fixed set of values. State type може бути `int` або `str
 }
 ```
 
-Use для mode pickers, profile selectors, enumerated settings.
+Використовуйте для вибору режимів, селекторів профілю, перелічуваних
+налаштувань.
 
-### `text_input` — free-form string
+### `text_input` — довільний рядок
 
-Single-line text editor. Writes при blur або Enter.
+Однорядковий текстовий редактор. Записує при втраті фокуса або Enter.
 
 ```json
 {
@@ -192,13 +202,13 @@ Single-line text editor. Writes при blur або Enter.
 }
 ```
 
-Use для names, labels, MQTT topic prefixes — будь-що де schema — це
-"valid UTF-8 до N chars".
+Використовуйте для імен, підписів, префіксів MQTT-топіків — будь-чого,
+де схема — це просто "коректний UTF-8 до N символів".
 
-### `password_input` — masked text
+### `password_input` — приховуваний текст
 
-Те саме що `text_input` але рендерить dots (•). Включає show/hide eye
-button.
+Те саме, що `text_input`, але рендерить крапки (•). Включає кнопку-око
+для показу/приховування.
 
 ```json
 {
@@ -207,11 +217,11 @@ button.
 }
 ```
 
-Use для WiFi passwords, MQTT credentials, API tokens.
+Використовуйте для Wi-Fi-паролів, MQTT-облікових даних, API-токенів.
 
-### `datetime_input` — date/time picker
+### `datetime_input` — вибір дати/часу
 
-Reads/writes ISO-8601 timestamp string.
+Читає/пише рядок-часову мітку у форматі ISO-8601.
 
 ```json
 {
@@ -220,10 +230,10 @@ Reads/writes ISO-8601 timestamp string.
 }
 ```
 
-### `chart` — time-series chart з datalogger
+### `chart` — графік часових рядів із datalogger
 
-Рендерить SVG chart що показує recent history of logged channel. Pulls з
-datalogger's `/api/datalogger/series` endpoint.
+Рендерить SVG-графік, що показує нещодавню історію залогованого
+каналу. Підтягує з ендпойнта `/api/datalogger/series` datalogger-а.
 
 ```json
 {
@@ -234,14 +244,15 @@ datalogger's `/api/datalogger/series` endpoint.
 }
 ```
 
-Потребує щоб key був declared у manifest's `loggable.channels` section з
-matching name. Див. [persistence.md](persistence.md) *(planned)* і
+Потребує, щоб ключ був задекларований у секції `loggable.channels`
+маніфесту з відповідним іменем. Див. [persistence.md](persistence.md)
+*(заплановано)* і
 [modules/datalogger.md](../03-framework-reference/modules/datalogger.md)
-*(planned)*.
+*(заплановано)*.
 
-### `button` — trigger action
+### `button` — запуск дії
 
-Рендерить кнопку що POST-ить до action endpoint.
+Рендерить кнопку, що робить POST до ендпойнта дії.
 
 ```json
 {
@@ -252,14 +263,15 @@ matching name. Див. [persistence.md](persistence.md) *(planned)* і
 }
 ```
 
-Без `key` поля — button не bind-иться до state. Поле `endpoint`
-specifies який HTTP API path hit-ити.
+Без поля `key` — кнопка не прив'язана до стану. Поле `endpoint`
+вказує, до якого HTTP-шляху API звертатися.
 
-Use для irreversible commands (reboot, factory reset, OTA trigger).
+Використовуйте для незворотних команд (перезавантаження, скидання до
+заводських, запуск OTA).
 
-### `status_text` — semantic status з кольором
+### `status_text` — семантичний статус із кольором
 
-Як `value` але maps state strings до colored badges:
+Як `value`, але мапить рядки стану на кольорові плашки:
 
 ```json
 {
@@ -274,40 +286,40 @@ Use для irreversible commands (reboot, factory reset, OTA trigger).
 }
 ```
 
-Use для FSM state visualization (scenario states, equipment status, alarm
-levels).
+Використовуйте для візуалізації стану FSM (станів сценаріїв, статусу
+обладнання, рівнів тривог).
 
-## Specialised system widgets
+## Спеціалізовані системні віджети
 
-Фреймворк поставляється з кількома pre-built widgets для system-level
-operations. Вони беруть fixed configurations і живуть у власних pages
-фреймворку — більшість module authors не потребує їх використовувати
-безпосередньо але reference тут для completeness.
+Фреймворк постачає кілька готових віджетів для системних операцій.
+Вони мають фіксовану конфігурацію і живуть у власних сторінках
+фреймворку — більшості авторів модулів не потрібно використовувати
+їх напряму, але вони згадуються тут для повноти.
 
-| Widget | Призначення | Де використовується |
+| Віджет | Призначення | Де використовується |
 |---|---|---|
-| `firmware_upload` | OTA file upload UI з progress | System / Firmware page |
-| `wifi_scan` | Scan і pick WiFi networks | Network page |
-| `wifi_save` | Form для WiFi credentials | Network page |
-| `ap_save` | Configure AP fallback | Network page |
-| `mqtt_save` | MQTT broker settings form | Network → MQTT |
-| `time_save` | NTP / manual time configuration | System → Time |
-| `timezone_select` | Timezone dropdown з presets | System → Time |
-| `auth_save` | Change admin credentials | System → Auth |
-| `cloud_save` | AWS IoT or MQTT cloud configuration | Network → Cloud |
-| `cert_upload` | Upload TLS certificates | Network → Cloud |
-| `file_upload` | Generic file upload to LittleFS | System (rarely) |
-| `actions_grid` | Grid of buttons для administrative ops | System |
-| `defrost_toggle` | Refrigeration-specific manual defrost | Equipment (refrigeration only) |
+| `firmware_upload` | UI завантаження файла OTA з прогресом | Сторінка System / Firmware |
+| `wifi_scan` | Сканування і вибір мереж Wi-Fi | Сторінка Network |
+| `wifi_save` | Форма для облікових даних Wi-Fi | Сторінка Network |
+| `ap_save` | Налаштування запасної точки доступу | Сторінка Network |
+| `mqtt_save` | Форма налаштувань MQTT-брокера | Network → MQTT |
+| `time_save` | Конфігурація NTP / ручного часу | System → Time |
+| `timezone_select` | Випадайка часових поясів із пресетами | System → Time |
+| `auth_save` | Зміна облікових даних адміністратора | System → Auth |
+| `cloud_save` | Конфігурація AWS IoT або MQTT-хмари | Network → Cloud |
+| `cert_upload` | Завантаження TLS-сертифікатів | Network → Cloud |
+| `file_upload` | Загальне завантаження файла в LittleFS | System (рідко) |
+| `actions_grid` | Сітка кнопок для адміністративних операцій | System |
+| `defrost_toggle` | Ручна розморозка для холодильної техніки | Equipment (тільки холодильники) |
 
-Вони wire-яться у власних manifest sections фреймворку (під
-`components/modesp_net/`, `modules/equipment/`, тощо). Reference але не
-типово reuse у власних модулях.
+Вони підключаються у власних секціях маніфестів фреймворку (під
+`components/modesp_net/`, `modules/equipment/` тощо). Корисні для
+довідки, але зазвичай не повторно використовуються у ваших модулях.
 
-## Driver-specific widgets
+## Віджети, специфічні для драйверів
 
-Для drivers (manifest's `driver` field, не `module`), використовуйте
-`setting` замість `key`:
+Для драйверів (поле `driver` у маніфесті, а не `module`)
+використовуйте `setting` замість `key`:
 
 ```json
 "ui": {
@@ -323,23 +335,23 @@ operations. Вони беруть fixed configurations і живуть у вла
 }
 ```
 
-| Поле | Notes |
+| Поле | Примітки |
 |---|---|
-| `setting` | References key у driver's `settings` array, не state key. |
-| `instance_per_binding` | Якщо `true`, card рендериться раз per bound driver instance (кожен зі своєю `{{hardware_id}}` substitution). |
+| `setting` | Посилається на ключ у масиві `settings` драйвера, не на ключ стану. |
+| `instance_per_binding` | Якщо `true`, картка рендериться по разу на кожен прив'язаний екземпляр драйвера (кожен зі своєю підстановкою `{{hardware_id}}`). |
 
-Substitution tokens у card titles:
-- `{{hardware_id}}` — binding's `hardware` поле (board.json ID).
-- `{{role}}` — binding's `role` поле.
-- `{{address}}` — binding's `address` поле (якщо є).
+Підстановочні токени в заголовках карток:
+- `{{hardware_id}}` — поле `hardware` прив'язки (ID з board.json).
+- `{{role}}` — поле `role` прив'язки.
+- `{{address}}` — поле `address` прив'язки (якщо є).
 
-Use щоб дати кожній sensor card унікальний title що показує яке фізичне
-hardware вона controls.
+Використовуйте, щоб дати кожній картці сенсора унікальний заголовок,
+що показує, яким фізичним обладнанням вона керує.
 
-## `visible_when` — conditional display
+## `visible_when` — умовне відображення
 
-Cards (і деякі widgets) accept `visible_when` clause to show/hide based
-on state values:
+Картки (і деякі віджети) приймають клаузу `visible_when` для показу/
+приховування на основі значень стану:
 
 ```json
 "visible_when": {
@@ -347,13 +359,13 @@ on state values:
 }
 ```
 
-Operators:
-- `{"==": value}` — equal
-- `{"!=": value}` — not equal
-- `{">": value}`, `{"<": value}`, `{">=": value}`, `{"<=": value}` — comparisons
-- `{"in": [val1, val2]}` — value у list
+Оператори:
+- `{"==": value}` — дорівнює
+- `{"!=": value}` — не дорівнює
+- `{">": value}`, `{"<": value}`, `{">=": value}`, `{"<=": value}` — порівняння
+- `{"in": [val1, val2]}` — значення в списку
 
-Shorthand: array означає "value у list":
+Скорочення: масив означає "значення в списку":
 
 ```json
 "visible_when": {
@@ -361,7 +373,7 @@ Shorthand: array означає "value у list":
 }
 ```
 
-Multiple keys: всі повинні match (AND):
+Кілька ключів: усі мають збігатися (І):
 
 ```json
 "visible_when": {
@@ -370,25 +382,26 @@ Multiple keys: всі повинні match (AND):
 }
 ```
 
-Use to hide setup pages після configure, show diagnostics лише during
-active operation, gate advanced settings за service mode.
+Використовуйте, щоб приховати сторінки налаштувань після конфігурації,
+показувати діагностику лише під час активної роботи, ховати розширені
+налаштування за сервісний режим.
 
-## Card layouts
+## Розкладки карток
 
 ```json
-"layout": "single"   // Одна колонка, widgets stacked top-to-bottom
-"layout": "grid"     // Two-column responsive grid
-"layout": "split"    // Title + main value emphasis, used для prominent readings
+"layout": "single"   // Одна колонка, віджети складені згори донизу
+"layout": "grid"     // Адаптивна сітка з двома колонками
+"layout": "split"    // Акцент на заголовку + головному значенні, для помітних показань
 ```
 
-Pick `single` за замовчуванням — simple і readable. `grid` для dense
-config-heavy cards. `split` рідко потрібен.
+Обирайте `single` за замовчуванням — просто і читабельно. `grid` для
+щільних карток з багатою конфігурацією. `split` рідко потрібен.
 
-## i18n у widget labels
+## i18n у підписах віджетів
 
-Фреймворк поставляється з UK / EN / DE / PL translation packs. Widget
-labels, card titles, і unit suffixes можуть використовувати translation
-keys замість literal strings:
+Фреймворк постачає пакети перекладів UK / EN / DE / PL. Підписи
+віджетів, заголовки карток і суфікси одиниць можуть використовувати
+ключі перекладу замість літеральних рядків:
 
 ```json
 {
@@ -399,44 +412,47 @@ keys замість literal strings:
 }
 ```
 
-Translation keys resolve at render time. Додайте ваші переклади у
-`modules/<your_module>/i18n/<lang>.json`. Генератор merges їх у final
-`data/www/i18n/<lang>.json` packs.
+Ключі перекладу розв'язуються під час рендерингу. Додайте свої
+переклади у `modules/<your_module>/i18n/<lang>.json`. Генератор
+об'єднує їх у фінальні пакети `data/www/i18n/<lang>.json`.
 
-Якщо literal strings простіше (ви target одну мову), use `label` /
-`unit` directly. Mix — fine.
+Якщо літеральні рядки простіші (ви націлені на одну мову),
+використовуйте `label` / `unit` напряму. Поєднання теж припустиме.
 
-## Поширені помилки
+## Типові помилки
 
-**Забутий `widget` field:** якщо ви omit `"widget": "..."`, renderer
-defaults до `ValueWidget` (read-only display). Для editable widget вам
-треба specify type explicitly.
+**Забуте поле `widget`:** якщо ви опустите `"widget": "..."`, рендерер
+за замовчуванням використає `ValueWidget` (відображення лише для
+читання). Для редагованого віджета тип треба вказувати явно.
 
-**Use widget для non-existent state key:** widgets render `null` і
-виглядають broken. Make sure key declared у якомусь module's `state`
-section. Генератор зараз не cross-валідує widget keys, але visual
-breakage at runtime — це симптом.
+**Використання віджета для неіснуючого ключа стану:** віджети
+рендерять `null` і виглядають зламаними. Переконайтеся, що ключ
+задекларовано в секції `state` якогось модуля. Генератор наразі не
+перевіряє ключі віджетів перехресно, але візуальна поломка в часі
+виконання — це симптом.
 
-**Slider з huge range:** sliders work best для 50-500 step counts.
-Якщо min/max/step дає 10000 steps, single pixel = 50 units. Use
-`number_input` замість.
+**Повзунок із величезним діапазоном:** повзунки найкраще працюють для
+50–500 кроків. Якщо min/max/step дає 10000 кроків, один піксель = 50
+одиниць. Натомість використовуйте `number_input`.
 
-**Toggle на read-only state:** toggle widget writes до його key. Якщо
-state декларує `access: "read"`, write rejects (HTTP 403). Use
-`indicator` замість.
+**Перемикач на стані лише для читання:** віджет toggle пише у свій
+ключ. Якщо стан декларує `access: "read"`, запис відхиляється (HTTP
+403). Натомість використовуйте `indicator`.
 
-**Confusing `visible_when` semantics:** array shorthand означає "value у
-list", не "any of these conditions". Для OR logic across keys потрібен
-computed state key (Stage 1.5 може додати OR support).
+**Плутана семантика `visible_when`:** скорочення-масив означає
+"значення в списку", а не "будь-яка з цих умов". Для логіки АБО між
+ключами потрібен обчислюваний ключ стану (Stage 1.5 може додати
+підтримку АБО).
 
-**Driver widgets без `instance_per_binding`:** rendering одна card для
-всіх DS18B20 instances не має сенсу — кожен binding має свою address і
-offset. Завжди use `instance_per_binding: true` для per-driver-instance
-settings.
+**Віджети драйвера без `instance_per_binding`:** рендерити одну
+картку для всіх екземплярів DS18B20 безглуздо — кожна прив'язка має
+свою адресу і зміщення. Завжди використовуйте
+`instance_per_binding: true` для налаштувань на екземпляр драйвера.
 
-## Worked example
+## Опрацьований приклад
 
-`modules/simple_thermo/manifest.json` UI section (real, shipped code):
+UI-секція з `modules/simple_thermo/manifest.json` (реальний код, що
+постачається):
 
 ```json
 "ui": {
@@ -466,29 +482,30 @@ settings.
 }
 ```
 
-Результуючий WebUI: "Thermostat" page з двома cards. Перша card показує
-current readings (read-only). Друга card має interactive setpoint slider
-і differential spinner.
+Результуючий WebUI: сторінка "Thermostat" з двома картками. Перша
+картка показує поточні показання (лише для читання). Друга картка має
+інтерактивний повзунок уставки і спінер диференціалу.
 
 ## Що далі
 
-- **[manifest.md](manifest.md#section-ui-any-module--driver)** — manifest
-  syntax для UI sections.
-- **[shared-state.md](shared-state.md)** — що bind ваші widgets.
-- **[mqtt.md](mqtt.md)** *(planned)* — publishing state changes до
-  external MQTT clients.
+- **[manifest.md](manifest.md#section-ui-any-module--driver)** —
+  синтаксис маніфесту для UI-секцій.
+- **[shared-state.md](shared-state.md)** — до чого прив'язувати ваші
+  віджети.
+- **[mqtt.md](mqtt.md)** *(заплановано)* — публікація змін стану до
+  зовнішніх MQTT-клієнтів.
 - **[components/modesp_net.md](../03-framework-reference/components/modesp_net.md)**
-  *(planned)* — HTTP / WebSocket internals.
+  *(заплановано)* — внутрішня будова HTTP / WebSocket.
 - **[modules/datalogger.md](../03-framework-reference/modules/datalogger.md)**
-  *(planned)* — backing для `chart` widget.
+  *(заплановано)* — підкладка для віджета `chart`.
 
-## Source
+## Джерела
 
 - [`webui/src/components/WidgetRenderer.svelte`](../../../webui/src/components/WidgetRenderer.svelte)
-  — widget dispatch table.
+  — таблиця диспетчеризації віджетів.
 - [`webui/src/components/widgets/`](../../../webui/src/components/widgets/)
-  — окремі widget implementations.
+  — реалізації окремих віджетів.
 - [`modules/simple_thermo/manifest.json`](../../../modules/simple_thermo/manifest.json)
-  — мінімальний UI приклад.
+  — мінімальний приклад UI.
 - [`modules/datalogger/manifest.json`](../../../modules/datalogger/manifest.json)
-  — chart widget приклад.
+  — приклад віджета chart.

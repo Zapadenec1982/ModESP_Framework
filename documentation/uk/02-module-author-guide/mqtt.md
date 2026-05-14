@@ -1,38 +1,40 @@
-# MQTT publish і subscribe
+# Публікація і підписка MQTT
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/mqtt.md](../../en/02-module-author-guide/mqtt.md)
 
-ModESP включає built-in MQTT client що bridge-ить SharedState ↔ MQTT broker
-автоматично. Ви декларуєте які state keys публікуються і які приймають
-writes у `mqtt` секції вашого маніфесту, і фреймворк handles connection,
-topic naming, delta detection, throttling, і Last-Will-Testament — без
-custom MQTT коду від вас.
+ModESP містить вбудований MQTT-клієнт, який автоматично з'єднує
+SharedState ↔ MQTT-брокер. Ви декларуєте, які ключі стану публікувати і
+які приймають запис, у секції `mqtt` вашого маніфесту, і фреймворк
+обробляє з'єднання, найменування топіків, виявлення дельт, обмеження
+частоти та Last-Will-Testament — жодного власного MQTT-коду з вашого
+боку.
 
-Ця сторінка пояснює publish/subscribe модель, конвенції topic, delta
-семантику, alarm retention, і інтеграцію з Home Assistant discovery.
+Ця сторінка пояснює модель публікації/підписки, конвенції топіків,
+семантику дельт, утримання тривог та інтеграцію з Home Assistant
+discovery.
 
 ## Ментальна модель
 
 ```
-   Module пише state_set("simple_thermo.temp", 22.5)
+   Модуль викликає state_set("simple_thermo.temp", 22.5)
                   │
                   ▼
-   SharedState fires change tracking
+   SharedState запускає відстеження змін
                   │
-                  ▼ (кожні 1 с за замовчуванням)
-   MqttService публікує changed keys
-                  │
-                  ▼
-   Broker (Mosquitto / AWS IoT / тощо)
+                  ▼ (кожну 1 с за замовчуванням)
+   MqttService публікує змінені ключі
                   │
                   ▼
-   External subscriber отримує modesp/v1/<device>/simple_thermo/temp = 22.5
+   Брокер (Mosquitto / AWS IoT / тощо)
+                  │
+                  ▼
+   Зовнішній підписник отримує modesp/v1/<device>/simple_thermo/temp = 22.5
 ```
 
-Reverse direction (commands):
+Зворотний напрямок (команди):
 
 ```
-   External publisher → modesp/v1/<device>/cmd/simple_thermo.setpoint = 24
+   Зовнішній публікатор → modesp/v1/<device>/cmd/simple_thermo.setpoint = 24
                   │
                   ▼
    MqttService отримує
@@ -41,10 +43,10 @@ Reverse direction (commands):
    SharedState set("simple_thermo.setpoint", 24)
                   │
                   ▼
-   Module читає new setpoint наступний tick
+   Модуль читає нову уставку наступного такту
 ```
 
-## Manifest декларація
+## Декларація в маніфесті
 
 ```json
 "mqtt": {
@@ -60,41 +62,44 @@ Reverse direction (commands):
 }
 ```
 
-| Поле | Notes |
+| Поле | Примітки |
 |---|---|
-| `publish` | Array state keys для broadcast до MQTT. Публікується лише при зміні (delta), не періодично. |
-| `subscribe` | Array state keys що приймають MQTT-pushed writes. Кожен key повинен мати `access: "readwrite"` AND `mqtt_subscribe: true` у його `state` декларації. |
+| `publish` | Масив ключів стану, що транслюються в MQTT. Публікуються лише при зміні (дельта), не періодично. |
+| `subscribe` | Масив ключів стану, що приймають запис, надісланий через MQTT. Кожен ключ мусить мати `access: "readwrite"` І `mqtt_subscribe: true` у його декларації `state`. |
 
 ### Вимога `mqtt_subscribe: true`
 
-У вашій state декларації:
+У вашій декларації стану:
 
 ```json
 "simple_thermo.setpoint": {
   "type": "float",
   "access": "readwrite",
-  "mqtt_subscribe": true,         // ← required для MQTT writes
+  "mqtt_subscribe": true,         // ← обов'язково для записів через MQTT
   "min": 5, "max": 40
 }
 ```
 
-Цей double-opt-in запобігає випадково exposing internal config keys до
-external write. Генератор валідує: будь-який key listed у `mqtt.subscribe`
-повинен мати флаг.
+Ця подвійна згода запобігає випадковому відкриттю внутрішніх
+конфігураційних ключів для зовнішнього запису. Генератор валідує:
+будь-який ключ, перелічений у `mqtt.subscribe`, мусить мати цей
+прапорець.
 
-## Topic format
+## Формат топіка
 
 ```
 <base>/<state_key_path>
 ```
 
 Де:
-- `<base>` follows pattern `modesp/v1/<tenant>/<device_id>` (configurable
-  через Kconfig). `<device_id>` defaults до lowercase MAC suffix.
-- `<state_key_path>` — state key з dots replaced на slashes:
-  `simple_thermo.temperature` → `simple_thermo/temperature`.
+- `<base>` має шаблон `modesp/v1/<tenant>/<device_id>`
+  (налаштовується через Kconfig). `<device_id>` за замовчуванням —
+  суфікс MAC у нижньому регістрі.
+- `<state_key_path>` — це ключ стану, у якому крапки замінено на скісні
+  риски: `simple_thermo.temperature` → `simple_thermo/temperature`.
 
-Приклад для пристрою з MAC закінчуючись `A1B2C3` і default tenant:
+Приклад для пристрою з MAC, що закінчується на `A1B2C3`, і тенантом
+за замовчуванням:
 
 ```
 modesp/v1/default/a1b2c3/simple_thermo/temperature
@@ -102,215 +107,233 @@ modesp/v1/default/a1b2c3/simple_thermo/state
 modesp/v1/default/a1b2c3/cmd/simple_thermo.setpoint
 ```
 
-Subscribe (commands) використовує wildcard:
+Підписка (команди) використовує шаблон:
 
 ```
 modesp/v1/default/a1b2c3/cmd/+
 ```
 
-Single device subscribes до одного wildcard, handles усі `cmd/<key>`
-writes через one topic замість N subscriptions. Stage 1.5 plans більш
-granular subscription patterns якщо треба.
+Один пристрій підписується на один шаблон і обробляє всі записи
+`cmd/<key>` через один топік замість N підписок. Stage 1.5 планує
+точніші шаблони підписки за потреби.
 
-## Delta семантика
+## Семантика дельт
 
-`MqttService` runs на standard module update loop. Кожні
-`PUBLISH_INTERVAL_MS` (default 1000 мс) він:
+`MqttService` працює у стандартному циклі оновлення модулів. Кожні
+`PUBLISH_INTERVAL_MS` (за замовчуванням 1000 мс) він:
 
-1. Iterates `publish` list across усіх модулів.
-2. Для кожного key, checks `SharedState`'s changed-keys vector.
-3. Публікує ЛИШЕ keys що змінились після last tick.
+1. Ітерує список `publish` з усіх модулів.
+2. Для кожного ключа перевіряє вектор змінених ключів `SharedState`.
+3. Публікує ЛИШЕ ключі, що змінилися з минулого такту.
 
-Результуючий traffic pattern: idle device публікує нічого. Active device
-публікує одне message per changed key per second max. Brokers не бачать
-flood навіть з 100 keys у publish list якщо нічого не змінюється.
+Результуючий патерн трафіку: непрацюючий пристрій нічого не публікує.
+Активний пристрій публікує максимум одне повідомлення на змінений
+ключ на секунду. Брокери не бачать потопу навіть зі 100 ключів у
+списку публікації, якщо нічого не змінюється.
 
 ## Heartbeat
 
-Кожні `HEARTBEAT_INTERVAL_MS` (default 30 000 мс = 30 секунд) service
-публікує heartbeat до `<base>/status`:
+Кожні `HEARTBEAT_INTERVAL_MS` (за замовчуванням 30 000 мс = 30
+секунд) сервіс публікує heartbeat у `<base>/status`:
 
 ```
-modesp/v1/default/a1b2c3/status  →  "online" (retained, QoS 1)
+modesp/v1/default/a1b2c3/status  →  "online" (з утриманням, QoS 1)
 ```
 
-Plus Last-Will-Testament (LWT) configured to publish `"offline"`
-автоматично коли broker detects connection loss (60-second keepalive).
+Плюс Last-Will-Testament (LWT), налаштований публікувати `"offline"`
+автоматично, коли брокер виявляє втрату з'єднання (keepalive 60
+секунд).
 
-Це дає external systems cheap "пристрій alive?" check без parse-ння state
-stream.
+Це дає зовнішнім системам дешеву перевірку "чи живий пристрій?" без
+розбору потоку стану.
 
-## Retained alarms
+## Утримувані тривоги
 
-Critical alarms (over-temperature, sensor fault, тощо) get **republished
-every 5 minutes з retain flag**. Reasoning: transient subscriber що
-connect-иться пізно повинен immediately бачити active alarms, не чекати
-наступної зміни. Periodic republish ensures retained value stays fresh.
+Критичні тривоги (перегрів, несправність сенсора тощо) **повторно
+публікуються кожні 5 хвилин із прапорцем retain**. Мотивація:
+короткочасний підписник, що під'єднується пізно, має одразу побачити
+активні тривоги, а не чекати наступної зміни. Періодична
+перепублікація гарантує, що утримуване значення залишається свіжим.
 
-Alarm subsystem фреймворку (Stage 1.5) marks specific keys як "alarm-class"
-— вони йдуть через цей pathway. Regular state keys publish normally без
-retain.
+Підсистема тривог фреймворку (Stage 1.5) позначає конкретні ключі як
+"alarm-class" — вони йдуть цим шляхом. Звичайні ключі стану
+публікуються без утримання.
 
-## Home Assistant integration
+## Інтеграція з Home Assistant
 
-Якщо `CONFIG_MODESP_MQTT_HA_DISCOVERY=y` (Kconfig), service публікує HA
-discovery messages при first connect:
+Якщо `CONFIG_MODESP_MQTT_HA_DISCOVERY=y` (Kconfig), сервіс публікує
+повідомлення HA discovery при першому під'єднанні:
 
 ```
 homeassistant/sensor/modesp_a1b2c3_simple_thermo_temperature/config
 ```
 
-Кожен `mqtt.publish` key emits HA discovery payload з proper unit, device
-class, і device grouping. Home Assistant auto-creates entities — без manual
-configuration на HA side.
+Кожен ключ з `mqtt.publish` випромінює корисне навантаження HA
+discovery з правильною одиницею, класом пристрою та групуванням
+пристроїв. Home Assistant автоматично створює сутності — жодних
+ручних налаштувань на стороні HA.
 
-Це Stage 1 feature; coverage деталі у
+Це функціональність Stage 1; деталі покриття в
 [components/modesp_mqtt.md](../03-framework-reference/components/modesp_mqtt.md)
-*(planned)*.
+*(заплановано)*.
 
-## Cloud backend selection
+## Вибір хмарного бекенда
 
-Compile-time choice через Kconfig: `CONFIG_MODESP_CLOUD_MQTT` (default)
-або `CONFIG_MODESP_CLOUD_AWS`. Обидва implement той самий publish/subscribe
-контракт з module author's perspective — ваші manifest declarations
-залишаються identical:
+Вибір під час компіляції через Kconfig: `CONFIG_MODESP_CLOUD_MQTT`
+(за замовчуванням) або `CONFIG_MODESP_CLOUD_AWS`. Обидва реалізують
+той самий контракт публікації/підписки з точки зору автора модуля —
+ваші декларації в маніфестах залишаються незмінними:
 
-| Backend | Component | Notes |
+| Бекенд | Компонент | Примітки |
 |---|---|---|
-| Generic MQTT | `modesp_mqtt` | Plain or TLS-encrypted broker, configurable. |
-| AWS IoT Core | `modesp_aws` | Cert-based auth, AWS-specific topic prefixes, IoT Things integration. |
+| Generic MQTT | `modesp_mqtt` | Звичайний або TLS-шифрований брокер, налаштовується. |
+| AWS IoT Core | `modesp_aws` | Автентифікація за сертифікатом, AWS-специфічні префікси топіків, інтеграція з IoT Things. |
 
-Switch backends без зміни маніфестів; лише один builds у firmware одночасно.
+Перемикайте бекенди без зміни маніфестів; за раз у прошивку
+збирається лише один.
 
-## Command path детально
+## Деталі шляху команди
 
-Коли command надходить на `<base>/cmd/<key>`:
+Коли команда надходить на `<base>/cmd/<key>`:
 
-1. Service парсить topic щоб extract `<key>`.
-2. Валідує `<key>` у merged `mqtt.subscribe` set across усіх модулів
-   (згенерований `mqtt_topics.h` має allowlist).
-3. Парсить payload відповідно до state key's type:
+1. Сервіс парсить топік, щоб витягти `<key>`.
+2. Валідує, що `<key>` входить до об'єднаного набору `mqtt.subscribe`
+   з усіх модулів (згенерований `mqtt_topics.h` містить дозволений
+   список).
+3. Парсить корисне навантаження відповідно до типу ключа стану:
    - `int` → `atoi(payload)`
    - `float` → `atof(payload)`
-   - `bool` → `"true"`/`"1"` → true, else false
-   - `string` → as-is (clamped до 32 chars)
+   - `bool` → `"true"`/`"1"` → true, інакше false
+   - `string` → як є (обрізається до 32 символів)
 4. Викликає `SharedState::set(key, parsed_value)`.
 
-Payload format — plain ASCII, не JSON. Subscribe до integer setpoint:
-publish `"24"` не `"{"value": 24}"`. Просто, без parser dependency.
+Формат корисного навантаження — звичайний ASCII, а не JSON. Щоб
+встановити цілочисельну уставку: публікуйте `"24"`, а не
+`"{"value": 24}"`. Просто, без залежності від парсера.
 
-Якщо parsing fails або key не у allowlist, service логує warning і drops
-command. Без error reply path назад (MQTT — fire-and-forget by design).
+Якщо розбір не вдався або ключа немає в дозволеному списку, сервіс
+логує попередження і відкидає команду. Зворотного шляху відповіді про
+помилку немає (MQTT за дизайном — "запустив і забув").
 
-## QoS і retention
+## QoS і утримання
 
-| Topic type | QoS | Retain |
+| Тип топіка | QoS | Retain |
 |---|---|---|
-| State publish (delta) | 0 | No |
-| Heartbeat | 1 | Yes |
-| LWT (offline) | 1 | Yes |
-| Alarm publish | 1 | Yes |
-| HA discovery | 0 | Yes |
-| Commands (subscribe) | 0 | — |
+| Публікація стану (дельта) | 0 | Ні |
+| Heartbeat | 1 | Так |
+| LWT (offline) | 1 | Так |
+| Публікація тривоги | 1 | Так |
+| HA discovery | 0 | Так |
+| Команди (підписка) | 0 | — |
 
-QoS 0 для high-frequency state — втрата одного update не має значення
-(next delta reflect-ить current state). QoS 1 для status / alarms —
-гарантує delivery once.
+QoS 0 для високочастотного стану — втрата одного оновлення не має
+значення (наступна дельта відобразить поточний стан). QoS 1 для
+статусу / тривог — гарантує доставку один раз.
 
-## Що модулі не повинні робити
+## Чого модулям робити не треба
 
-Модулі пишуть state keys через `state_set`. Це все. Фреймворк:
+Модулі пишуть ключі стану через `state_set`. Це все. Фреймворк:
 
-- Manages MQTT connection (reconnect, TLS, keepalive).
-- Decides що publish based на маніфестах.
-- Generates topic strings (ви ніколи не construct one).
-- Throttles до delta-only.
-- Handles incoming commands (subscribed keys auto-write SharedState).
-- Maintains LWT / heartbeat.
-- Publishes HA discovery (якщо enabled).
-- Republishes alarms періодично.
+- Керує MQTT-з'єднанням (перепід'єднання, TLS, keepalive).
+- Вирішує, що публікувати, на основі маніфестів.
+- Генерує рядки топіків (ви ніколи не конструюєте їх вручну).
+- Обмежує до режиму лише-дельт.
+- Обробляє вхідні команди (підписані ключі автоматично пишуть у
+  SharedState).
+- Підтримує LWT / heartbeat.
+- Публікує HA discovery (якщо увімкнено).
+- Періодично перепубліковує тривоги.
 
-Ви декларуєте intent (publish / subscribe lists) і пишете state. Без
-client init, без topic format strings, без callbacks. Той самий код
-runs offline (без broker) — publish calls просто стають no-ops.
+Ви декларуєте намір (списки публікації / підписки) і пишете стан.
+Жодної ініціалізації клієнта, жодних рядків формату топіка, жодних
+зворотних викликів. Той самий код працює офлайн (без брокера) —
+виклики публікації просто стають "пустишками".
 
 ## Конфігурація через WebUI / API
 
-Broker connection settings живуть у NVS і можуть бути edited:
+Налаштування з'єднання з брокером живуть у NVS і можуть редагуватись:
 
 ```bash
 curl -u admin:modesp -X POST http://192.168.1.85/api/mqtt \
   -d '{"host": "mqtt.example.com", "port": 1883, "user": "iot", "password": "..."}'
 ```
 
-WebUI's "Network → MQTT" page wraps це у `mqtt_save` widget. Після save,
-service reconnects автоматично.
+Сторінка WebUI "Network → MQTT" обгортає це у віджет `mqtt_save`.
+Після збереження сервіс автоматично перепід'єднується.
 
-TLS і AWS IoT setup додають certificate uploads через `cert_upload` widget.
+Налаштування TLS і AWS IoT додають завантаження сертифікатів через
+віджет `cert_upload`.
 
-## Поширені помилки
+## Типові помилки
 
-**Забутий `mqtt_subscribe: true`:** key у `mqtt.subscribe` але missing
-флаг — генератор rejects при build з clear error.
+**Забутий `mqtt_subscribe: true`:** ключ у `mqtt.subscribe`, але без
+прапорця — генератор відхиляє при складанні з чіткою помилкою.
 
-**Subscribing на read-only key:** `access: "read"` keys не можуть accept
-writes. Якщо key both reports state і accepts commands, declare його
-`readwrite` AND distinguish через окремий "actual" key
-(`equipment.compressor` vs. `equipment.req_compressor`).
+**Підписка на ключ лише для читання:** ключі з `access: "read"` не
+можуть приймати запис. Якщо ключ одночасно повідомляє стан і приймає
+команди, оголосіть його `readwrite` І відокремте через окремий
+"справжній" ключ (`equipment.compressor` проти
+`equipment.req_compressor`).
 
-**Очікування JSON payload:** commands take plain ASCII. Publishing
-`{"value": 24}` для встановлення setpoint fails to parse — atof returns
-0.0.
+**Очікування JSON-навантаження:** команди приймають звичайний ASCII.
+Публікація `{"value": 24}` для встановлення уставки не парситься —
+atof повертає 0.0.
 
-**Confused topic format:** dots стають slashes, але НЕ у `cmd/` direction.
-`cmd/simple_thermo.setpoint` тримає dot (це literal state key name).
-Inconsistency з compatibility з попередньою version; Stage 1.5 буде
-normalise.
+**Заплутаний формат топіка:** крапки стають скісними рисками, але НЕ
+у напрямку `cmd/`. `cmd/simple_thermo.setpoint` зберігає крапку (це
+буквальне ім'я ключа стану). Неузгодженість успадкована від
+сумісності з попередньою версією; Stage 1.5 її нормалізує.
 
-**Trusting MQTT для atomic transactions:** MQTT delivers messages
-asynchronously. Writing 3 keys у quick succession не гарантує що вони
-arrive together на subscriber. Для atomic state transitions use scenario
-recipe замість, або single composite key (наприклад, JSON-encoded string
-у одному key, parsed вашим модулем).
+**Довіра до MQTT для атомарних транзакцій:** MQTT доставляє
+повідомлення асинхронно. Запис 3 ключів швидкою чергою не гарантує,
+що вони прибудуть до підписника разом. Для атомарних переходів стану
+натомість використовуйте рецепт сценарію або єдиний складений ключ
+(наприклад, JSON-кодований рядок в одному ключі, який розбирається
+вашим модулем).
 
-## Debug і diagnostics
+## Відлагодження і діагностика
 
-Monitor traffic з dev machine:
+Моніторинг трафіку з машини розробника:
 
 ```bash
 mosquitto_sub -h <broker-ip> -t 'modesp/v1/+/+/#' -v
 ```
 
-Filters усі device messages. Use specific topics щоб narrow:
+Фільтрує всі повідомлення пристроїв. Використовуйте конкретні топіки
+для звуження:
 
 ```bash
 mosquitto_sub -h <broker-ip> -t 'modesp/v1/default/a1b2c3/simple_thermo/+' -v
 ```
 
-Manual command publish:
+Ручна публікація команди:
 
 ```bash
 mosquitto_pub -h <broker-ip> -t 'modesp/v1/default/a1b2c3/cmd/simple_thermo.setpoint' -m '23.5'
 ```
 
-Watch monitor пристрою для confirmation log lines.
+Слідкуйте за монітором пристрою, щоб побачити підтверджувальні рядки
+лога.
 
 ## Що далі
 
-- **[manifest.md](manifest.md#section-mqtt-service-modules)** — manifest
-  reference для `mqtt` section.
-- **[shared-state.md](shared-state.md)** — що публікується і subscribe-иться.
-- **[persistence.md](persistence.md)** *(planned)* — MQTT writes що
-  повинні survive reboot потребують `persist: true`.
+- **[manifest.md](manifest.md#section-mqtt-service-modules)** —
+  довідник маніфесту для секції `mqtt`.
+- **[shared-state.md](shared-state.md)** — те, що публікується і на
+  що підписуються.
+- **[persistence.md](persistence.md)** *(заплановано)* — записи через
+  MQTT, що мають пережити перезавантаження, потребують
+  `persist: true`.
 - **[components/modesp_mqtt.md](../03-framework-reference/components/modesp_mqtt.md)**
-  *(planned)* — internal MQTT service implementation і tuning options.
+  *(заплановано)* — внутрішня реалізація сервісу MQTT і параметри
+  налаштування.
 - **[components/modesp_aws.md](../03-framework-reference/components/modesp_aws.md)**
-  *(planned)* — AWS IoT alternative backend.
+  *(заплановано)* — альтернативний бекенд AWS IoT.
 
-## Source
+## Джерела
 
 - [`components/modesp_mqtt/src/mqtt_service.cpp`](../../../components/modesp_mqtt/src/mqtt_service.cpp)
-  — implementation. Constants: `PUBLISH_INTERVAL_MS`,
-  `HEARTBEAT_INTERVAL_MS`, `ALARM_REPUBLISH_INTERVAL_MS` у header.
+  — реалізація. Константи: `PUBLISH_INTERVAL_MS`,
+  `HEARTBEAT_INTERVAL_MS`, `ALARM_REPUBLISH_INTERVAL_MS` у заголовку.
 - [`modules/simple_thermo/manifest.json`](../../../modules/simple_thermo/manifest.json)
-  — typical pub/sub приклад.
+  — типовий приклад публікації/підписки.

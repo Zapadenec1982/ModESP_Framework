@@ -1,20 +1,21 @@
-# `modesp_net` — WiFi, HTTP, WebSocket
+# `modesp_net` — Wi-Fi, HTTP, WebSocket
 
 > 📖 **In English:** [documentation/en/03-framework-reference/components/modesp_net.md](../../../en/03-framework-reference/components/modesp_net.md)
 
-`modesp_net` provides три модулі що handle network surface: WiFiService
-(STA + AP fallback), HttpService (~30 REST endpoints + static serving),
-і WsService (WebSocket real-time state broadcast). Разом вони експонують
-весь фреймворк external clients — WebUI, MQTT helpers, CLI tools.
+`modesp_net` надає три модулі, що відповідають за мережеву поверхню:
+WiFiService (STA + резервний AP), HttpService (~30 REST-точок доступу +
+видача статичних файлів) і WsService (трансляція стану через WebSocket у
+реальному часі). Разом вони відкривають увесь фреймворк для зовнішніх
+клієнтів — WebUI, помічників MQTT, інструментів CLI.
 
-Business modules не interact з цим layer напряму; натомість їхні
-маніфести declare UI / state keys, і цей компонент рендерить їх. Ця
-сторінка документує що exposed і як pipeline fits разом.
+Бізнес-модулі не взаємодіють з цим шаром напряму; натомість їхні
+маніфести оголошують UI / ключі стану, а цей компонент їх відображає. Ця
+сторінка описує, що виставлено назовні та як працює конвеєр загалом.
 
 REQUIRES: `modesp_core`, `modesp_services`, `modesp_hal`,
 `esp_wifi esp_http_server esp_netif esp_event nvs_flash`.
 
-## Component layout
+## Розташування компонента
 
 ```
 components/modesp_net/include/modesp/net/
@@ -23,7 +24,7 @@ components/modesp_net/include/modesp/net/
 └── ws_service.h
 ```
 
-## `WiFiService` — connection management
+## `WiFiService` — керування з'єднанням
 
 ```cpp
 class WiFiService : public modesp::BaseModule {
@@ -41,47 +42,49 @@ public:
 };
 ```
 
-### Connection логіка
+### Логіка з'єднання
 
-1. **Boot:** reads SSID/password з NVS (`wifi.ssid`, `wifi.password`).
-2. **STA attempt:** tries приєднатись до configured SSID. Якщо success →
-   connected, acquire DHCP, register mDNS hostname.
-3. **AP fallback:** якщо STA fails після ~30 с АБО no credentials у NVS,
-   opens AP `ModESP-<MAC>` з known password (default `12345678`).
-   Captive-portal-style — user joins, opens browser, navigates до
-   `http://192.168.4.1/`, enters credentials.
-4. **STA recovery:** STA disconnect events trigger reconnect з
-   exponential backoff. Після ~5 хвилин failure, опционально fall back
-   до AP (Kconfig flag).
+1. **Завантаження:** читає SSID/пароль з NVS (`wifi.ssid`,
+   `wifi.password`).
+2. **Спроба STA:** намагається приєднатись до налаштованого SSID. У разі
+   успіху → підключено, отримує DHCP, реєструє ім'я хоста mDNS.
+3. **Резервний AP:** якщо STA не вдається протягом ~30 с АБО немає
+   облікових даних у NVS — відкриває AP `ModESP-<MAC>` з відомим паролем
+   (за замовчуванням `12345678`). Стиль captive-portal — користувач
+   приєднується, відкриває браузер, переходить на `http://192.168.4.1/`,
+   вводить облікові дані.
+4. **Відновлення STA:** події відключення STA запускають повторне
+   з'єднання з експоненційною затримкою. Після ~5 хвилин невдач можна
+   опційно перейти у режим AP (прапорець Kconfig).
 
-### State keys
+### Ключі стану
 
-| Key | Type | Notes |
+| Ключ | Тип | Примітки |
 |---|---|---|
-| `wifi.connected` | bool | true якщо STA joined; false якщо AP-only або disconnected. |
-| `wifi.ssid` | string | Current SSID (persisted). |
-| `wifi.password` | string | (persisted, mqtt_subscribe disabled — ніколи не exposed). |
-| `wifi.rssi` | int | Signal strength dBm. |
-| `wifi.ip` | string | Current IP address. |
-| `wifi.ap_mode` | bool | true якщо у AP fallback. |
-| `wifi.last_connect_s` | int | Seconds since last successful connect. |
+| `wifi.connected` | bool | true, якщо STA приєдналось; false, якщо лише AP або відключено. |
+| `wifi.ssid` | string | Поточний SSID (зберігається). |
+| `wifi.password` | string | (зберігається, mqtt_subscribe вимкнено — ніколи не виставляється). |
+| `wifi.rssi` | int | Сила сигналу в dBm. |
+| `wifi.ip` | string | Поточна IP-адреса. |
+| `wifi.ap_mode` | bool | true, якщо у режимі резервного AP. |
+| `wifi.last_connect_s` | int | Секунд з моменту останнього успішного з'єднання. |
 
-### HTTP endpoints (handled у HttpService)
+### HTTP-точки доступу (обробляються у HttpService)
 
-| Method + path | Purpose |
+| Метод + шлях | Призначення |
 |---|---|
-| `GET /api/wifi/scan` | Probe nearby SSIDs; returns array `{ssid, rssi, secured}`. |
-| `POST /api/wifi` | Save new credentials і reconnect. |
-| `GET /api/wifi/ap` | Current AP fallback config. |
-| `POST /api/wifi/ap` | Update AP fallback (SSID, password). |
+| `GET /api/wifi/scan` | Сканує ближні SSID; повертає масив `{ssid, rssi, secured}`. |
+| `POST /api/wifi` | Зберігає нові облікові дані і перепідключається. |
+| `GET /api/wifi/ap` | Поточна конфігурація резервного AP. |
+| `POST /api/wifi/ap` | Оновлює резервний AP (SSID, пароль). |
 
 ### mDNS
 
-Після successful STA join, hostname `modesp-<deviceid>.local` стає
-resolvable на local network. WebUI accessible через
-`http://modesp-a1b2c3.local/` замість hunting IP.
+Після успішного приєднання у STA ім'я хоста `modesp-<deviceid>.local`
+стає доступним для розв'язання у локальній мережі. WebUI доступний через
+`http://modesp-a1b2c3.local/` замість полювання за IP.
 
-## `HttpService` — REST API і static file serving
+## `HttpService` — REST API і видача статичних файлів
 
 ```cpp
 class HttpService : public modesp::BaseModule {
@@ -98,81 +101,83 @@ public:
 };
 ```
 
-Dependency injection happens у main.cpp (HTTP needs access до майже
-кожного іншого service). Inits після того як усі dependencies INITIALISED
-у Phase 3 (LOW priority).
+Впровадження залежностей відбувається у main.cpp (HTTP потребує доступу
+майже до кожної іншої служби). Ініціалізується після того, як усі
+залежності у стані INITIALISED — у Фазі 3 (пріоритет LOW).
 
-### REST endpoints
+### REST-точки доступу
 
-~30 endpoints total. Categorised:
+Усього ~30 точок доступу. За категоріями:
 
-**State і diagnostics:**
-- `GET /api/state` — full SharedState snapshot як JSON.
-- `GET /api/modules` — module list із states.
-- `GET /api/board` — board.json contents.
-- `GET /api/bindings` — bindings.json contents.
-- `POST /api/bindings` — save new bindings (requires reload).
-- `GET /api/ui` — generated UI schema.
-- `GET /api/log` — recent log buffer.
-- `GET /api/log/summary` — short summary.
+**Стан і діагностика:**
+- `GET /api/state` — повний знімок SharedState у форматі JSON.
+- `GET /api/modules` — список модулів зі станами.
+- `GET /api/board` — вміст board.json.
+- `GET /api/bindings` — вміст bindings.json.
+- `POST /api/bindings` — зберегти нові прив'язки (потребує перезавантаження).
+- `GET /api/ui` — згенерована схема UI.
+- `GET /api/log` — буфер останніх рядків журналу.
+- `GET /api/log/summary` — коротке зведення.
 
-**Settings (writable state):**
-- `POST /api/settings` — single-shot writes (1-8 keys at once).
+**Налаштування (запис у стан):**
+- `POST /api/settings` — одноразові записи (1-8 ключів за раз).
 
-**Network:**
+**Мережа:**
 - `GET /api/wifi/scan`, `POST /api/wifi`, `GET/POST /api/wifi/ap`.
-- `GET /api/mqtt`, `POST /api/mqtt` — broker config.
-- `GET /api/time`, `POST /api/time` — manual time AND timezone.
+- `GET /api/mqtt`, `POST /api/mqtt` — конфігурація брокера.
+- `GET /api/time`, `POST /api/time` — ручний час і часовий пояс.
 
-**Hardware:**
-- `GET /api/onewire/scan` — discover OneWire sensors на bound buses.
-- `POST /api/drivers/<type>/scan` — driver-specific discovery.
+**Обладнання:**
+- `GET /api/onewire/scan` — виявлення сенсорів OneWire на прив'язаних
+  шинах.
+- `POST /api/drivers/<type>/scan` — виявлення, специфічне для драйвера.
 
 **OTA:**
-- `GET /api/ota` — current partition і version.
-- `POST /api/ota` — start firmware upload (multipart).
-- `POST /api/ota/confirm` — mark pending firmware stable.
-- `POST /api/ota/rollback` — boot із previous partition.
+- `GET /api/ota` — поточний розділ і версія.
+- `POST /api/ota` — почати завантаження прошивки (multipart).
+- `POST /api/ota/confirm` — позначити очікувану прошивку як стабільну.
+- `POST /api/ota/rollback` — завантажитись з попереднього розділу.
 
-**Backup і restore:**
-- `GET /api/backup` — dump persistent state і config як JSON.
-- `POST /api/restore` — apply backup.
+**Резервне копіювання та відновлення:**
+- `GET /api/backup` — дамп збереженого стану і конфігурації у форматі
+  JSON.
+- `POST /api/restore` — застосувати резервну копію.
 
-**System:**
-- `POST /api/restart` — reboot device.
-- `POST /api/factory-reset` — erase NVS і reboot.
-- `GET /api/auth`, `POST /api/auth` — credentials change.
+**Система:**
+- `POST /api/restart` — перезавантажити пристрій.
+- `POST /api/factory-reset` — стерти NVS і перезавантажитись.
+- `GET /api/auth`, `POST /api/auth` — зміна облікових даних.
 
-**Scenario:**
+**Сценарії:**
 - `GET /api/scenario/list`, `GET /api/scenario/info?handle=N`
 - `POST /api/scenario/load`, `start`, `pause`, `resume`, `abort`,
   `unload`.
 
-### Authentication
+### Автентифікація
 
-HTTP Basic Auth. Default credentials: `admin` / `modesp` (stored у NVS
-`auth` namespace). Change через `POST /api/auth` або WebUI System →
-Auth.
+HTTP Basic Auth. Облікові дані за замовчуванням: `admin` / `modesp`
+(зберігаються у просторі імен NVS `auth`). Зміна через `POST /api/auth`
+або у WebUI Система → Автентифікація.
 
-Кожен API endpoint викликає `check_auth(req)` first; missing/wrong
-credentials → 401 Unauthorized.
+Кожна API-точка спочатку викликає `check_auth(req)`; відсутні/неправильні
+облікові дані → 401 Unauthorized.
 
-Auth може бути disabled через NVS flag (`auth.enabled = false`), useful
-у development. Production: leave enabled.
+Автентифікацію можна вимкнути через прапорець NVS (`auth.enabled =
+false`), що корисно у розробці. У продукції — лишайте увімкненою.
 
-### Static file serving
+### Видача статичних файлів
 
-Після всіх API endpoints, wildcard handler serves files з `/data/www/`:
+Після всіх API-точок обробник за шаблоном видає файли з `/data/www/`:
 
-- `/` → `/data/www/index.html` (WebUI entry).
-- `/bundle.js.gz` → gzipped Svelte bundle.
-- `/bundle.css.gz` → gzipped styles.
-- `/i18n/<lang>.json` → translation packs.
+- `/` → `/data/www/index.html` (точка входу WebUI).
+- `/bundle.js.gz` → стиснутий gzip пакунок Svelte.
+- `/bundle.css.gz` → стиснуті стилі.
+- `/i18n/<lang>.json` → пакети перекладів.
 
-Wildcard handler MUST бути registered LAST (після API endpoints).
-Інакше `/*` pattern shadows specific routes.
+Обробник за шаблоном слід реєструвати ОСТАННІМ (після API-точок). Інакше
+шаблон `/*` затіняє конкретні маршрути.
 
-## `WsService` — WebSocket state broadcast
+## `WsService` — трансляція стану через WebSocket
 
 ```cpp
 class WsService : public modesp::BaseModule {
@@ -184,39 +189,42 @@ public:
 };
 ```
 
-WebSocket endpoint: `/api/ws`. WebUI's frontend connects тут при load
-AND maintains connection для real-time state updates.
+Точка доступу WebSocket: `/api/ws`. Фронтенд WebUI підключається сюди
+при завантаженні І підтримує з'єднання для оновлень стану в реальному
+часі.
 
-### Broadcast логіка
+### Логіка трансляції
 
-Кожні ~500 мс, WsService:
+Кожні ~500 мс WsService:
 
-1. Calls `state.for_each_changed_and_clear()`.
-2. Якщо changes ≤ 32 keys, sends delta payload:
+1. Викликає `state.for_each_changed_and_clear()`.
+2. Якщо змін ≤ 32 ключів — надсилає корисне навантаження-дельту:
    ```json
    {"type": "delta", "values": {"key1": v1, "key2": v2, ...}}
    ```
-3. Якщо overflow (`needs_full_broadcast()`), sends full snapshot:
+3. Якщо переповнення (`needs_full_broadcast()`) — надсилає повний знімок:
    ```json
    {"type": "snapshot", "values": {<all keys>}}
    ```
-4. New clients що connect mid-session отримують snapshot при join.
+4. Нові клієнти, що підключаються посеред сесії, отримують знімок при
+   приєднанні.
 
-### Incoming messages
+### Вхідні повідомлення
 
 ```json
 {"type": "set", "key": "thermo.setpoint", "value": 23.5}
 ```
 
-Equivalent до `POST /api/settings {"thermo.setpoint": 23.5}` але без full
-HTTP round-trip. Used by interactive widgets (sliders) для low latency.
+Еквівалентно `POST /api/settings {"thermo.setpoint": 23.5}`, але без
+повного раунду HTTP. Використовується інтерактивними віджетами
+(повзунки) задля малої затримки.
 
-### Capacity
+### Місткість
 
-Max ~4 concurrent WebSocket clients (Kconfig). Кожен holds ~2 KB у
-httpd's per-client buffer. Exceeds budget на busy devices.
+Максимум ~4 одночасних WebSocket-клієнти (Kconfig). Кожен тримає ~2 КБ
+у буфері httpd на клієнта. Перевищує бюджет на завантажених пристроях.
 
-## Wiring у main.cpp
+## Підключення у main.cpp
 
 ```cpp
 static modesp::WiFiService wifi_service;
@@ -226,7 +234,7 @@ static modesp::WsService   ws_service;
 // Phase 2: register WiFi
 app.modules().register_module(wifi_service);
 
-// Phase 3: register HTTP + WS з dependency injection
+// Phase 3: register HTTP + WS із dependency injection
 http_service.set_state(&app.state());
 http_service.set_config(&config_service);
 http_service.set_modules(&app.modules());
@@ -242,75 +250,80 @@ app.modules().register_module(http_service);
 app.modules().register_module(ws_service);
 app.modules().init_all(app.state());
 
-// Step 9: connect WS handler до HTTP server, register wildcard last
+// Step 9: connect WS handler to HTTP server, register wildcard last
 if (http_service.server()) {
     ws_service.set_http_server(http_service.server());
     http_service.register_static_handler();   // MUST be last
 }
 ```
 
-Setter pattern verbose але explicit — кожна dependency visible у
-main.cpp. Avoids hidden global state.
+Шаблон з сетерами багатослівний, але явний — кожна залежність видима у
+main.cpp. Уникає прихованого глобального стану.
 
-## State keys (network category)
+## Ключі стану (категорія мережі)
 
-| Key | Notes |
+| Ключ | Примітки |
 |---|---|
-| `wifi.connected` | STA connected. |
-| `wifi.ssid` / `wifi.ip` / `wifi.rssi` | Connection details. |
-| `wifi.ap_mode` | AP fallback active. |
-| `http.requests_count` | Total HTTP requests served (debug). |
-| `http.ws_clients` | Currently connected WS clients. |
+| `wifi.connected` | STA підключено. |
+| `wifi.ssid` / `wifi.ip` / `wifi.rssi` | Деталі з'єднання. |
+| `wifi.ap_mode` | Резервний AP активний. |
+| `http.requests_count` | Всього обслужено HTTP-запитів (для налагодження). |
+| `http.ws_clients` | Зараз підключено WS-клієнтів. |
 
-## Performance і memory
+## Продуктивність і пам'ять
 
-| Service | RAM | Task |
+| Служба | RAM | Завдання |
 |---|---|---|
-| WiFiService | ~3 KB | runs на main + ESP-IDF WiFi tasks. |
-| HttpService | ~8 KB (httpd buffer) | httpd has own task. |
-| WsService | ~4 KB (frame buffers) | WS frames у httpd worker. |
+| WiFiService | ~3 КБ | виконується у main + завданнях Wi-Fi ESP-IDF. |
+| HttpService | ~8 КБ (буфер httpd) | httpd має власне завдання. |
+| WsService | ~4 КБ (буфери кадрів) | кадри WS у воркері httpd. |
 
-Total ~15 KB allocated для network surface. Each WS client adds ~2 KB.
+Усього ~15 КБ виділено для мережевої поверхні. Кожен WS-клієнт додає
+~2 КБ.
 
-Max URI handlers: 64 (Kconfig `CONFIG_HTTPD_MAX_URI_HANDLERS`). Bumped
-з default 48 для scenario API + WS coexistence.
+Максимум обробників URI: 64 (Kconfig `CONFIG_HTTPD_MAX_URI_HANDLERS`).
+Підняли з типових 48 заради співіснування API сценаріїв і WS.
 
-## Common pitfalls
+## Типові помилки
 
-**WS не connect-иться:** check `wifi.connected = true` first. Якщо WiFi
-OK але WS fails, look за `httpd_register_uri_handler` failure у logs —
-likely max URI handlers exceeded.
+**WS не підключається:** спочатку перевірте `wifi.connected = true`.
+Якщо Wi-Fi у порядку, але WS не вдається — шукайте у журналах відмову
+`httpd_register_uri_handler` — імовірно, перевищено максимум обробників
+URI.
 
-**Static handler shadowing API:** `register_static_handler()` MUST бути
-called LAST. Інакше `/*` wildcard matches everything including
+**Статичний обробник затіняє API:** `register_static_handler()` ПОВИНЕН
+викликатись ОСТАННІМ. Інакше шаблон `/*` збігається з усім, зокрема й
 `/api/*`.
 
-**401 Unauthorized у browser:** clear browser auth cache, re-enter
-credentials. Default `admin/modesp`; reset через factory-reset або direct
-NVS edit.
+**401 Unauthorized у браузері:** очистьте кеш автентифікації браузера,
+введіть облікові дані повторно. За замовчуванням `admin/modesp`;
+скидання через factory-reset або пряме редагування NVS.
 
-**`/api/state` slow:** snapshotting takes ~30 мс з 96 entries. Не poll це
-endpoint frequently — use WS для real-time, REST для one-shots.
+**`/api/state` повільний:** створення знімка займає ~30 мс за 96 записів.
+Не опитуйте цю точку часто — використовуйте WS для реального часу, REST
+для одноразових запитів.
 
-**WiFi reconnect storm у logs:** AP fallback enabled + STA SSID gone
-results у repeated mode switching. Disable AP fallback для stable
-deployments OR ensure deterministic AP password.
+**Шторм перепідключень Wi-Fi у журналах:** увімкнений резервний AP +
+зниклий SSID STA призводять до постійного перемикання режимів. Вимкніть
+резервний AP для стабільних розгортань АБО забезпечте детермінований
+пароль AP.
 
 ## Що далі
 
-- **[components/modesp_mqtt.md](modesp_mqtt.md)** — MQTT publish/subscribe
-  layer на top of network.
-- **[components/modesp_aws.md](modesp_aws.md)** — AWS IoT alternative
-  cloud backend.
+- **[components/modesp_mqtt.md](modesp_mqtt.md)** — шар публікації/
+  підписки MQTT поверх мережі.
+- **[components/modesp_aws.md](modesp_aws.md)** — альтернативний хмарний
+  бекенд AWS IoT.
 - **[02-module-author-guide/ui-widgets.md](../../02-module-author-guide/ui-widgets.md)**
-  — що `/api/ui` exposes і як widgets рендеряться.
+  — що `/api/ui` виставляє і як відображаються віджети.
 - **[02-module-author-guide/debugging.md](../../02-module-author-guide/debugging.md)**
-  — using `/api/state`, `/api/modules`, `/api/log` для debugging.
+  — використання `/api/state`, `/api/modules`, `/api/log` для
+  налагодження.
 
-## Source
+## Джерела
 
 - [`components/modesp_net/include/modesp/net/`](../../../../components/modesp_net/include/modesp/net/)
-  — public headers.
+  — публічні заголовки.
 - [`components/modesp_net/src/`](../../../../components/modesp_net/src/)
-  — implementations. `http_service.cpp` — найбільший file (~2000 LOC)
-  housing усі REST handlers.
+  — реалізації. `http_service.cpp` — найбільший файл (~2000 рядків
+  коду), що містить усі REST-обробники.

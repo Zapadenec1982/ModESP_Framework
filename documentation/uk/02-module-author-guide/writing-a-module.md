@@ -1,31 +1,33 @@
-# Написання service модуля
+# Написання сервісного модуля
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/writing-a-module.md](../../en/02-module-author-guide/writing-a-module.md)
 
-Ця сторінка — повний walkthrough побудови C++ service модуля — класу що
-derive-иться від `modesp::BaseModule`, реєструється з build, і запускає
-business логіку на 100 Hz update loop. Прочитавши, ви зможете створити нову
-module folder, написати manifest + C++, побачити як він boot-ається, і
-взаємодіяти з його state через WebUI і HTTP API.
+Ця сторінка — повне покрокове проходження побудови C++ сервісного
+модуля — класу, що успадковується від `modesp::BaseModule`, реєструється
+у збірці й виконує бізнес-логіку у циклі оновлення 100 Hz. Прочитавши,
+ви зможете створити нову папку модуля, написати маніфест і C++, побачити
+як модуль завантажується, та взаємодіяти з його станом через WebUI і
+HTTP API.
 
-Recipe модулі (лише manifest, без C++) описані у
-[recipe-authoring.md](recipe-authoring.md) *(planned)*. Драйвери у
-[writing-a-driver.md](writing-a-driver.md) *(planned)*.
+Модулі-рецепти (лише маніфест, без C++) описані у
+[recipe-authoring.md](recipe-authoring.md) *(заплановано)*. Драйвери — у
+[writing-a-driver.md](writing-a-driver.md) *(заплановано)*.
 
 ## Що таке модуль
 
-Service module — це `modesp::BaseModule` subclass що:
+Сервісний модуль — це підклас `modesp::BaseModule`, який:
 
 - Живе у `modules/<name>/` зі своїм `CMakeLists.txt` і `manifest.json`.
-- Конструюється при static-storage init (без heap, без `new`).
-- Отримує три lifecycle hooks драйвлені `ModuleManager`: `on_init()` раз,
-  `on_update(dt_ms)` кожні 10 мс, `on_stop()` при shutdown.
-- Опціонально отримує messages через `on_message(const etl::imessage&)`.
-- Читає і пише state через `SharedState` helpers.
+- Конструюється під час static-storage init (без heap, без `new`).
+- Отримує три життєві гачки, керовані `ModuleManager`: `on_init()` один
+  раз, `on_update(dt_ms)` кожні 10 мс, `on_stop()` при зупинці.
+- Опційно отримує повідомлення через `on_message(const etl::imessage&)`.
+- Читає й пише стан через хелпери `SharedState`.
 
-Авто-генерація фреймворку робить boilerplate невидимим: маніфест декларує
-що робить модуль; згенеровані `module_includes.h` / `module_instances.h` /
-`module_register.h` headers wire-ять instance у `main.cpp` без manual edits.
+Система авто-генерації фреймворку робить шаблонний код невидимим:
+маніфест декларує, що робить модуль; згенеровані заголовки
+`module_includes.h` / `module_instances.h` / `module_register.h`
+прив'язують екземпляр до `main.cpp` без ручних правок.
 
 ## Структура папки
 
@@ -34,20 +36,20 @@ modules/your_module/
 ├── manifest.json          ← ОБОВ'ЯЗКОВО — контракт маніфесту
 ├── CMakeLists.txt         ← ОБОВ'ЯЗКОВО — один рядок на файл
 ├── include/
-│   └── your_module.h      ← Декларація module класу
+│   └── your_module.h      ← Декларація класу модуля
 └── src/
-    └── your_module.cpp    ← Implementation
+    └── your_module.cpp    ← Реалізація
 ```
 
-> ℹ️ **Note:** імена header і source повинні match C++ class name конвенції
-> що використовує генератор. Використовуйте `<name>_module.h` /
-> `<name>_module.cpp` патерни з existing модулів (наприклад
-> `simple_thermo_module.cpp`).
+> ℹ️ **Примітка:** імена файлів заголовка та джерела мають відповідати
+> конвенціям імен C++-класів, які використовує генератор. Використовуйте
+> патерни `<name>_module.h` / `<name>_module.cpp` з наявних модулів
+> (наприклад, `simple_thermo_module.cpp`).
 
 ## Крок 1 — Написати маніфест
 
-Покрийте базу: top-level поля, state keys, опціонально `ui` і `mqtt`. Повний
-reference у [manifest.md](manifest.md).
+Покрийте основу: поля верхнього рівня, ключі стану, опційно `ui` і
+`mqtt`. Повний довідник у [manifest.md](manifest.md).
 
 Мінімальний приклад (`modules/my_counter/manifest.json`):
 
@@ -63,7 +65,7 @@ reference у [manifest.md](manifest.md).
     "my_counter.seconds": {
       "type": "int",
       "access": "read",
-      "description": "Секунди з моменту init модуля"
+      "description": "Секунди з моменту ініціалізації модуля"
     }
   },
 
@@ -80,11 +82,11 @@ reference у [manifest.md](manifest.md).
 }
 ```
 
-Build підхоплює це автоматично через `project.json` (наступний крок).
+Збірка автоматично підхоплює це через `project.json` (наступний крок).
 
 ## Крок 2 — Зареєструвати у project.json
 
-Додайте ім'я модуля до project's module list:
+Додайте ім'я модуля до списку модулів проєкту:
 
 ```json
 // project.json (root)
@@ -93,9 +95,9 @@ Build підхоплює це автоматично через `project.json` (
 }
 ```
 
-Генератор обробляє маніфести лише для модулів перерахованих тут. Це
-дозволяє тримати багато модулів у репо і обирати які shipping-уються у
-конкретному firmware build.
+Генератор обробляє маніфести лише модулів, перелічених тут. Це дозволяє
+тримати багато модулів у репозиторії та обирати, які з них потрапляють
+у конкретну збірку прошивки.
 
 ## Крок 3 — Написати CMakeLists.txt
 
@@ -109,12 +111,12 @@ idf_component_register(
 ```
 
 `REQUIRES modesp_core` дає доступ до `BaseModule`, `SharedState`,
-`ModulePriority`. Додайте інші компоненти (`modesp_services`, `modesp_hal`,
-тощо) якщо ваш модуль їх потребує.
+`ModulePriority`. Додайте інші компоненти (`modesp_services`,
+`modesp_hal` тощо), якщо вашому модулю вони потрібні.
 
-## Крок 4 — Написати C++ клас
+## Крок 4 — Написати C++-клас
 
-Header:
+Заголовок:
 
 ```cpp
 // modules/my_counter/include/my_counter_module.h
@@ -134,7 +136,7 @@ private:
 };
 ```
 
-Source:
+Джерело:
 
 ```cpp
 // modules/my_counter/src/my_counter_module.cpp
@@ -163,27 +165,28 @@ void MyCounterModule::on_update(uint32_t dt_ms) {
 }
 ```
 
-Це весь модуль. Конструктор передає ім'я і priority до `BaseModule`;
-lifecycle hooks роблять роботу; `state_set` пише через SharedState.
+Це весь модуль. Конструктор передає ім'я модуля та priority до
+`BaseModule`; життєві гачки роблять роботу; `state_set` пише через
+SharedState.
 
-## Крок 5 — Build і flash
+## Крок 5 — Збірка та прошивка
 
 ```bash
 idf.py build
 idf.py -p COM15 flash monitor
 ```
 
-Маєте побачити у boot log:
+У журналі завантаження ви маєте побачити:
 
 ```
 I (12345) ModuleManager: Registering my_counter (priority=NORMAL)
 I (12350) MyCounter: Counter started
 ```
 
-У WebUI перейдіть на сторінку **Counter** (auto-generated з вашої `ui`
-секції). Widget "seconds" оновлюється раз на секунду.
+У WebUI перейдіть на сторінку **Counter** (автоматично згенеровану з
+вашої секції `ui`). Віджет "seconds" оновлюється раз на секунду.
 
-## BaseModule API reference
+## Довідник API BaseModule
 
 ### Конструктор
 
@@ -191,139 +194,146 @@ I (12350) MyCounter: Counter started
 BaseModule(const char* name, modesp::ModulePriority priority);
 ```
 
-`name` повинен match поле `"module"` у `manifest.json`. `priority` обирає
-init phase:
+`name` має відповідати полю `"module"` у `manifest.json`. `priority`
+обирає фазу ініціалізації:
 
-| Priority | Значення | Phase | Використання |
+| Priority | Значення | Фаза | Для чого |
 |---|---|---|---|
-| `CRITICAL` | 0 | 1 (перший) | Error service, watchdog. |
-| `HIGH` | 1 | 2 | WiFi, HAL, drivers, scenario engine. |
-| `NORMAL` | 2 | 2 | Business logic (default). |
-| `LOW` | 3 | 3 (останній) | HTTP, WebSocket, datalogger. |
+| `CRITICAL` | 0 | 1 (перша) | Служба помилок, watchdog. |
+| `HIGH` | 1 | 2 | WiFi, HAL, драйвери, сценарний рушій. |
+| `NORMAL` | 2 | 2 | Бізнес-логіка (за замовчуванням). |
+| `LOW` | 3 | 3 (остання) | HTTP, WebSocket, datalogger. |
 
-### Lifecycle hooks
+### Життєві гачки
 
-Всі повертають default якщо не overridden.
+Усі повертають значення за замовчуванням, якщо не перевизначені.
 
-| Hook | Сигнатура | Викликається | Примітки |
+| Гачок | Сигнатура | Викликається | Примітки |
 |---|---|---|---|
-| `on_init` | `virtual bool on_init()` | Один раз при startup | Поверніть `false` щоб abort registration. |
-| `on_update` | `virtual void on_update(uint32_t dt_ms)` | Кожні 10 мс | Hot path — повинен бути non-blocking, типово < 1 мс. |
-| `on_message` | `virtual void on_message(const etl::imessage& msg)` | Коли message addressed до цього модуля dispatch-ається | Використовуйте sparingly — більшість communication через SharedState. |
-| `on_stop` | `virtual void on_stop()` | Один раз при shutdown | Звільнити non-trivial resources, flush queues. |
+| `on_init` | `virtual bool on_init()` | Один раз при старті | Поверніть `false`, щоб скасувати реєстрацію. |
+| `on_update` | `virtual void on_update(uint32_t dt_ms)` | Кожні 10 мс | Гарячий шлях — має бути неблокувальним, типово < 1 мс. |
+| `on_message` | `virtual void on_message(const etl::imessage& msg)` | Коли повідомлення, адресоване цьому модулю, диспетчиться | Використовуйте помірковано — більшість комунікації через SharedState. |
+| `on_stop` | `virtual void on_stop()` | Один раз при зупинці | Звільнити нетривіальні ресурси, скинути черги. |
 
-### State access
+### Доступ до стану
 
 ```cpp
-// Write — typed overloads, всі delegate до SharedState::set.
+// Запис — типізовані перевантаження, всі делегують до SharedState::set.
 bool state_set(const char* key, int32_t value, bool track_change = true);
 bool state_set(const char* key, float value, bool track_change = true);
 bool state_set(const char* key, bool value, bool track_change = true);
 bool state_set(const char* key, const char* value, bool track_change = true);
 
-// Read — typed convenience з default fallback.
+// Читання — типізована зручність зі значенням за замовчуванням.
 float   read_float(const char* key, float def = 0.0f) const;
 int32_t read_int(const char* key, int32_t def = 0) const;
 bool    read_bool(const char* key, bool def = false) const;
 
-// Generic — повертає std::optional з variant. Use коли тип невідомий або polymorphic.
+// Узагальнене — повертає std::optional з варіантом. Використовуйте, коли тип невідомий або поліморфний.
 etl::optional<modesp::StateValue> state_get(const char* key) const;
 ```
 
-**Флаг `track_change`:** default `true` тригерить WebSocket delta-broadcast.
-Поставте `false` для silent updates (counters, fast-changing values що
-спамлять WS).
+**Прапорець `track_change`:** за замовчуванням `true` запускає
+дельта-розсилку WebSocket. Встановіть `false` для тихих оновлень
+(лічильники, швидкозмінні значення, які заспамлюють WS).
 
-Повна SharedState семантика: [shared-state.md](shared-state.md) *(planned)*.
+Повна семантика SharedState: [shared-state.md](shared-state.md)
+*(заплановано)*.
 
-## Three-phase init ordering — що actually запускається коли
+## Порядок трифазної ініціалізації — що насправді запускається коли
 
 `ModuleManager::init_all` викликається тричі у `main.cpp`:
 
 ```cpp
-// Phase 1 — CRITICAL priority модулі
+// Фаза 1 — модулі з priority CRITICAL
 ESP_LOGI(TAG, "Phase 1: Initializing system services...");
 app.modules().init_all(app.state());
 
-// ... Wi-Fi, drivers, scenario engine register-яться тут ...
+// ... Wi-Fi, драйвери, сценарний рушій реєструються тут ...
 
-// Phase 2 — HIGH + NORMAL priority модулі
+// Фаза 2 — модулі з priority HIGH + NORMAL
 ESP_LOGI(TAG, "Phase 2: Initializing WiFi + business modules...");
 app.modules().init_all(app.state());
 
-// ... HTTP, WS register-яться тут ...
+// ... HTTP, WS реєструються тут ...
 
-// Phase 3 — LOW priority модулі
+// Фаза 3 — модулі з priority LOW
 ESP_LOGI(TAG, "Phase 3: Initializing HTTP + WebSocket...");
 app.modules().init_all(app.state());
 ```
 
-Кожен виклик iterates по registered modules і викликає `on_init()` ТІЛЬКИ
-на тих що ще у `CREATED` state. Ось як priority maps до phase: priority
-`0`/CRITICAL ініціалізується у першому `init_all` call (бо нічого вище
-не існує і він у CREATED state); priority `1`/HIGH і `2`/NORMAL у другому
-call; priority `3`/LOW у третьому.
+Кожен виклик ітерує зареєстровані модулі та викликає `on_init()` ЛИШЕ
+для тих, що ще у стані `CREATED`. Ось як priority відображається на
+фазу: priority `0`/CRITICAL ініціалізується у першому виклику `init_all`
+(бо нічого вищого не існує, і він у стані CREATED); priority `1`/HIGH і
+`2`/NORMAL — у другому виклику; priority `3`/LOW — у третьому.
 
-**Practical rule:** якщо ваш модуль залежить від чогось вже initialised —
-оберіть вищий priority value (пізніший phase). Якщо він provides
-foundational service для інших модулів — оберіть нижчий.
+**Практичне правило:** якщо ваш модуль залежить від чогось іншого, що
+вже має бути ініціалізоване, оберіть вище значення priority (пізнішу
+фазу). Якщо він надає фундаментальну послугу іншим модулям, оберіть
+нижче.
 
-## Що йде у on_update vs on_init
+## Що йде до on_update порівняно з on_init
 
 **`on_init`:**
-- Встановити initial state values.
-- Прочитати persisted settings (PersistService мав би вже їх restore-нути
-  якщо ваші `state` keys мали `persist: true`).
-- Cache references / lookup tables що не змінюються.
-- Принтнути один ESP_LOGI рядок "initialised з <ключовими параметрами>".
+- Встановити початкові значення стану.
+- Прочитати збережені налаштування (PersistService мав би вже їх
+  відновити, якщо ваші ключі `state` мали `persist: true`).
+- Кешувати посилання / таблиці пошуку, що не змінюються.
+- Надрукувати один рядок ESP_LOGI на кшталт "initialised з <ключовими параметрами>".
 
 **`on_update`:**
-- Актуальна business логіка.
-- Прочитати inputs (state keys written іншими модулями / drivers).
-- Compute next state.
-- Записати outputs.
+- Власне бізнес-логіка.
+- Прочитати входи (ключі стану, записані іншими модулями / драйверами).
+- Обчислити наступний стан.
+- Записати виходи.
 
-**Анти-патерни у `on_update`:**
+**Антипатерни у `on_update`:**
 
-- ❌ `vTaskDelay` / `sleep` — блокує 100 Hz update loop, starvує інші модулі.
-- ❌ Heap allocation (`new`, `std::vector::push_back`, `std::string`) — на 100 Hz це leak-ає bytes per tick.
-- ❌ NVS writes — synchronous I/O, ~5-50 мс кожен. Defer до module-level event handler або use `state_set` з `persist: true` (PersistService throttles).
-- ❌ Heavy logging (>1 ESP_LOG за секунду на модуль) — UART floods, monitor lags.
-- ❌ Reading complex JSON / parsing strings — pre-compute у `on_init`.
+- ❌ `vTaskDelay` / `sleep` — блокує цикл оновлення 100 Hz, морить голодом інші модулі.
+- ❌ Heap-алокація (`new`, `std::vector::push_back`, `std::string`) — при 100 Hz це втрачає байти на такт.
+- ❌ Запис у NVS — синхронний I/O, ~5-50 мс кожен. Відкладіть до обробника подій рівня модуля або використайте `state_set` з `persist: true` (PersistService обмежує частоту).
+- ❌ Важке логування (>1 ESP_LOG на секунду на модуль) — UART затоплюється, монітор лагає.
+- ❌ Читання складного JSON / розбір рядків — обчисліть наперед у `on_init`.
 
-## Cross-module комунікація
+## Міжмодульна комунікація
 
-Модулі не тримають pointers один на одного. Натомість:
+Модулі не тримають покажчиків один на одного. Натомість:
 
-1. **Pure data flow** — module А пише `keyA`, module В читає `keyA`. Module
-   В запускається після А на тому ж tick через declaration order (модулі
-   створюються у `module_instances.h` register-яться у порядку defined у
-   `project.json`, що визначає update порядок у phase).
+1. **Чистий потік даних** — модуль А пише `keyA`, модуль Б читає `keyA`.
+   Модуль Б запускається після А на тому ж такті завдяки порядку
+   декларації (модулі, створені у `module_instances.h`, реєструються
+   у порядку, визначеному в `project.json`, що задає порядок оновлення
+   в межах фази).
 
-2. **Events / commands** — публікуються через запис state key, спостерігаються
-   через читання на наступному tick. Edge detection через ваш власний
-   `prev_value_` member.
+2. **Події / команди** — публікуються через запис ключа стану,
+   спостерігаються через його читання на наступному такті. Детекція
+   фронту через ваш власний член `prev_value_`.
 
-3. **Messages** (рідко) — `ModuleManager::send_message(target, msg)`
-   reaches `on_message`. Використовуйте коли message має typed payload
-   що не fit-ається у єдиний state key.
+3. **Повідомлення** (рідко) —
+   `ModuleManager::send_message(target, msg)` досягає `on_message`.
+   Використовуйте, коли повідомлення має типізоване корисне навантаження,
+   що не вміщується в один ключ стану.
 
-4. **HTTP API** — external clients пишуть keys через `POST /api/settings`,
-   що `set_state` actions також можуть. Той самий механізм, інший актор.
+4. **HTTP API** — зовнішні клієнти пишуть ключі через
+   `POST /api/settings`, що дії `set_state` теж можуть. Той самий
+   механізм, інший актор.
 
-> 💡 **Tip:** для нового проекту, default до pure data flow через
-> SharedState. Додавайте events / messages лише коли cross-tick coordination
-> вимагає це. Більшість пар модулів не потребують explicit signaling.
+> 💡 **Підказка:** для нового проєкту за замовчуванням використовуйте
+> чистий потік даних через SharedState. Додавайте події / повідомлення,
+> лише коли координація між тактами цього вимагає. Більшість пар
+> модулів не потребують явної сигналізації.
 
-## Читання sensor / actuator state
+## Читання стану сенсорів / актуаторів
 
-Модуль `equipment` володіє HAL drivers. Sensor values land-ять у keys типу
-`equipment.air_temp`, `equipment.evap_temp`. Actuator requests пишуться до
-`equipment.req_compressor`, `equipment.req_fan` тощо, і equipment maps їх
-на фізичні relays на основі `bindings.json`.
+Модуль `equipment` володіє драйверами HAL. Значення сенсорів
+потрапляють у ключі на кшталт `equipment.air_temp`, `equipment.evap_temp`.
+Запити до актуаторів пишуться у `equipment.req_compressor`,
+`equipment.req_fan` тощо, і equipment відображає їх на фізичні реле на
+основі `bindings.json`.
 
-Ваш business module читає sensor keys, пише actuator request keys.
-Hardware decoupled.
+Ваш бізнес-модуль читає ключі сенсорів, пише ключі запитів актуаторів.
+Обладнання відокремлене.
 
 ```cpp
 void MyModule::on_update(uint32_t dt_ms) {
@@ -333,28 +343,29 @@ void MyModule::on_update(uint32_t dt_ms) {
 }
 ```
 
-Повні HAL деталі: [components/modesp_hal.md](../03-framework-reference/components/modesp_hal.md)
-*(planned)* і [hardware/bindings.md](../04-hardware/bindings.md) *(planned)*.
+Повні деталі HAL: [components/modesp_hal.md](../03-framework-reference/components/modesp_hal.md)
+*(заплановано)* та [hardware/bindings.md](../04-hardware/bindings.md)
+*(заплановано)*.
 
-## Згенеровані headers — що автоматично
+## Згенеровані заголовки — що автоматично
 
-Після `idf.py build`, `generated/` містить:
+Після `idf.py build` у `generated/` міститься:
 
-| File | Content |
+| Файл | Вміст |
 |---|---|
-| `module_includes.h` | `#include "your_module.h"` для кожного модуля у project.json. |
-| `module_instances.h` | `static YourModule your_module;` декларації. |
-| `module_register.h` | `manager.register_module(your_module)` calls у `modesp_register_modules(app)`. |
-| `state_meta.h` | Constexpr table усіх declared state keys, типів, max-length. |
-| `mqtt_topics.h` | String константи для кожного MQTT topic. |
-| `features_config.h` | `#define` для кожного feature flag. |
+| `module_includes.h` | `#include "your_module.h"` для кожного модуля з project.json. |
+| `module_instances.h` | Декларації `static YourModule your_module;`. |
+| `module_register.h` | Виклики `manager.register_module(your_module)` у `modesp_register_modules(app)`. |
+| `state_meta.h` | Constexpr-таблиця усіх задекларованих ключів стану, типів, max-length. |
+| `mqtt_topics.h` | Рядкові константи для кожної теми MQTT. |
+| `features_config.h` | `#define` для кожного прапорця можливості. |
 
-Ви їх не торкаєтесь руками. Генератор перезаписує їх кожен build з latest
-маніфестами.
+Ви не торкаєтеся їх руками. Генератор перезаписує їх щоразу під час
+збірки актуальними маніфестами.
 
-## Тестування модуля
+## Тестування вашого модуля
 
-**Host build (preferred для швидкої ітерації):**
+**Host-збірка (рекомендована для швидкої ітерації):**
 
 ```bash
 cd tests/host
@@ -362,37 +373,38 @@ make MODULE=my_counter
 ./build/test_my_counter
 ```
 
-Pattern: маленький `test_<name>.cpp` instantiates модуль з stub SharedState,
-викликає `on_init` і `on_update` repeatedly, asserts state values. Див.
-[testing.md](../06-contributing/testing.md) *(planned)* для fixtures і
-how-tos.
+Патерн: маленький `test_<name>.cpp` інстанціює модуль із заглушкою
+SharedState, неодноразово викликає `on_init` та `on_update`, перевіряє
+значення стану. Див. [testing.md](../06-contributing/testing.md)
+*(заплановано)* для fixtures і покрокових інструкцій.
 
 **On-target HIL:**
 
-`tools/tests/test_hil.py` exercises running firmware через HTTP API.
-Додайте tests з `pytest` і `requests`
-([test_hil.py reference](../../../tools/tests/test_hil.py)).
+`tools/tests/test_hil.py` навантажує прошивку, що працює, через HTTP API.
+Додавайте тести за допомогою `pytest` і `requests`
+([довідник test_hil.py](../../../tools/tests/test_hil.py)).
 
 ## Що далі
 
-- **[shared-state.md](shared-state.md)** *(planned)* — глибші SharedState
-  патерни (change tracking, optional reads, type validation).
-- **[ui-widgets.md](ui-widgets.md)** *(planned)* — повний widget reference
-  з visual examples.
-- **[mqtt.md](mqtt.md)** *(planned)* — wiring `mqtt.subscribe` keys і
-  publish патерни.
-- **[persistence.md](persistence.md)** *(planned)* — флаг `persist: true`
-  і PersistService.
-- **[debugging.md](debugging.md)** *(planned)* — log inspection, state
-  inspection через HTTP, поширені runtime issues.
+- **[shared-state.md](shared-state.md)** *(заплановано)* — глибші
+  патерни SharedState (відстеження змін, опційні читання, валідація типів).
+- **[ui-widgets.md](ui-widgets.md)** *(заплановано)* — повний довідник
+  віджетів з візуальними прикладами.
+- **[mqtt.md](mqtt.md)** *(заплановано)* — прив'язка ключів
+  `mqtt.subscribe` і патерни публікації.
+- **[persistence.md](persistence.md)** *(заплановано)* — прапорець
+  `persist: true` і PersistService.
+- **[debugging.md](debugging.md)** *(заплановано)* — перевірка журналу,
+  інспекція стану через HTTP, типові runtime-проблеми.
 
-## Existing модулі для вивчення source-first
+## Наявні модулі для вивчення з джерельного коду
 
-- [`modules/simple_thermo/`](../../../modules/simple_thermo/) — ~55 LOC C++,
-  показує hysteresis pattern, multi-key read/write. Найкраща перша річ
-  для читання.
-- [`modules/datalogger/`](../../../modules/datalogger/) — більший модуль з
-  features, multiple state keys, NVS-backed buffers. Читайте після основ.
-- [`modules/equipment/`](../../../modules/equipment/) — bridge маніфест до
-  HAL drivers. Найбільш coupled модуль — читайте коли зрозумієте
-  SharedState і drivers.
+- [`modules/simple_thermo/`](../../../modules/simple_thermo/) — ~55
+  рядків C++, показує патерн гістерезису, читання/запис кількох ключів.
+  Найкраще перше читання.
+- [`modules/datalogger/`](../../../modules/datalogger/) — більший
+  модуль з можливостями, кількома ключами стану, NVS-буферами. Читайте
+  після основ.
+- [`modules/equipment/`](../../../modules/equipment/) — з'єднує маніфест
+  з драйверами HAL. Найбільш зв'язаний модуль — читайте, коли зрозумієте
+  SharedState і драйвери.

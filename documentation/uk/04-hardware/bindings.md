@@ -2,36 +2,38 @@
 
 > 📖 **In English:** [documentation/en/04-hardware/bindings.md](../../en/04-hardware/bindings.md)
 
-`bindings.json` — це **deployment-specific підключення** — який driver type
-handles який hardware pin, і яку семантичну **role** (ім'я типу `air_temp`,
-`compressor`) він provides решті системи. Поки `board.json` каже "у мене є
-ці GPIO outputs", `bindings.json` каже "GPIO реле 1 — це компресор,
-говоріть з ним через `relay` driver".
+`bindings.json` — це **підключення, специфічне для розгортання**: який
+тип драйвера обслуговує який апаратний вивід і яку семантичну **роль**
+(ім'я на кшталт `air_temp`, `compressor`) він надає решті системи.
+Якщо `board.json` каже "у мене є ці GPIO-виходи", то `bindings.json`
+каже "GPIO-реле 1 — це компресор, спілкуйтеся з ним через драйвер
+`relay`".
 
-Ця сторінка — reference для написання bindings, з реальними прикладами з
-dev і KC868-A6 reference boards.
+Ця сторінка — довідник для написання прив'язок із реальними прикладами
+з референсних плат dev і KC868-A6.
 
-## Де bindings.json сидить у pipeline
+## Де bindings.json у конвеєрі
 
 ```
    board.json              bindings.json            модулі
    ─────────               ─────────────            ──────
-   "GPIO 14 існує"   →     "GPIO 14 — компресор   →   read_bool("equipment.compressor")
-                            драйвлений relay driver"
+   "GPIO 14 існує"   →    "GPIO 14 — компресор   →   read_bool("equipment.compressor")
+                          під керуванням драйвера relay"
 ```
 
-Три шматки decouple:
+Три частини відокремлені:
 
-1. **Board capabilities** stay constant per hardware revision.
-2. **Bindings** vary per deployment (cold room vs. greenhouse vs. brewing
-   setup можуть reuse ту саму PCB з різними role assignments).
-3. **Модулі** піклуються лише role names (`equipment.air_temp`,
-   `equipment.req_compressor`) — вони не знають який GPIO або який driver
-   provides дані.
+1. **Можливості плати** залишаються незмінними для ревізії апаратури.
+2. **Прив'язки** змінюються залежно від розгортання (холодильна камера,
+   теплиця чи пивоварня можуть використовувати ту саму плату з різними
+   призначеннями ролей).
+3. **Модулі** дбають лише про імена ролей (`equipment.air_temp`,
+   `equipment.req_compressor`) — вони не знають, який GPIO чи який
+   драйвер постачає дані.
 
-Ви змінюєте bindings без rebuild прошивки — drop new `bindings.json` у
-LittleFS через OTA, або через WebUI's bindings editor (planned), і role
-mapping updates.
+Ви змінюєте прив'язки без перебудови прошивки — закидаєте новий
+`bindings.json` у LittleFS через OTA або через редактор прив'язок у
+WebUI (планується), і відображення ролей оновлюється.
 
 ## Розташування файлу
 
@@ -40,47 +42,47 @@ boards/<board_name>/bindings.json
 ```
 
 Обирається разом із `board.json` через Kconfig `CONFIG_MODESP_BOARD=...`.
-Обидва файли копіюються у LittleFS при build. Runtime path:
-`/data/bindings.json`.
+Обидва файли копіюються до LittleFS під час складання. Шлях під час
+виконання: `/data/bindings.json`.
 
-## Top-level shape
+## Структура верхнього рівня
 
 ```json
 {
   "manifest_version": 1,
   "bindings": [
-    // ... масив binding об'єктів
+    // ... масив об'єктів прив'язки
   ]
 }
 ```
 
-Це все. Один array. Кожен об'єкт у array — це одне binding — driver
-instance attached до одного hardware pin / channel / address.
+І все. Один масив. Кожен об'єкт у масиві — це одна прив'язка: екземпляр
+драйвера, прикріплений до одного апаратного виводу / каналу / адреси.
 
-## Анатомія одного binding
+## Анатомія однієї прив'язки
 
 ```json
 {
-  "hardware": "ow_1",        // board.json id (який pin / bus / expander pin)
-  "driver": "ds18b20",       // driver type для instantiate
+  "hardware": "ow_1",        // id з board.json (який вивід / шина / вивід розширювача)
+  "driver": "ds18b20",       // тип драйвера для створення
   "role": "air_temp",        // логічне ім'я — з'являється як equipment.<role> у SharedState
-  "module": "equipment",     // модуль що consumes це binding (майже завжди "equipment")
-  "address": "28:8C:5E:..."  // додаткова driver-specific конфіг (опціонально)
+  "module": "equipment",     // модуль, що споживає цю прив'язку (майже завжди "equipment")
+  "address": "28:8C:5E:..."  // додаткова конфігурація драйвера (опціонально)
 }
 ```
 
 | Поле | Тип | Обов'язкове | Примітки |
 |---|---|---|---|
-| `hardware` | string | так | Повинен match `id` declared у `board.json` (будь-яка секція: `gpio_outputs`, `onewire_buses`, `expander_outputs`, тощо). |
-| `driver` | string | так | Повинен match ім'я driver-а declared у `drivers/<name>/manifest.json`. |
-| `role` | string | так | Семантичне ім'я. Стає `equipment.<role>` (sensors) або `equipment.req_<role>` (actuators) у SharedState. |
-| `module` | string | так | Модуль що володіє binding (сьогодні: завжди `"equipment"`). |
-| `address` | string | іноді | Required якщо driver manifest декларує `"requires_address": true` (1-Wire ROM, I²C extra addressing). |
-| any extra | any | optional | Driver-specific params (offset, calibration, тощо) — passed до `driver->configure()`. |
+| `hardware` | string | так | Має відповідати `id`, оголошеному у `board.json` (будь-яка секція: `gpio_outputs`, `onewire_buses`, `expander_outputs` тощо). |
+| `driver` | string | так | Має відповідати імені драйвера, оголошеному у `drivers/<name>/manifest.json`. |
+| `role` | string | так | Семантичне ім'я. Стає `equipment.<role>` (сенсори) або `equipment.req_<role>` (актуатори) у SharedState. |
+| `module` | string | так | Модуль, що володіє прив'язкою (сьогодні: завжди `"equipment"`). |
+| `address` | string | іноді | Обов'язкове, якщо маніфест драйвера декларує `"requires_address": true` (ROM 1-Wire, додаткова адресація I²C). |
+| будь-які додаткові | будь-який | опціонально | Параметри драйвера (offset, калібрування тощо) — передаються до `driver->configure()`. |
 
 ## Конкретні приклади
 
-### Dev board — мінімальний sensor + relay
+### Плата dev — мінімальний сенсор + реле
 
 `boards/dev/bindings.json`:
 
@@ -94,19 +96,19 @@ instance attached до одного hardware pin / channel / address.
 }
 ```
 
-Ця board має один OneWire bus і чотири GPIO relays declared у `board.json`.
-Ми bind:
-- Перший OneWire bus до `ds18b20` driver, role `air_temp` — температура
-  з'являється у `equipment.air_temp`.
-- Перше реле до generic `relay` driver, role `actuator_1` — контрольоване
-  через `equipment.req_actuator_1` (writes by business modules) і
-  reflected у `equipment.actuator_1` (current state).
+Ця плата має одну шину OneWire і чотири GPIO-реле, оголошені у
+`board.json`. Ми прив'язуємо:
+- Першу шину OneWire до драйвера `ds18b20`, роль `air_temp` —
+  температура з'являється у `equipment.air_temp`.
+- Перше реле до загального драйвера `relay`, роль `actuator_1` —
+  керується через `equipment.req_actuator_1` (записи від бізнес-модулів)
+  і відображається у `equipment.actuator_1` (поточний стан).
 
-Зверніть увагу **немає `address`** на OneWire binding: driver auto-discover
-єдиний sensor на шині. Якщо було б багато sensors, кожен потребував би
-окремого binding з його ROM address.
+Зверніть увагу: **немає `address`** у прив'язці OneWire — драйвер
+автоматично знаходить єдиний сенсор на шині. Якби сенсорів було кілька,
+кожен потребував би окремої прив'язки зі своєю ROM-адресою.
 
-### KC868-A6 — production refrigeration
+### KC868-A6 — виробниче охолодження
 
 `boards/kc868a6/bindings.json`:
 
@@ -125,22 +127,23 @@ instance attached до одного hardware pin / channel / address.
 }
 ```
 
-Цей deployment ставить commercial refrigeration controller на KC868-A6.
-Pins PCF8574 expander-а `relay_1`..`relay_4` стають refrigeration
-actuators; `din_1` стає door contact; два DS18B20 sensors діляться тим же
-OneWire bus, кожен зі своїм унікальним ROM address.
+Це розгортання ставить контролер промислового охолодження на KC868-A6.
+Виводи розширювача PCF8574 `relay_1`..`relay_4` стають актуаторами
+охолодження; `din_1` стає контактом дверей; два сенсори DS18B20
+поділяють одну шину OneWire, кожен зі своєю унікальною ROM-адресою.
 
-Зверніть увагу **`address` на OneWire bindings** — multiple sensors на
-тій же шині потребують explicit addressing. Discover addresses через
-driver's discovery API (`GET /api/drivers/ds18b20/scan`) once після wiring,
-потім paste у bindings.
+Зверніть увагу на **`address` у прив'язках OneWire** — кілька сенсорів
+на одній шині потребують явної адресації. Знайдіть адреси через API
+виявлення драйвера (`GET /api/drivers/ds18b20/scan`) одноразово після
+підключення, а потім вставте їх у прив'язки.
 
-## Багато sensors на одній шині
+## Кілька сенсорів на одній шині
 
-OneWire — найпоширеніший multi-device case. Кожен sensor має 64-bit ROM
-address (надрукований на корпусі sensor-а для деяких manufacturers, але
-зазвичай discovered у software). Bindings reference `id` шини (з
-`board.json::onewire_buses`) і supply `address` для кожного sensor:
+OneWire — найпоширеніший випадок із багатьма пристроями. Кожен сенсор
+має 64-бітну ROM-адресу (надруковану на корпусі сенсора в деяких
+виробників, але зазвичай знайдену програмно). Прив'язки посилаються на
+`id` шини (з `board.json::onewire_buses`) і вказують `address` для
+кожного сенсора:
 
 ```json
 {"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp",  "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
@@ -148,36 +151,39 @@ address (надрукований на корпусі sensor-а для деяк�
 {"hardware": "ow_1", "driver": "ds18b20", "role": "cond_temp", "module": "equipment", "address": "28:55:1B:35:E1:90:6A:24"}
 ```
 
-Флаг `multiple_per_bus: true` у driver маніфесті каже фреймворку що
-багато bindings можуть target той самий `hardware` ID.
+Прапор `multiple_per_bus: true` у маніфесті драйвера повідомляє
+фреймворку, що кілька прив'язок можуть націлюватися на той самий ID
+`hardware`.
 
-## Sensors vs. actuators у SharedState
+## Сенсори vs. актуатори у SharedState
 
-Після того як bindings завантажуються, Equipment Manager spawns driver
-instances і exposes state keys:
+Після завантаження прив'язок Equipment Manager породжує екземпляри
+драйверів і виставляє ключі стану:
 
-| Binding pattern | SharedState keys згенеровано |
+| Шаблон прив'язки | Згенеровані ключі SharedState |
 |---|---|
-| Sensor (`category: "sensor"`) | `equipment.<role>` (current value, read-only) <br> `equipment.<role>_ok` (health, bool) |
-| Actuator (`category: "actuator"`) | `equipment.<role>` (current actual state, read-only) <br> `equipment.req_<role>` (requested state, writable) |
+| Сенсор (`category: "sensor"`) | `equipment.<role>` (поточне значення, лише для читання) <br> `equipment.<role>_ok` (справність, bool) |
+| Актуатор (`category: "actuator"`) | `equipment.<role>` (поточний фактичний стан, лише для читання) <br> `equipment.req_<role>` (запитаний стан, доступний для запису) |
 
-Так write-ити `equipment.req_compressor = true` — це як business module
-вмикає компресор. Equipment Manager читає request key, forwards до bound
-actuator driver, і reflect-ить actual outcome назад у `equipment.compressor`.
+Тож запис `equipment.req_compressor = true` — це спосіб, яким
+бізнес-модуль вмикає компресор. Equipment Manager читає ключ запиту,
+передає його прив'язаному драйверу-актуатору і відображає фактичний
+результат назад у `equipment.compressor`.
 
-## Address discovery
+## Виявлення адрес
 
-Для drivers із `discovery.supported: true` у їхньому маніфесті, фреймворк
-exposes scanner endpoint:
+Для драйверів із `discovery.supported: true` у маніфесті фреймворк
+виставляє ендпойнт сканування:
 
 ```bash
-# DS18B20 приклад
+# Приклад DS18B20
 curl -u admin:modesp http://192.168.1.85/api/drivers/ds18b20/scan
 ```
 
-Returns array discovered devices з їхніми addresses і current reading
-(корисно для identify-ння фізично який sensor куди йде: warm up той що ви
-ідентифікуєте рукою і look на rising reading).
+Повертає масив виявлених пристроїв з їхніми адресами і поточним
+зчитуванням (корисно, щоб ідентифікувати фізично, який сенсор куди йде:
+нагрійте той, який ідентифікуєте, рукою і слідкуйте за зростанням
+показника).
 
 ```json
 [
@@ -186,76 +192,85 @@ Returns array discovered devices з їхніми addresses і current reading
 ]
 ```
 
-Copy addresses у ваш `bindings.json`, rebuild, flash.
+Скопіюйте адреси у ваш `bindings.json`, перезберіть, прошийте.
 
-WebUI's discovery panel (planned, коли bindings editor lands) робить це
-автоматично — scan, identify, drag-drop у bindings, save.
+Панель виявлення у WebUI (планується, коли з'явиться редактор прив'язок)
+робитиме це автоматично — сканування, ідентифікація, перетягування у
+прив'язки, збереження.
 
-## Optional / fallback bindings
+## Опціональні / резервні прив'язки
 
-Bindings можуть декларувати себе як optional через `optional` поле у
-driver manifest's `requires`. Equipment Manager skips missing optional
-bindings silently. Required bindings що не resolve-яться abort startup
-з log message — тому production deployments не run-яться з
-silently-broken hardware.
+Прив'язки можуть оголошувати себе опціональними через поле `optional` у
+секції `requires` маніфесту драйвера. Equipment Manager мовчки пропускає
+відсутні опціональні прив'язки. Обов'язкові прив'язки, які не вдалося
+розв'язати, перериваюсь запуск із повідомленням у журналі — тож
+виробничі розгортання не працюють із мовчки зламаним обладнанням.
 
 ## Валідація
 
-`generate_ui.py` cross-валідує bindings проти `board.json`:
+`generate_ui.py` перехресно валідує прив'язки відносно `board.json`:
 
-1. Кожен `hardware` reference resolves до якогось `id` у board.json.
-2. Кожен `driver` reference resolves до driver директорії під `drivers/`.
-3. `role` імена унікальні у межах модуля (не можна bind два компресори).
-4. Drivers із `requires_address: true` реально мають `address` поле.
-5. Roles match driver's `provides.type` проти module's `requires` декларацій.
+1. Кожне посилання `hardware` розв'язується в якийсь `id` у board.json.
+2. Кожне посилання `driver` розв'язується у теку драйвера під `drivers/`.
+3. Імена `role` унікальні в межах модуля (не можна прив'язати два компресори).
+4. Драйвери з `requires_address: true` дійсно мають поле `address`.
+5. Ролі узгоджуються з `provides.type` драйвера відносно декларацій
+   `requires` модуля.
 
-Failures abort build з конкретними повідомленнями.
+Збої перериваюсь складання з конкретними повідомленнями.
 
-## Поширені помилки
+## Типові помилки
 
-**Неправильний hardware ID:** typo у `hardware` field — board.json має
-`relay_1` але bindings каже `Relay_1`. Build fails з "hardware ID 'Relay_1'
-not declared у board.json". Fix: case-sensitive copy.
+**Неправильний ID апаратури:** друкарська помилка у полі `hardware` —
+board.json має `relay_1`, але bindings каже `Relay_1`. Складання
+завершується помилкою "hardware ID 'Relay_1' not declared у board.json".
+Виправлення: точна копія з урахуванням регістру.
 
-**Mismatched driver і hardware category:** binding GPIO output до sensor
-driver (`ds18b20` expects OneWire bus). Або correct driver, або fix
-hardware ID.
+**Невідповідність драйвера і категорії апаратури:** прив'язка
+GPIO-виходу до драйвера сенсора (`ds18b20` очікує шину OneWire). Або
+виправте драйвер, або виправте ID апаратури.
 
-**Missing address для multi-device bus:** OneWire з 2+ sensors але bindings
-без `address` field — driver reads pick whichever responds first (зазвичай
-найнижчий-ROM device). Bug nightmare — readings cross між sensors. Завжди
-supply ROM addresses для multi-device buses.
+**Відсутня адреса для шини з кількома пристроями:** OneWire з 2+
+сенсорами, але прив'язки без поля `address` — зчитування драйвера
+підхоплюють той, що відповідає першим (зазвичай пристрій з найменшою
+ROM). Жах для відлагодження — показники змішуються між сенсорами.
+Завжди вказуйте ROM-адреси для шин із кількома пристроями.
 
-**Duplicate role:** два bindings з тим самим `role` — Equipment Manager
-crashes при init. Кожен role повинен бути унікальним у межах модуля.
+**Дубльована роль:** дві прив'язки з однаковою `role` — Equipment
+Manager падає при ініціалізації. Кожна роль має бути унікальною в
+межах модуля.
 
-**Editing bindings без OTA / rebuild:** file живе у LittleFS. Edits на
-host що не propagate до flash пристрою не take effect. Re-flash, або use
-OTA file replacement, або edit через WebUI bindings editor (planned).
+**Редагування прив'язок без OTA / перебудови:** файл живе в LittleFS.
+Зміни на хості, які не доходять до flash-пам'яті пристрою, не
+дадуть ефекту. Перепрошийте, або скористайтеся заміною файлу через
+OTA, або редагуйте через редактор прив'язок у WebUI (планується).
 
-## Workflow для нового deployment
+## Робочий процес для нового розгортання
 
-1. **Decide your roles** based на recipe / use case. Приклад для cold
-   room: `air_temp`, `evap_temp`, `compressor`, `evap_fan`,
-   `defrost_relay`, `door_contact`.
-2. **Match до board hardware.** Look на `board.json` щоб побачити що
-   доступно — relays, OneWire buses, GPIO inputs.
-3. **Choose drivers** per hardware: GPIO relay → `relay`; PCF8574 relay →
-   `pcf8574_relay`; DS18B20 sensor → `ds18b20`; NTC sensor → `ntc`.
-4. **Write `bindings.json`** з одним binding per role.
-5. **Run address discovery** для OneWire / multi-device buses; copy
-   addresses у bindings.
-6. **Build, flash, monitor.** Verify що кожна role's `equipment.<role>`
-   key з'являється у `/api/state` з sane values.
-7. **Iterate** якщо щось off — wrong sensor identified, relay polarity
-   inverted, тощо.
+1. **Визначте ваші ролі** на основі рецепту / варіанту використання.
+   Приклад для холодильної камери: `air_temp`, `evap_temp`,
+   `compressor`, `evap_fan`, `defrost_relay`, `door_contact`.
+2. **Зіставте з апаратурою плати.** Подивіться у `board.json`, щоб
+   побачити, що доступно — реле, шини OneWire, GPIO-входи.
+3. **Оберіть драйвери** для кожної апаратури: GPIO-реле → `relay`;
+   реле PCF8574 → `pcf8574_relay`; сенсор DS18B20 → `ds18b20`; сенсор
+   NTC → `ntc`.
+4. **Напишіть `bindings.json`** з однією прив'язкою на роль.
+5. **Запустіть виявлення адрес** для OneWire / шин із кількома
+   пристроями; скопіюйте адреси у прив'язки.
+6. **Зберіть, прошийте, моніторте.** Перевірте, що ключ
+   `equipment.<role>` кожної ролі з'являється у `/api/state` з
+   осмисленими значеннями.
+7. **Ітеруйте**, якщо щось не так — неправильно ідентифікований сенсор,
+   інвертована полярність реле тощо.
 
 ## Що далі
 
-- **[board-config.md](board-config.md)** — що board.json декларує
-  (prerequisite до написання bindings).
+- **[board-config.md](board-config.md)** — що декларує board.json
+  (передумова для написання прив'язок).
 - **[modules/equipment.md](../03-framework-reference/modules/equipment.md)**
-  *(planned)* — Equipment Manager — consumer of bindings.
+  *(planned)* — Equipment Manager — споживач прив'язок.
 - **[writing-a-driver.md](../02-module-author-guide/writing-a-driver.md)**
-  — implement driver для нового hardware.
-- **[deployment.md](deployment.md)** *(planned)* — повний deployment workflow.
+  — реалізація драйвера для нової апаратури.
+- **[deployment.md](deployment.md)** *(planned)* — повний робочий
+  процес розгортання.

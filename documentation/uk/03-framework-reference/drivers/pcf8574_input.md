@@ -1,18 +1,14 @@
-# `pcf8574_input` — I2C-expanded дискретний вхід
+# `pcf8574_input` — контактний вхід з розширенням через I2C
 
 > 📖 **In English:** [documentation/en/03-framework-reference/drivers/pcf8574_input.md](../../../en/03-framework-reference/drivers/pcf8574_input.md)
 
-PCF8574 used як 8-bit input expander. Той самий chip як `pcf8574_relay`
-але bound тут як **sensor** — кожен pin reads як dry contact через
-chip's quasi-pull-up. Up to 8 chips per bus = 64 contact inputs
-sharing one I2C bus.
+PCF8574, використаний як 8-бітний розширювач входів. Той самий чип, що й `pcf8574_relay`, але прив'язаний тут як **сенсор** — кожен вивід зчитується як "сухий" контакт через внутрішню квазі-підтяжку чипа. До 8 чипів на шину = 64 контактні входи, що ділять одну шину I2C.
 
-Driver registers як `sensor` з `hardware_type: i2c_expander_input`
-і `multiple_per_bus: true`. One binding per input bit.
+Драйвер реєструється як `sensor` з `hardware_type: i2c_expander_input` і `multiple_per_bus: true`. Одна прив'язка на біт входу.
 
-REQUIRES: ESP-IDF I2C driver, `modesp_hal`.
+ВИМАГАЄ: драйвер I2C з ESP-IDF, `modesp_hal`.
 
-## Bindings
+## Прив'язки
 
 ```json
 {
@@ -26,74 +22,58 @@ REQUIRES: ESP-IDF I2C driver, `modesp_hal`.
 }
 ```
 
-- `bus`, `chip_address`, `pin` — same semantics як `pcf8574_relay`.
-- Driver aggregates всі bindings sharing one `(bus, chip_address)` І
-  issues **single I2C read per chip per tick** — distributes
-  byte до всіх 8 bindings без individual transactions.
+- `bus`, `chip_address`, `pin` — та сама семантика, що й у `pcf8574_relay`.
+- Драйвер агрегує всі прив'язки, що ділять `(bus, chip_address)`, ТА виконує **один запит на читання I2C на чип за такт** — розподіляє байт між усіма 8 прив'язками без окремих транзакцій.
 
-## Settings
+## Налаштування
 
-| Key | Type | Default | Notes |
+| Ключ | Тип | За замовчуванням | Примітки |
 |---|---|---|---|
-| `invert` | bool | false | Інверсія логіки per binding. |
+| `invert` | bool | false | Інверсія логіки на кожну прив'язку. |
 
-Set per key, persisted через PersistService.
+Задається на кожен ключ, зберігається через PersistService.
 
-## Provides
+## Надає
 
-`{"type": "bool"}` — current contact state (з optional invert),
-mirrored до `equipment.<role>`.
+`{"type": "bool"}` — поточний стан контакту (з опціональною інверсією), віддзеркалений у `equipment.<role>`.
 
-## Hardware notes
+## Примітки щодо обладнання
 
-- PCF8574 inputs use **quasi-bidirectional** port — weak internal
-  pull-up sources ~100 µА. Це enough для dry contacts (door switches),
-  не enough для high-impedance optocoupler outputs at long wire runs.
-- Для long-run contacts, add external pull-up (4.7 kΩ до 5 V)
-  before chip input.
-- Read latency: I2C transaction ≈ 100-200 µs at 100 kHz. Polling at
-  100 Hz costs <2% bus bandwidth per chip.
+- Входи PCF8574 використовують **квазі-двонапрямлений** порт — слабка внутрішня підтяжка догори дає приблизно 100 мкА. Цього достатньо для "сухих" контактів (дверні перемикачі), але не вистачає для виходів оптопар з високим імпедансом на довгих проводах.
+- Для довгих ліній контактів додайте зовнішню підтяжку догори (4,7 кΩ до 5 В) перед входом чипа.
+- Затримка читання: транзакція I2C ≈ 100-200 мкс при 100 кГц. Опитування з частотою 100 Гц коштує <2% пропускної здатності шини на чип.
 
-## Discovery
+## Виявлення
 
-None. Chips і pins declared manually.
+Немає. Чипи та виводи оголошуються вручну.
 
-## Common pitfalls
+## Типові помилки
 
-**Shared chip із output driver:** як і `pcf8574_relay`, ніколи не bind
-той самий chip як both input AND output. Use separate chips для input vs
-output banks.
+**Спільний чип з вихідним драйвером:** як і у `pcf8574_relay`, ніколи не прив'язуйте той самий чип одночасно як вхід І вихід. Використовуйте окремі чипи для банків входів і виходів.
 
-**Floating pins:** PCF8574 has weak pull-up only. Якщо pin bound але
-no contact wired, ви отримаєте noisy `false`/`true` flapping. Either bind
-кожен pin (навіть unused), або ground unused pins у hardware.
+**Плаваючі виводи:** PCF8574 має лише слабку підтяжку догори. Якщо вивід прив'язано, але контакт не підключено, ви отримаєте шумне коливання `false`/`true`. Або прив'язуйте кожен вивід (навіть невикористаний), або заземлюйте невикористані виводи в обладнанні.
 
-**Address conflicts з output expanders:** PCF8574 input І output
-variants share SAME I2C address range (0x20-0x27) — physically це same
-chip. Plan address allocation так, щоб each chip used для одної purpose only.
+**Конфлікти адрес з вихідними розширювачами:** варіанти PCF8574 для входів І виходів ділять ТОЙ САМИЙ діапазон I2C-адрес (0x20-0x27) — фізично це той самий чип. Плануйте розподіл адрес так, щоб кожен чип використовувався лише для однієї цілі.
 
-**Edge skipping:** як і `digital_input`, driver polls at tick rate. Для
-short pulses потрібен interrupt routing — PCF8574 має INT pin що
-asserts на будь-яку change; route його до GPIO і wire ISR-aware logic у
-вашому business module (не у driver).
+**Пропуск фронтів:** як і у `digital_input`, драйвер опитує з частотою такту. Для коротких імпульсів вам потрібне маршрутизування переривань — PCF8574 має вивід INT, який активується при будь-якій зміні; маршрутизуйте його до GPIO та виконуйте ISR-логіку у вашому бізнес-модулі (не у драйвері).
 
-## UI surface
+## Інтерфейс користувача
 
-None у shipped manifest.
+Немає у маніфесті, що постачається.
 
-## Чому це good driver to read
+## Чому це гарний драйвер для читання
 
-- Variant `pcf8574_relay` — same transport, different direction.
-- Demonstrates per-chip read aggregation pattern.
-- Per-binding `invert` з persistence.
+- Варіант `pcf8574_relay` — той самий транспорт, інший напрямок.
+- Демонструє патерн агрегації читання на рівні чипа.
+- `invert` на кожну прив'язку зі збереженням.
 
 ## Що далі
 
-- **[drivers/digital_input.md](digital_input.md)** — GPIO counterpart.
-- **[drivers/pcf8574_relay.md](pcf8574_relay.md)** — той самий chip як actuator.
+- **[drivers/digital_input.md](digital_input.md)** — варіант на GPIO.
+- **[drivers/pcf8574_relay.md](pcf8574_relay.md)** — той самий чип як актуатор.
 - **[modules/equipment.md](../modules/equipment.md)**
 
-## Source
+## Джерела
 
 - [`drivers/pcf8574_input/manifest.json`](../../../../drivers/pcf8574_input/manifest.json)
 - [`drivers/pcf8574_input/include/pcf8574_input_driver.h`](../../../../drivers/pcf8574_input/include/pcf8574_input_driver.h)

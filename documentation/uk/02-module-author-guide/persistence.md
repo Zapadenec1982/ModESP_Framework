@@ -1,19 +1,21 @@
-# Persistence
+# Збереження
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/persistence.md](../../en/02-module-author-guide/persistence.md)
 
-Деякий state переживає reboots — user setpoints, calibration константи,
-mode selections. Інший state ephemeral — current readings, computed flags,
-counters. ModESP робить розрізнення декларативним: додайте `"persist": true`
-до вашої manifest's state key, і PersistService автоматично saves його у
-NVS і restore-ить при boot. Без custom NVS коду від вас.
+Частина стану переживає перезавантаження — користувацькі уставки,
+калібрувальні константи, вибір режимів. Інша частина стану ефемерна —
+поточні показання, обчислені прапорці, лічильники. ModESP робить це
+розрізнення декларативним: додайте `"persist": true` до ключа стану у
+маніфесті, і PersistService автоматично збереже його у NVS та відновить
+при завантаженні. Жодного власного коду роботи з NVS з вашого боку.
 
-Ця сторінка покриває що persist-иться, як throttling працює, які limits
-існують, і коли bypass-ити систему для raw NVS access.
+Ця сторінка охоплює те, що зберігається, як працює обмеження частоти,
+які існують ліміти і коли треба обійти систему заради сирого доступу
+до NVS.
 
-## Декларативна persistence
+## Декларативне збереження
 
-Додайте flag у manifest's state declaration:
+Додайте прапорець у декларацію стану в маніфесті:
 
 ```json
 "simple_thermo.setpoint": {
@@ -21,284 +23,316 @@ NVS і restore-ить при boot. Без custom NVS коду від вас.
   "access": "readwrite",
   "default": 22.0,
   "min": 5, "max": 40,
-  "persist": true,                  // ← це one line
+  "persist": true,                  // ← це один рядок
   "description": "Temperature setpoint"
 }
 ```
 
-Це все. Після boot:
-- Якщо value був persisted previously: state key initialised до того value.
-- Якщо ніколи не persisted (fresh install або factory reset): state key
-  використовує `default` поле (або unset якщо absent).
+Це все. Після завантаження:
+- Якщо значення раніше було збережене: ключ стану ініціалізується тим
+  значенням.
+- Якщо ніколи не зберігалось (свіже встановлення або скидання до
+  заводських): ключ стану використовує поле `default` (або
+  невстановлене, якщо поле відсутнє).
 
 Після зміни:
-- `state_set("simple_thermo.setpoint", 24.5)` триггерить callback PersistService.
-- Після 5-second debounce, value пишеться у NVS.
-- Survive-ить reboot, OTA, brownout (NVS використовує redundant flash sectors).
+- `state_set("simple_thermo.setpoint", 24.5)` запускає зворотний виклик
+  PersistService.
+- Після 5-секундного антидрижання значення записується в NVS.
+- Переживає перезавантаження, OTA, "brownout" (NVS використовує
+  резервовані сектори flash).
 
 ## Як це працює
 
 ```
-   Module: state_set("key", value)
+   Модуль: state_set("key", value)
                   │
                   ▼
-   SharedState updates internal map, marks change
+   SharedState оновлює внутрішню мапу, позначає зміну
                   │
-                  ▼ (callback)
+                  ▼ (зворотний виклик)
                   │
-   PersistService schedules deferred write
+   PersistService планує відкладений запис
                   │
                   ▼ (через DEBOUNCE_MS = 5000)
                   │
    nvs_helper::write_<type>("persist", "key", value)
                   │
                   ▼
-   Survive-ить через boots
+   Переживає перезавантаження
 ```
 
-При boot, `PersistService::on_init` iterates known persisted keys
-(declared у `state_meta.h` з `persist` flag) і restore-ить кожен перед
-запуском будь-якого module's `on_init`. Ваш модуль бачить pre-restored
-values з першого read.
+При завантаженні `PersistService::on_init` ітерує відомі збережувані
+ключі (оголошені у `state_meta.h` з прапорцем `persist`) і відновлює
+кожен ще до того, як виконається `on_init` будь-якого модуля. Ваш
+модуль бачить попередньо відновлені значення з першого ж читання.
 
-## Debounce timing
+## Час антидрижання
 
-`PersistService::DEBOUNCE_MS = 5000` (5 секунд). Коли ви set-ите key:
+`PersistService::DEBOUNCE_MS = 5000` (5 секунд). Коли ви встановлюєте
+ключ:
 
-1. Timer стартує на 5 с.
-2. Будь-який further set до того ж key ПЕРЕД 5 с resets timer.
-3. Раз 5 с "no change" passes, value пишеться у NVS.
+1. Таймер запускається на 5 с.
+2. Будь-яке наступне встановлення того ж ключа ДО завершення 5 с
+   скидає таймер.
+3. Щойно проминуло 5 с без змін, значення пишеться в NVS.
 
-Це захищає flash. NVS sectors rated ~100,000 erase cycles. Writing setpoint
-поки user драгає slider міг би rack up thousands of writes per minute без
-debounce.
+Це захищає flash. Сектори NVS розраховані приблизно на 100 000 циклів
+стирання. Запис уставки, поки користувач тягне повзунок, міг би
+накопичити тисячі записів за хвилину без антидрижання.
 
-Trade-off: power loss у межах 5 секунд після зміни втрачає зміну. Tolerable
-для setpoints і configuration. Не OK для crash-critical state — для цього
-використовуйте scenario engine NVS observer (Phase 2 engine rebuild) або
-explicit NVS calls.
+Компроміс: втрата живлення в межах 5 секунд після зміни втрачає цю
+зміну. Прийнятно для уставок і конфігурації. Не годиться для
+критичного для збоїв стану — для нього використовуйте NVS-спостерігач
+рушія сценаріїв (фаза 2 переробки рушія) або явні виклики NVS.
 
-## Що зберігається under the hood
+## Що зберігається "під капотом"
 
-NVS namespace: `"persist"`. Keys mirror SharedState key names verbatim
-(`simple_thermo.setpoint`, `equipment.ntc_beta`, тощо). Values зберігаються
-у NVS-native typed slot:
+Простір імен NVS: `"persist"`. Ключі дзеркально відображають імена
+ключів SharedState дослівно (`simple_thermo.setpoint`,
+`equipment.ntc_beta` тощо). Значення зберігаються у відповідних
+типізованих слотах NVS:
 
-| StateValue variant | NVS API |
+| Варіант StateValue | API NVS |
 |---|---|
 | `int32_t` | `nvs_set_i32` / `nvs_get_i32` |
-| `float` | Encoded as bytes (NVS не має native float) |
+| `float` | Кодується як байти (NVS не має нативного float) |
 | `bool` | `nvs_set_u8` / `nvs_get_u8` (0 / 1) |
 | `string` | `nvs_set_str` / `nvs_get_str` |
 
-Вам не треба знати це — `nvs_helper` (у `modesp_services`) wraps це.
-Просто declare `persist: true` і працює.
+Вам не треба цього знати — `nvs_helper` (у `modesp_services`) це
+обгортає. Просто декларуйте `persist: true`, і воно працює.
 
-## Читання persisted value
+## Читання збереженого значення
 
-Без спеціального API. Regular `read_float` / `read_int` / `read_bool` /
-`state_get` calls вашого модуля повертають persisted value, бо PersistService
-вже restore-нув його у SharedState перед запуском вашого `on_init`.
+Без спеціального API. Звичайні виклики вашого модуля `read_float` /
+`read_int` / `read_bool` / `state_get` повертають збережене значення,
+бо PersistService вже відновив його у SharedState до виклику вашого
+`on_init`.
 
 ```cpp
 bool MyModule::on_init() {
-    // Returns persisted setpoint АБО 22.0 default якщо first boot.
+    // Повертає збережену уставку АБО 22.0 за замовчуванням при першому
+    // завантаженні.
     float setpoint = read_float("simple_thermo.setpoint", 22.0f);
     ESP_LOGI(TAG, "Loaded setpoint: %.1f°C", setpoint);
     return true;
 }
 ```
 
-## Запис persisted value
+## Запис збереженого значення
 
-Без спеціального API. Regular `state_set`. PersistService observe-ить і
-schedule-ить write.
+Без спеціального API. Звичайний `state_set`. PersistService
+спостерігає і планує запис.
 
 ```cpp
 state_set("simple_thermo.setpoint", new_setpoint);
-// 5 секунд пізніше, NVS updated.
+// Через 5 секунд NVS оновлено.
 ```
 
-External writes — HTTP API `POST /api/settings`, MQTT commands — йдуть
-через той самий path. WebUI slider пише setpoint → SharedState →
-PersistService → NVS. Усі routes consistent.
+Зовнішні записи — HTTP API `POST /api/settings`, MQTT-команди —
+проходять тим самим шляхом. Повзунок WebUI пише уставку → SharedState
+→ PersistService → NVS. Усі маршрути узгоджені.
 
-## Коли use persistence
+## Коли використовувати збереження
 
-**Good candidates:**
-- User setpoints (temperature, pressure, time).
-- Calibration константи (sensor offsets, B-coefficients).
-- Mode selections (heating/cooling, profile name).
-- Network credentials (WiFi password, MQTT broker host).
-- Counter / aggregate values що повинні survive (total runtime hours,
-  defrost cycle count — але keep an eye на debounce vs. update rate).
+**Хороші кандидати:**
+- Користувацькі уставки (температура, тиск, час).
+- Калібрувальні константи (зміщення сенсорів, B-коефіцієнти).
+- Вибори режимів (нагрівання/охолодження, назва профілю).
+- Мережеві облікові дані (Wi-Fi-пароль, хост MQTT-брокера).
+- Лічильники / агреговані значення, що мають вижити (загальні
+  години роботи, кількість циклів розморозки — але слідкуйте за
+  співвідношенням антидрижання та частоти оновлення).
 
-**Bad candidates:**
-- Current readings (`temperature` від sensor) — змінюються занадто часто.
-- Computed flags (`heating_active`) — derived з іншого state.
-- Counters incrementing per tick — debounce не keep up.
-- Будь-що > 32 chars (SharedState string limit). Use raw NVS для blobs.
-- Будь-що що змінюється швидше ніж debounce window — fast-changing values
-  або skip writes (data loss при power off) або thrash NVS.
+**Погані кандидати:**
+- Поточні показання (`temperature` з сенсора) — змінюються надто
+  часто.
+- Обчислені прапорці (`heating_active`) — похідні від іншого стану.
+- Лічильники, що інкрементуються щотакт — антидрижання не встигає.
+- Будь-що > 32 символів (обмеження рядка SharedState). Для блобів
+  використовуйте сирий NVS.
+- Будь-що, що змінюється швидше за вікно антидрижання —
+  швидкозмінні значення або пропускають записи (втрата даних при
+  вимкненні живлення), або зношують NVS.
 
-## Що не persist-иться
+## Що не зберігається
 
-- State keys без `persist: true`. Default — non-persistent.
-- Keys removed з маніфестів (після rebuild). NVS still has old value
-  але SharedState не declare it; key ніколи не appears.
-- State values written через `state_set("key", val, /*track_change=*/false)`.
-  Silent updates bypass change tracker, і PersistService callback fires
-  off change tracker. Use це consciously для NEVER persist (counters).
+- Ключі стану без `persist: true`. За замовчуванням — без
+  збереження.
+- Ключі, видалені з маніфестів (після перескладання). NVS все ще
+  має старе значення, але SharedState його не оголошує; ключ ніколи
+  не з'являється.
+- Значення стану, записані через
+  `state_set("key", val, /*track_change=*/false)`. Тихі оновлення
+  оминають трекер змін, а зворотний виклик PersistService
+  запускається саме від трекера змін. Свідомо використовуйте це для
+  ключів, які НІКОЛИ не треба зберігати (лічильники).
 
-## NVS partition і capacity
+## Розділ NVS і місткість
 
-NVS partition declared у `partitions.csv`:
+Розділ NVS оголошено у `partitions.csv`:
 
 ```
 nvs,    data, nvs,     0x9000,   0x6000,
 ```
 
-24 KB total. Hosts:
-- Settings (`"persist"` namespace) — що ця сторінка покриває.
-- WiFi credentials (`"nvs.net80211"` — ESP-IDF managed).
-- OTA state (`"otadata"` partition, separate).
-- Інші helpers (`"auth"`, `"time"`, `"seqstate"`, тощо).
+Усього 24 КБ. Розміщує:
+- Налаштування (простір імен `"persist"`) — те, що охоплює ця
+  сторінка.
+- Облікові дані Wi-Fi (`"nvs.net80211"` — керовано ESP-IDF).
+- Стан OTA (розділ `"otadata"`, окремий).
+- Інші помічники (`"auth"`, `"time"`, `"seqstate"` тощо).
 
-Typical usage: ~5-10 KB після boot. Generous headroom для ~100 persisted
-keys. Якщо hit limits, NVS write returns ESP_ERR_NVS_NOT_ENOUGH_SPACE —
-PersistService логує warning і continues serving existing keys.
+Типове використання: приблизно 5–10 КБ після завантаження. Щедрий
+запас приблизно на 100 збережуваних ключів. Якщо ви досягнете
+ліміту, запис у NVS повертає `ESP_ERR_NVS_NOT_ENOUGH_SPACE` —
+PersistService логує попередження і продовжує обслуговувати наявні
+ключі.
 
-## Factory reset / clearing persistence
+## Заводське скидання / очищення збережень
 
-User-driven через WebUI **System → Factory Reset** або HTTP:
+Запуск користувачем через WebUI **System → Factory Reset** або HTTP:
 
 ```bash
 curl -u admin:modesp -X POST http://192.168.1.85/api/factory-reset
 ```
 
-Це erase-ить entire NVS partition і reboots. Після restart усі persisted
-keys revert до `default` values. Network credentials і auth потребують
-re-configuration.
+Це стирає весь розділ NVS і перезавантажує пристрій. Після перезапуску
+всі збережені ключі повертаються до своїх значень `default`. Мережеві
+облікові дані й автентифікацію треба налаштувати заново.
 
-Developer-driven через monitor:
+Запуск розробником через монітор:
 
 ```
 idf.py erase-flash flash monitor
 ```
 
-Wipes все, re-flashes прошивку і LittleFS, fresh boot.
+Витирає все, перепрошиває прошивку і LittleFS, свіже завантаження.
 
-## Versioning і migrations
+## Версіонування і міграції
 
-Фреймворк не ships formal NVS schema migration system. Якщо ви rename
-state key АБО зміните його type:
+Фреймворк не постачає формальну систему міграцій схеми NVS. Якщо ви
+перейменовуєте ключ стану АБО змінюєте його тип:
 
-1. Old NVS entry лишається під old name — wasted space але не harmful.
-2. New name reads default (без migration).
+1. Старий запис NVS лишається під старим ім'ям — змарноване місце,
+   але не шкідливе.
+2. Нове ім'я читає значення за замовчуванням (без міграції).
 
-Якщо migration matters (user setpoints carry value forward через firmware
-updates), додайте migration код у `on_init` вашого модуля:
+Якщо міграція важлива (користувацькі уставки переносяться між
+оновленнями прошивки), додайте код міграції в `on_init` вашого
+модуля:
 
 ```cpp
 bool MyModule::on_init() {
-    // Migration: rename old "thermo.target" до new "simple_thermo.setpoint"
+    // Міграція: перейменувати старе "thermo.target" на нове "simple_thermo.setpoint"
     float old_value = 0;
     if (nvs_helper::read_float("persist", "thermo.target", old_value)) {
-        // Got value from old key.
+        // Отримали значення зі старого ключа.
         state_set("simple_thermo.setpoint", old_value);
         nvs_helper::erase_key("persist", "thermo.target");
-        ESP_LOGI(TAG, "Migrated setpoint з old key");
+        ESP_LOGI(TAG, "Migrated setpoint from old key");
     }
     return true;
 }
 ```
 
-Stage 1.5 може formalize migrations як manifest section. Зараз ad-hoc.
+Stage 1.5 може формалізувати міграції як секцію маніфесту. Поки що —
+ad-hoc.
 
-## Bypassing PersistService
+## Обхід PersistService
 
-Іноді вам потрібен raw NVS — для blobs більших ніж 32 chars, schemas що
-не fit variant, або critical state що не може tolerate debounce.
+Іноді потрібен сирий NVS — для блобів довших за 32 символи, схем,
+які не вкладаються у варіант, або критичного стану, що не толерує
+антидрижання.
 
-Use `nvs_helper` directly:
+Використовуйте `nvs_helper` напряму:
 
 ```cpp
 #include "modesp/services/nvs_helper.h"
 
-// Write
+// Запис
 nvs_helper::write_blob("my_namespace", "key", data, len);
 
-// Read
+// Читання
 size_t len = 0;
 if (nvs_helper::read_blob("my_namespace", "key", buf, sizeof(buf), len)) {
-    // use buf[0..len]
+    // використовуйте buf[0..len]
 }
 ```
 
-Use namespace ІНШИЙ ніж `"persist"` щоб уникнути collision з auto-managed
-keys.
+Використовуйте простір імен ВІДМІННИЙ від `"persist"`, щоб уникнути
+колізії з автоматично керованими ключами.
 
-Use cases у самому фреймворку:
-- `seqstate` (scenario engine recovery tokens) — own namespace, byte
-  schema, bypass-debounced бо power loss recovery matters.
-- `time` (NTP timezone string).
-- `auth` (admin credentials).
+Випадки використання в самому фреймворку:
+- `seqstate` (токени відновлення рушія сценаріїв) — власний простір
+  імен, байтова схема, оминає антидрижання, бо відновлення після
+  втрати живлення має значення.
+- `time` (рядок часового поясу NTP).
+- `auth` (облікові дані адміністратора).
 
-Для business modules це рідко. Default path (`persist: true`) covers 95%
-needs.
+Для бізнес-модулів це рідкість. Шлях за замовчуванням
+(`persist: true`) покриває 95% потреб.
 
-## Concurrent writes і atomicity
+## Конкурентні записи і атомарність
 
-PersistService runs у тому ж task що ваш модуль. Sequential writes atomic
-на SharedState level (mutex). NVS writes happen у PersistService's debounce
-callback path — також sequential.
+PersistService виконується в тій самій задачі, що й ваш модуль.
+Послідовні записи атомарні на рівні SharedState (м'ютекс). Записи в
+NVS відбуваються у шляху зворотного виклику антидрижання
+PersistService — також послідовно.
 
-`nvs_commit` викликається після кожного batch of writes. Якщо power lost
-між `nvs_write` і `nvs_commit`, write rolls back автоматично — journaled
-write protocol NVS prevents corruption.
+`nvs_commit` викликається після кожної партії записів. Якщо живлення
+зникне між `nvs_write` і `nvs_commit`, запис відкочується автоматично
+— журнальний протокол запису NVS запобігає пошкодженню.
 
-## Поширені помилки
+## Типові помилки
 
-**`persist: true` на fast-changing keys:** sensor readings update at 100
-Hz. Навіть з 5 с debounce, ви б писали у NVS кожен раз як sensor settles
-до нового value — можливо hundreds per hour. Flash wear, slow boot. Persist
-лише user-controlled values.
+**`persist: true` на швидкозмінних ключах:** показання сенсора
+оновлюються з частотою 100 Гц. Навіть з антидрижанням 5 с ви б писали
+в NVS щоразу, коли сенсор устаткується на нове значення — можливо,
+сотні разів за годину. Зношування flash, повільне завантаження.
+Зберігайте лише значення, керовані користувачем.
 
-**Counters як persisted:** "total runtime hours" — звучить розумно, але
-counter writing every second produces NVS thrashing. Update лише при
-shutdown / state change (`equipment.fault` rising edge), або bypass default
-debounce з explicit NVS writes.
+**Лічильники як збережувані:** "загальні години роботи" — звучить
+розумно, але лічильник, що пише щосекунди, спричиняє зношення NVS.
+Оновлюйте лише при вимкненні / зміні стану (передній фронт
+`equipment.fault`) або обійдіть антидрижання за замовчуванням явними
+викликами NVS.
 
-**Expecting persistence без declaration:** writing new state key через
-`state_set` НЕ persist його unless ви declared `persist: true` у маніфесті.
-Generator's `state_meta.h` будує persisted-keys list at compile time.
+**Очікування збереження без декларації:** запис нового ключа стану
+через `state_set` НЕ зберігає його, якщо ви не задекларували
+`persist: true` у маніфесті. `state_meta.h`, який створює генератор,
+збирає список збережуваних ключів під час компіляції.
 
-**Storing too much data:** SharedState string values — 32 chars max.
-Не try store JSON blobs у variant. Use raw NVS (або LittleFS files) для
-larger payloads.
+**Зберігання забагато даних:** рядкові значення SharedState — до 32
+символів. Не намагайтесь зберігати JSON-блоби у варіанті.
+Використовуйте сирий NVS (або файли LittleFS) для більших корисних
+навантажень.
 
-**Default value mismatching constraint:** якщо `min/max` constraints say
-5-40 але `default` — 0, ви будете boot-итись з invalid state value.
-PersistService restore-ить raw без re-checking constraints. Sanity-check
-ваші defaults.
+**Значення за замовчуванням не відповідає обмеженням:** якщо
+обмеження `min/max` кажуть 5–40, а `default` — 0, ви завантажитеся з
+неправильним значенням стану. PersistService відновлює сирі значення
+без повторної перевірки обмежень. Перевіряйте розсудливість своїх
+значень за замовчуванням.
 
 ## Що далі
 
-- **[manifest.md](manifest.md#per-key-fields)** — `persist: true` flag і
-  `default` field reference.
-- **[shared-state.md](shared-state.md)** — read/write API що integrates
-  з persistence transparently.
+- **[manifest.md](manifest.md#per-key-fields)** — довідник прапорця
+  `persist: true` і поля `default`.
+- **[shared-state.md](shared-state.md)** — API читання/запису, що
+  прозоро інтегрується зі збереженням.
 - **[components/modesp_services.md](../03-framework-reference/components/modesp_services.md)**
-  *(planned)* — PersistService internals + `nvs_helper` reference.
+  *(заплановано)* — внутрішня будова PersistService + довідник
+  `nvs_helper`.
 - **[scenario-engine/07_persistence.md](../03-framework-reference/scenario-engine/07_persistence.md)**
-  — scenario engine NVS token persistence (different від general module
-  persistence на цій сторінці).
+  — збереження токенів рушія сценаріїв у NVS (відрізняється від
+  загального збереження модулів, описаного на цій сторінці).
 
-## Source
+## Джерела
 
 - [`components/modesp_services/src/persist_service.cpp`](../../../components/modesp_services/src/persist_service.cpp)
-  — implementation.
+  — реалізація.
 - [`components/modesp_services/include/modesp/services/persist_service.h`](../../../components/modesp_services/include/modesp/services/persist_service.h)
-  — `DEBOUNCE_MS` і API surface.
+  — `DEBOUNCE_MS` і поверхня API.
 - [`components/modesp_services/include/modesp/services/nvs_helper.h`](../../../components/modesp_services/include/modesp/services/nvs_helper.h)
-  — raw NVS API для коли вам треба bypass.
+  — сирий API NVS для випадків, коли треба обійти стандартний шлях.

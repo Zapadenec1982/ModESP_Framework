@@ -1,21 +1,22 @@
-# Concepts — чотири mental моделі
+# Концепції — чотири ментальні моделі
 
 > 📖 **In English:** [documentation/en/01-getting-started/concepts.md](../../en/01-getting-started/concepts.md)
 
-Перед написанням вашого першого module, чотири ідеї explain ~90% того
-як фреймворк hangs together. Прочитайте це one раз і rest documentation
-much easier to navigate.
+Перед написанням свого першого модуля чотири ідеї пояснюють ~90% того,
+як влаштований фреймворк. Прочитайте це один раз, і рештою документації
+буде набагато простіше орієнтуватися.
 
-Ця сторінка — **не tutorial**. Це **conceptual glossary** до якого ви
-будете повертатися.
+Ця сторінка — **не туторіал**. Це **концептуальний глосарій**, до якого
+ви повертатиметеся.
 
 ---
 
-## 1. Manifest-driven
+## 1. Керування маніфестами
 
-Кожен module ships із **`manifest.json`** що declares що module exposes
-— state keys, UI cards, MQTT topics, persistence, logging channels —
-**окремо** від C++ code що implements behaviour.
+Кожен модуль постачається з **`manifest.json`**, який декларує те, що
+модуль надає назовні — ключі стану, картки UI, теми MQTT, збереження
+даних, канали логування — **окремо** від C++ коду, який реалізує
+поведінку.
 
 ```
 modules/simple_thermo/
@@ -26,102 +27,106 @@ modules/simple_thermo/
     └── simple_thermo_module.cpp
 ```
 
-Build-time tools (`generate_ui.py`, `compile_scenario.py`) read всі
-manifests І emit:
+Інструменти часу збирання (`generate_ui.py`, `compile_scenario.py`)
+читають усі маніфести й генерують:
 
-- **`ui.json`** consumed by WebUI runtime.
-- **`state_meta.h`** consumed by HTTP/MQTT/SharedState validation.
-- **`mqtt_topics.h`** pre-computed topic strings.
-- **`.modr`** binaries для recipe-typed manifests.
+- **`ui.json`** — використовується середовищем виконання WebUI.
+- **`state_meta.h`** — використовується для валідації HTTP/MQTT/SharedState.
+- **`mqtt_topics.h`** — попередньо обчислені рядки тем.
+- **`.modr`** — бінарні файли для маніфестів типу `recipe`.
 
-Ця separation gives **one source of truth per module**. Renaming
-state key updates everything coherently — UI, MQTT, SharedState — без
-hunting через C++ code.
+Це розділення дає **єдине джерело істини на модуль**. Перейменування
+ключа стану узгоджено оновлює все — UI, MQTT, SharedState — без потреби
+шукати по C++ коду.
 
-**Чому це matters:** коли читаєте module, look at manifest first.
-Він tells вам що module IS without needing read implementation.
+**Чому це важливо:** коли читаєте модуль, дивіться спершу на маніфест.
+Він каже вам, ЧИМ є модуль, без потреби читати реалізацію.
 
-→ Deeper: **[02-module-author-guide/manifest.md](../02-module-author-guide/manifest.md)**.
+→ Детальніше: **[02-module-author-guide/manifest.md](../02-module-author-guide/manifest.md)**.
 
 ---
 
-## 2. Modules і drivers — два types citizens
+## 2. Модулі та драйвери — два типи громадян
 
-Фреймворк has **exactly two kinds** pluggable units:
+Фреймворк має **рівно два види** підключуваних одиниць:
 
-| Type | What | Lifetime owned by |
+| Тип | Що це | Час життя належить |
 |---|---|---|
-| **Module** | Business logic. Reads/writes SharedState keys, owns logic loops. | `ModuleManager` (Phases 1-3 init). |
-| **Driver** | Hardware abstraction. Talks to GPIO/I2C/OneWire/ADC. | `DriverManager` (HAL bridge). |
+| **Модуль** | Бізнес-логіка. Читає/записує ключі SharedState, володіє логічними циклами. | `ModuleManager` (фази 1–3 ініціалізації). |
+| **Драйвер** | Апаратна абстракція. Спілкується з GPIO/I2C/OneWire/ADC. | `DriverManager` (міст HAL). |
 
-Обидва implement thin base interfaces:
+Обидва реалізують тонкі базові інтерфейси:
 
-- Module → `class Module : public modesp::BaseModule`.
-- Driver → `class Driver : public modesp::IDriver` (з typed sub-interfaces
-  `ISensorDriver`, `IActuatorDriver`).
+- Модуль → `class Module : public modesp::BaseModule`.
+- Драйвер → `class Driver : public modesp::IDriver` (з типізованими
+  підінтерфейсами `ISensorDriver`, `IActuatorDriver`).
 
-Drivers publish до `equipment.<role>` keys. Modules read ці keys і
-write higher-level state — `simple_thermo.output`, `alarm.fire_active`,
-тощо. **Modules don't touch hardware directly** — вони consume
-hardware abstraction що drivers provide.
+Драйвери публікують у ключі `equipment.<role>`. Модулі читають ці ключі
+й записують стан вищого рівня — `simple_thermo.output`,
+`alarm.fire_active` тощо. **Модулі не торкаються обладнання
+безпосередньо** — вони споживають апаратну абстракцію, яку надають
+драйвери.
 
-Special case — **recipe modules** — modules з `module_type:
-"recipe"` whose behaviour — scenario `.modr` binary instead of
-C++ class.
+Особливий випадок — **рецепти-модулі** — модулі з `module_type:
+"recipe"`, чия поведінка задається бінарним файлом сценарію `.modr`
+замість C++ класу.
 
-→ Deeper: **[02-module-author-guide/overview.md](../02-module-author-guide/overview.md)**,
+→ Детальніше: **[02-module-author-guide/overview.md](../02-module-author-guide/overview.md)**,
 **[03-framework-reference/components/modesp_hal.md](../03-framework-reference/components/modesp_hal.md)**.
 
 ---
 
-## 3. SharedState — runtime communication bus
+## 3. SharedState — шина комунікації під час виконання
 
-**Немає inter-module function calls** у runtime. Modules
-communicate by reading AND writing keys у typed key-value store:
+У середовищі виконання **немає прямих викликів функцій між модулями**.
+Модулі спілкуються, читаючи та записуючи ключі в типізоване сховище
+ключ-значення:
 
 ```cpp
 state.set("equipment.air_temp", 23.5);              // driver writes
 float t; state.get("equipment.air_temp", t);        // module reads
 state.set("simple_thermo.output", true);            // module writes
-bool on; state.get("simple_thermo.output", on);     // інший module reads
+bool on; state.get("simple_thermo.output", on);     // another module reads
 ```
 
-Each key holds typed `StateValue` (variant з `bool`, `int32_t`,
-`float`, `etl::string_view`). Type changes rejected at write time
-коли validation enabled.
+Кожен ключ містить типізоване `StateValue` (варіант з `bool`, `int32_t`,
+`float`, `etl::string_view`). Зміни типу відхиляються під час запису,
+коли валідація увімкнена.
 
-State writes **change-tracked**. Other subsystems (WebSocket
-broadcast, DataLogger, MQTT publisher) observe changes WITHOUT polling
-every key на every tick.
+Записи стану **відстежуються щодо змін**. Інші підсистеми (трансляція
+WebSocket, DataLogger, публікатор MQTT) спостерігають за змінами БЕЗ
+опитування кожного ключа на кожному такті.
 
-**Чому це matters:** modules стають trivially testable (stub state,
-set inputs, run `on_update`, assert outputs). І topology — read
-manifests — no hidden dependencies.
+**Чому це важливо:** модулі стають тривіально тестованими (заглушка
+стану, задаєте входи, запускаєте `on_update`, перевіряєте виходи). А
+топологія — це прочитання маніфестів — жодних прихованих залежностей.
 
-→ Deeper: **[02-module-author-guide/shared-state.md](../02-module-author-guide/shared-state.md)**.
+→ Детальніше: **[02-module-author-guide/shared-state.md](../02-module-author-guide/shared-state.md)**.
 
 ---
 
-## 4. Scenarios — declarative finite-state machines
+## 4. Сценарії — декларативні скінченні автомати
 
-Більшість real refrigeration / HVAC behaviour — **sequence з phases**:
-defrost cycle, evaporator pulldown, alarm acknowledgement, OTA reboot,
-cleaning mode. Hard-coding це у C++ means writing FSMs by hand —
-error-prone і testing-hostile.
+Більшість реальної поведінки в холодильному обладнанні / HVAC — це
+**послідовність фаз**: цикл відтаювання, відкачка випарника, квитування
+тривоги, перезавантаження OTA, режим миття. Жорстке кодування цього в
+C++ означає писати скінченні автомати вручну — це призводить до помилок
+і вороже до тестування.
 
-**Scenarios** — declarative finite-state machines authored як JSON
-у manifest's `scenario:` block. Compiler turns each у
-compact `.modr` binary що `modesp_scenario` engine interprets at
-runtime.
+**Сценарії** — це декларативні скінченні автомати, написані як JSON у
+блоці `scenario:` маніфесту. Компілятор перетворює кожен на компактний
+бінарний файл `.modr`, який рушій `modesp_scenario` інтерпретує під
+час виконання.
 
-Кожен scenario:
+Кожен сценарій:
 
-- Має **один або more parallel tracks** (concurrent FSMs з cross-track sync).
-- Кожен track має **phases** з entry actions і transitions.
-- Transitions можуть бути time-based, condition-based, АБО composite (`all_of`).
-- Scenario terminates коли its `completion_rule` satisfied.
+- Має **один або кілька паралельних треків** (одночасні скінченні
+  автомати з крос-треківою синхронізацією).
+- Кожен трек має **фази** з вхідними діями та переходами.
+- Переходи можуть бути за часом, за умовою або складеними (`all_of`).
+- Сценарій завершується, коли виконане його `completion_rule`.
 
-Simple example (defrost recipe):
+Простий приклад (рецепт відтаювання):
 
 ```
 phase_pump_down → phase_defrost → phase_drain → $complete
@@ -129,17 +134,18 @@ phase_pump_down → phase_defrost → phase_drain → $complete
 $fail
 ```
 
-Recipes — first-class — operators can start/pause/abort їх через
-WebUI / HTTP / MQTT. State persisted у NVS через tokens so power
-loss recovers mid-scenario.
+Рецепти є повноцінними об'єктами — оператори можуть запускати/ставити
+на паузу/переривати їх через WebUI / HTTP / MQTT. Стан зберігається в
+NVS через токени, тож після збою живлення сценарій відновлюється з
+середини.
 
-→ Deeper: **[02-module-author-guide/recipe-authoring.md](../02-module-author-guide/recipe-authoring.md)**,
+→ Детальніше: **[02-module-author-guide/recipe-authoring.md](../02-module-author-guide/recipe-authoring.md)**,
 **[03-framework-reference/components/modesp_scenario.md](../03-framework-reference/components/modesp_scenario.md)**,
 **[03-framework-reference/modules/abs_test.md](../03-framework-reference/modules/abs_test.md)**.
 
 ---
 
-## Як вони compose
+## Як вони поєднуються
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -161,22 +167,24 @@ loss recovers mid-scenario.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Це весь фреймворк у одній picture. Все інше — mechanics цих чотирьох
+Це весь фреймворк на одній схемі. Усе решта — механіка цих чотирьох
 ідей.
 
 ## Куди далі
 
-- **[quickstart.md](quickstart.md)** — see it running за 10 minutes.
-- **[installation.md](installation.md)** — toolchain і first build.
+- **[quickstart.md](quickstart.md)** — побачити фреймворк у дії за 10
+  хвилин.
+- **[installation.md](installation.md)** — інструментарій і перше
+  збирання.
 - **[02-module-author-guide/overview.md](../02-module-author-guide/overview.md)** —
-  write ваш first module.
+  написати ваш перший модуль.
 - **[03-framework-reference/architecture.md](../03-framework-reference/architecture.md)** —
-  full system architecture з init phases, dependency graph.
+  повна архітектура системи з фазами ініціалізації, графом залежностей.
 
-## Source
+## Джерела
 
-Ця concepts page — condensed version:
+Ця сторінка концепцій — скорочена версія:
 
-- **[STYLE.md](../STYLE.md)** — documentation quality bar.
-- Module Author Guide chapters 1-3.
-- Architectural overview.
+- **[STYLE.md](../STYLE.md)** — планка якості документації.
+- Module Author Guide, розділи 1–3.
+- Архітектурний огляд.
