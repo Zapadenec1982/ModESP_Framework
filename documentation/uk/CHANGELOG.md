@@ -1,5 +1,7 @@
 # ModESP v4 — Changelog
 
+> 📖 **In English:** [documentation/en/CHANGELOG.md](../en/CHANGELOG.md)
+
 > Повний changelog проекту.
 
 ## 2026-03-16

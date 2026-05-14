@@ -9,9 +9,9 @@ This is the **canonical** documentation for ModESP v4. Pick a language:
 
 ```
 documentation/
-├── CHANGELOG.md                    ← project changelog
 ├── STYLE.md                        ← documentation style guide
 ├── en/                             ← English (international target audience)
+│   └── CHANGELOG.md                ← project changelog (EN)
 │   ├── 01-getting-started/
 │   ├── 02-module-author-guide/    ← Primary audience: module authors
 │   ├── 03-framework-reference/
@@ -50,7 +50,7 @@ Every page in this directory follows the conventions in [`STYLE.md`](STYLE.md):
 | Module Author Guide | [link](en/02-module-author-guide/overview.md) | [link](uk/02-module-author-guide/overview.md) |
 | Architecture | [link](en/03-framework-reference/architecture.md) | [link](uk/03-framework-reference/architecture.md) |
 | Scenario engine deep dive | [link](en/03-framework-reference/scenario-engine/README.md) | [link](uk/03-framework-reference/scenario-engine/README.md) |
-| CHANGELOG | [CHANGELOG.md](CHANGELOG.md) | (single file, bilingual entries) |
+| CHANGELOG | [en/CHANGELOG.md](en/CHANGELOG.md) | [uk/CHANGELOG.md](uk/CHANGELOG.md) |
 
 ## History
 

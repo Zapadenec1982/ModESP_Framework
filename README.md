@@ -354,7 +354,7 @@ tests/host/             # C++ doctest (host-compiled)
 > ([STYLE.md](documentation/STYLE.md)). ~150 pages covering everything from
 > the 10-minute quickstart to ADRs of the scenario engine.
 >
-> 📜 **CHANGELOG:** [`documentation/CHANGELOG.md`](documentation/CHANGELOG.md).
+> 📜 **CHANGELOG:** [EN](documentation/en/CHANGELOG.md) · [UK](documentation/uk/CHANGELOG.md).
 
 ### Start here
 
