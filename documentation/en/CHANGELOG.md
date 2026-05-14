@@ -4,45 +4,6 @@
 
 > Full project changelog.
 
-## 2026-03-16
-
-- **feat(i18n): multilingual interface (UK/EN/DE/PL):**
-  - Architecture: separate language packs in LittleFS (`data/www/i18n/{lang}.json`)
-  - Per-module translation files: `modules/*/i18n/{en,de,pl}.json`
-  - The generator collects module + system translations → merged language pack (674 keys)
-  - Frontend: lazy-load of the language pack on language change (`fetch('/i18n/{lang}.json')`)
-  - Ukrainian — default (embedded in ui.json, no fetch)
-  - `cycleLanguage()` — cyclic switching UK → EN → DE → PL
-  - Removed `uiEn.js` (327 entries) — replaced by structured keys + reverse map
-  - Adding a new language = translation files, no code changes
-  - Professional refrigeration terminology: DE (Verdichter, Abtauung), PL (sprężarka, odszranianie)
-
-- **feat(aws): AWS IoT Core integration (feature/aws-iot branch):**
-  - Compile-time switch via Kconfig (MQTT default, AWS optional)
-  - mTLS connection, telemetry delta-publish, commands via MQTT
-  - Device Shadow (62 reported keys + delta apply)
-  - IoT Jobs OTA (download → flash → reboot → validate)
-  - NVS 32KB for cert+key storage, JSON unescape for PEM
-  - WiFi deferred start (crash fix), JSMN_STATIC (linker fix)
-  - Verified on real ESP32: mTLS + telemetry + Shadow + OTA Jobs
-  - 15 commits on feature/aws-iot, merged to main
-
-- **docs: documentation overhaul for portfolio:**
-  - docs/FEATURES.md (EN) + FEATURES_UA.md (UA) — 13-section feature overview
-  - docs/CLOUD_INTEGRATION.md — ModESP Cloud integration guide
-  - docs/12_aws_iot.md — full AWS IoT Core documentation
-  - README.md redesigned: key metrics, Technical Highlights for Reviewers
-  - .rules/ portable core: 9 rule files for Claude Code
-
-- **fix(bindings): show all unassigned roles in "Add equipment"**
-  - Required roles (air_temp) now reappear after removal
-  - Cleaned DS18B20 ROM addresses from factory bindings.json
-
-- **fix(thermostat): setpoint range -50..+50 → -30..+20°C**
-- **fix(ui): rename "Холодильна камера" → "Охолодження" (Cooling)**
-- **fix(mqtt): persist prefix in NVS on _set_tenant (pending after reboot)**
-- **License: Source Available (PolyForm Noncommercial 1.0.0)**
-
 ## 2026-05-14
 
 - **docs: bilingual parity for the CHANGELOG:**
@@ -214,6 +175,45 @@
   - Manifest-driven architecture, EquipmentBase + product override pattern.
   - PRIV_REQUIRES manual step clarified.
   - Documentation section — TUTORIAL + BOARD_SETUP links.
+
+## 2026-03-16
+
+- **feat(i18n): multilingual interface (UK/EN/DE/PL):**
+  - Architecture: separate language packs in LittleFS (`data/www/i18n/{lang}.json`)
+  - Per-module translation files: `modules/*/i18n/{en,de,pl}.json`
+  - The generator collects module + system translations → merged language pack (674 keys)
+  - Frontend: lazy-load the language pack on language change (`fetch('/i18n/{lang}.json')`)
+  - Ukrainian — default (embedded in ui.json, no fetch)
+  - `cycleLanguage()` — cyclic switching UK → EN → DE → PL
+  - Removed `uiEn.js` (327 entries) — replaced by structured keys + reverse map
+  - Adding a new language = translation files, no code changes
+  - Professional refrigeration terminology: DE (Verdichter, Abtauung), PL (sprężarka, odszranianie)
+
+- **feat(aws): AWS IoT Core integration (feature/aws-iot branch):**
+  - Compile-time switch via Kconfig (MQTT default, AWS optional)
+  - mTLS connection, telemetry delta-publish, commands via MQTT
+  - Device Shadow (62 reported keys + delta apply)
+  - IoT Jobs OTA (download → flash → reboot → validate)
+  - NVS 32KB for cert+key storage, JSON unescape for PEM
+  - WiFi deferred start (crash fix), JSMN_STATIC (linker fix)
+  - Verified on real ESP32: mTLS + telemetry + Shadow + OTA Jobs
+  - 15 commits on feature/aws-iot, merged to main
+
+- **docs: documentation overhaul for portfolio:**
+  - docs/FEATURES.md (EN) + FEATURES_UA.md (UA) — 13-section feature overview
+  - docs/CLOUD_INTEGRATION.md — ModESP Cloud integration guide
+  - docs/12_aws_iot.md — full AWS IoT Core documentation
+  - README.md redesigned: key metrics, Technical Highlights for Reviewers
+  - .rules/ portable core: 9 rule files for Claude Code
+
+- **fix(bindings): show all unassigned roles in "Add equipment"**
+  - Required roles (air_temp) now reappear after removal
+  - Cleaned DS18B20 ROM addresses from factory bindings.json
+
+- **fix(thermostat): setpoint range -50..+50 → -30..+20°C**
+- **fix(ui): rename "Холодильна камера" → "Охолодження" (Cooling)**
+- **fix(mqtt): persist prefix in NVS on _set_tenant (pending after reboot)**
+- **License: Source Available (PolyForm Noncommercial 1.0.0)**
 
 ## 2026-03-09
 
