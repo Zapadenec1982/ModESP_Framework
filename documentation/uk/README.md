@@ -46,11 +46,11 @@ LittleFS partitioning.
 | [ui-widgets.md](02-module-author-guide/ui-widgets.md) | ✅ | Повний каталог widgets, cards, visible_when, i18n. |
 | [mqtt.md](02-module-author-guide/mqtt.md) | ✅ | Publish/subscribe семантика, topic format, HA discovery. |
 | [persistence.md](02-module-author-guide/persistence.md) | ✅ | NVS через PersistService, debounce, migrations. |
-| recipe-authoring.md | ⏳ planned | Структура scenario рецептів. |
-| recipe-actions.md | ⏳ planned | Built-in actions і кастомна реєстрація. |
-| continuous-behaviors.md | ⏳ planned | PID, hysteresis, ramp; кастомні. |
-| debugging.md | ⏳ planned | Логи, HTTP API для перегляду стану. |
-| best-practices.md | ⏳ planned | Патерни і анти-патерни. |
+| [recipe-authoring.md](02-module-author-guide/recipe-authoring.md) | ✅ | Структура scenario рецепту, tracks, phases, transitions. |
+| [recipe-actions.md](02-module-author-guide/recipe-actions.md) | ✅ | Built-in actions/conditions, кастомна реєстрація. |
+| [continuous-behaviors.md](02-module-author-guide/continuous-behaviors.md) | ✅ | PID, hysteresis, ramp; кастомні. |
+| [debugging.md](02-module-author-guide/debugging.md) | ✅ | Логи, HTTP / WS inspection, common bugs. |
+| [best-practices.md](02-module-author-guide/best-practices.md) | ✅ | Checklist патернів і анти-патернів. |
 
 ### 03 — Reference фреймворку
 

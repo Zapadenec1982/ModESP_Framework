@@ -45,11 +45,11 @@ In order:
 | [ui-widgets.md](02-module-author-guide/ui-widgets.md) | ✅ | Full widget catalog, cards, visible_when, i18n. |
 | [mqtt.md](02-module-author-guide/mqtt.md) | ✅ | Publish/subscribe semantics, topic format, HA discovery. |
 | [persistence.md](02-module-author-guide/persistence.md) | ✅ | NVS through PersistService, debounce, migrations. |
-| recipe-authoring.md | ⏳ planned | Scenario recipe structure. |
-| recipe-actions.md | ⏳ planned | Built-in actions і custom registration. |
-| continuous-behaviors.md | ⏳ planned | PID, hysteresis, ramp; custom. |
-| debugging.md | ⏳ planned | Logs, HTTP API for state. |
-| best-practices.md | ⏳ planned | Patterns і anti-patterns. |
+| [recipe-authoring.md](02-module-author-guide/recipe-authoring.md) | ✅ | Scenario recipe structure, tracks, phases, transitions. |
+| [recipe-actions.md](02-module-author-guide/recipe-actions.md) | ✅ | Built-in actions/conditions, custom registration. |
+| [continuous-behaviors.md](02-module-author-guide/continuous-behaviors.md) | ✅ | PID, hysteresis, ramp; custom. |
+| [debugging.md](02-module-author-guide/debugging.md) | ✅ | Logs, HTTP / WS inspection, common bugs. |
+| [best-practices.md](02-module-author-guide/best-practices.md) | ✅ | Patterns і anti-patterns checklist. |
 
 ### 03 — Framework reference
 
