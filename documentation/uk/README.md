@@ -67,15 +67,15 @@ LittleFS partitioning.
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | High-level огляд scenario engine. |
 | scenario-engine/ | ⏳ planned | Engine deep dive (буде link на migrated content). |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — bridge між sensor/actuator HAL. |
-| modules/datalogger.md | ⏳ planned | Channel logging, retention, plot API. |
-| modules/simple_thermo.md | ⏳ planned | Reference ON/OFF thermostat. |
-| modules/abs_test.md | ⏳ planned | Reference recipe з двома паралельними tracks. |
-| drivers/ds18b20.md | ⏳ planned | Dallas OneWire температурний сенсор. |
-| drivers/ntc.md | ⏳ planned | NTC термістор через ADC. |
-| drivers/relay.md | ⏳ planned | GPIO реле-актуатор. |
-| drivers/pcf8574_relay.md | ⏳ planned | I2C-розширене реле (PCF8574). |
-| drivers/digital_input.md | ⏳ planned | GPIO контактний вхід. |
-| drivers/pcf8574_input.md | ⏳ planned | I2C-розширений контактний вхід. |
+| [modules/datalogger.md](03-framework-reference/modules/datalogger.md) | ✅ | Channel logging, retention, plot API. |
+| [modules/simple_thermo.md](03-framework-reference/modules/simple_thermo.md) | ✅ | Reference ON/OFF thermostat. |
+| [modules/abs_test.md](03-framework-reference/modules/abs_test.md) | ✅ | Reference recipe з двома паралельними tracks. |
+| [drivers/ds18b20.md](03-framework-reference/drivers/ds18b20.md) | ✅ | Dallas OneWire температурний сенсор. |
+| [drivers/ntc.md](03-framework-reference/drivers/ntc.md) | ✅ | NTC термістор через ADC. |
+| [drivers/relay.md](03-framework-reference/drivers/relay.md) | ✅ | GPIO реле-актуатор. |
+| [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | I2C-розширене реле (PCF8574). |
+| [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | GPIO контактний вхід. |
+| [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | I2C-розширений контактний вхід. |
 | web-ui.md | ⏳ planned | Svelte SPA архітектура, state stores. |
 
 ### 04 — Hardware
