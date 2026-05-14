@@ -76,11 +76,11 @@ python tools/compile_scenario.py --recipe modules/abs_test/manifest.json \
 #include "modesp/scenario/builtin_actions.h"
 
 class MyBusinessModule : public modesp::BaseModule {
-    modesp::scenario::SequenceEngine* engine_;
+    modesp::scenario::Engine* engine_;
     modesp::scenario::SequenceHandle handle_ = 0;
 
 public:
-    void set_engine(modesp::scenario::SequenceEngine* e) { engine_ = e; }
+    void set_engine(modesp::scenario::Engine* e) { engine_ = e; }
 
     bool on_init() override {
         // Load recipe (engine resolves /data/scenarios/abs_test.modr)
@@ -102,21 +102,47 @@ public:
 };
 ```
 
-Інтеграція у `main.cpp` (одноразово під час boot — див. Step 16):
+Інтеграція у `main.cpp` (одноразово під час boot — див. Step 16). Рушій
+отримує свої залежності (state backend, реєстри, спостерігачі) через
+конструктор — жодних синглтонів:
 
 ```cpp
 #include "modesp/scenario/engine.h"
+#include "modesp/scenario/action_registry.h"
+#include "modesp/scenario/continuous_behavior.h"
+#include "modesp/scenario/continuous_primitives.h"
+#include "modesp/scenario/nvs_observer.h"
 #include "modesp/scenario/builtin_actions.h"
+#include "shared_state_backend.h"  // адаптер для modesp::SharedState (application layer)
 
-static modesp::scenario::SequenceEngine sequence_engine(&app.state());
+// State backend adapter
+static SharedStateBackend sb{app.state()};
+
+// Caller-owned реєстри (без синглтонів)
+static modesp::scenario::ActionRegistry     actions;
+static modesp::scenario::ContinuousRegistry continuous;
+
+// NVS persistence observer — викликач постачає read/write коллбеки
+static modesp::scenario::NvsObserver nvs_obs{nvs_write_fn, nvs_read_fn, nullptr};
+static modesp::scenario::IEngineObserver* obs_list[] = {&nvs_obs};
+
+// Engine — конструктор приймає state, реєстри та span зі спостерігачами
+static modesp::scenario::Engine engine{sb, actions, continuous, obs_list};
+
+// Наповніть реєстри ДО ініціалізації будь-яких модулів
+modesp::scenario::builtins::register_builtins(actions);
+// Опціонально: стандартні continuous-примітиви (PID, hysteresis, ramp).
+// Доменні модулі також можуть реєструвати свої власні.
+modesp::scenario::primitives::register_primitives(continuous);
+
+// Прив'яжіть спостерігача до рушія (NvsObserver читає стан при серіалізації)
+nvs_obs.bind_engine(engine);
+
 static MyBusinessModule biz_module;
-biz_module.set_engine(&sequence_engine);
+biz_module.set_engine(&engine);
 
-// Register builtins ONCE before any module init runs
-modesp::scenario::builtins::register_builtins();
-
-// Register engine before business modules що залежать від нього
-app.modules().register_module(sequence_engine);
+// Зареєструйте рушій перед бізнес-модулями, що залежать від нього
+app.modules().register_module(engine);
 app.modules().register_module(biz_module);
 ```
 
@@ -136,14 +162,23 @@ I (14345) abs_test: watcher: started
 
 ## 5. Відновлення після перезавантаження живлення
 
-Якщо пристрій перезавантажується посередині сценарію, рушій читає NVS-токен
-у `on_init`, відновлює `phase_idx` та `phase_elapsed_ms` і переходить у стан
-PAUSED. WebUI може показати банер через `visible_when: {abs_test.scenario_state: ["paused"]}`.
-
-Продовжити:
+Відновлення **не** є автоматичним. Після перезавантаження пристрою та
+повторного завантаження сценарію (`load_path`/`load_buffer`) викликач має
+явно запросити відновлення стану з NVS, викликавши `try_recover()` і
+передавши той самий `NvsObserver`, що сконфігуровано у `main.cpp`. У разі
+успіху `phase_idx` + `phase_elapsed_ms` відновлюються, а сценарій
+переходить у стан **PAUSED** — викликач має потім явно викликати
+`resume()`, щоб продовжити.
 
 ```cpp
-engine_->resume(handle_);  // continues from saved phase + elapsed_ms
+// Після успішного load_path():
+auto err = engine_->try_recover(handle_, nvs_obs);
+if (err == modesp::scenario::EngineError::OK) {
+    // Сценарій тепер у PAUSED на відновленій фазі / elapsed_ms.
+    // WebUI може показати банер через visible_when: {abs_test.scenario_state: ["paused"]}.
+    // Викликач вирішує, коли продовжити — наприклад, після підтвердження користувача:
+    engine_->resume(handle_);  // продовжує з збереженої фази + elapsed_ms
+}
 ```
 
 Перервати:

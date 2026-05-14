@@ -2,7 +2,11 @@
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/scenario-engine/adr/0006-no-builtin-continuous-behaviors.md](../../../../uk/03-framework-reference/scenario-engine/adr/0006-no-builtin-continuous-behaviors.md)
 
-**Status:** placeholder. Fully written in Step 6 (continuous_registry).
+## Status update (post-Stage 1)
+
+Stage 2 introduced **standard continuous primitives** that ship with the framework: PID controller, hysteresis controller, ramp generator. They live in `components/modesp_scenario/include/modesp/scenario/continuous_primitives.h` and are wired through `ContinuousRegistry`. The original decision below ("0 built-ins") applied to Stage 1 MVP — domain modules can still register their own primitives via `ContinuousRegistry`, but the framework now provides standard reference implementations out of the box.
+
+The rest of this ADR is kept verbatim as a historical record of the Stage 1 decision.
 
 ## Decision summary
 

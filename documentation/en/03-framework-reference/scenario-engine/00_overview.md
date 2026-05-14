@@ -1,8 +1,6 @@
-# 00 — Sequence Engine Overview
+# 00 — Scenario Engine Overview
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/scenario-engine/00_overview.md](../../../uk/03-framework-reference/scenario-engine/00_overview.md)
-
-**Status:** Stage 0 — placeholder. Filled out as the architecture stabilizes (Step 1+).
 
 ## What it is
 
@@ -20,7 +18,7 @@ The engine solves one specific problem: **today, business modules duplicate time
 
 1. **Phased timelines with transitions** — without hand-rolled state enum + counter scaffolding.
 2. **Parallel tracks within ONE scenario** (like MIDI tracks) — without custom synchronization between business module subroutines.
-3. **Multi-instance independent scenarios** (up to 6 concurrent) — the engine provides the handles.
+3. **Multi-instance independent scenarios** (up to `MAX_SEQUENCES` concurrent, default 2 — Kconfig `CONFIG_MODESP_MAX_SEQUENCES`) — the engine provides the handles.
 4. **Resource arbitration** (ISA-88 §5.3) — the recipe declares required resources, the engine ensures no conflicts at start.
 5. **Power-loss recovery** — NVS-persisted token state restores the phase position on boot.
 6. **Domain-agnostic primitives** + extensibility via ActionRegistry — domain modules add custom actions without changing the engine.

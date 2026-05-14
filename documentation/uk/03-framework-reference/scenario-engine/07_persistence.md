@@ -3,20 +3,23 @@
 > 📖 **In English:** [documentation/en/03-framework-reference/scenario-engine/07_persistence.md](../../../en/03-framework-reference/scenario-engine/07_persistence.md)
 
 Відновлення після перезавантаження живлення через 96-байтові токени,
-що зберігаються у ESP-IDF NVS. Engine виявляє зміни стану щотакту,
-обмежує частоту неургентних записів і викликає колбек, наданий
-викликачем. На завантаженні рецепт перечитується з файлової системи;
-викликач звертається до `try_recover()`, який читає токен ТА відновлює
-позицію фази, перш ніж сценарій знову увійде у стан PAUSED.
+що зберігаються у ESP-IDF NVS. Engine емітить крайові події життєвого
+циклу сценарію через хуки `IEngineObserver`; `NvsObserver` слухає ці
+краї, застосовує політику дроселювання у власному стані на слот і
+викликає колбек, наданий викликачем, для запису токена. На завантаженні
+рецепт перечитується з файлової системи; викликач звертається до
+`engine.try_recover(handle, nvs_observer)`, який читає токен ТА
+відновлює позицію фази, перш ніж сценарій знову увійде у стан PAUSED.
 
 ## Розкладка сховища
 
 | Простір імен NVS | Формат ключа | Значення |
 |---|---|---|
-| `seqstate` | `t<slot>` (наприклад, `t0`, `t1`, ..., `t<MAX_SEQUENCES-1>`) | 96-байтовий blob `seq_token` |
+| `scnstate` | `t<slot>` (наприклад, `t0`, `t1`, ..., `t<MAX_SEQUENCES-1>`) | 96-байтовий blob `seq_token` |
 
-`MAX_SEQUENCES = 4` за замовчуванням → ключі `t0`..`t3`. Ключі на екземпляр
-дозволяють незалежне відновлення кількох паралельних сценаріїв.
+`MAX_SEQUENCES = 2` за замовчуванням (Kconfig `CONFIG_MODESP_MAX_SEQUENCES`,
+максимум 8) → ключі `t0`..`t1`. Ключі на екземпляр дозволяють незалежне
+відновлення кількох паралельних сценаріїв.
 
 ## Формат токена (`seq_token`, 96 байтів)
 
@@ -25,7 +28,7 @@
 
 ```c
 struct seq_token {                       // загалом 96 байтів
-    uint32_t magic;                      // [0..3]   = 'SQTK' (0x4B545153 LE)
+    uint32_t magic;                      // [0..3]   = 'SCTK' (0x4B544353 LE)
     uint16_t version;                    // [4..5]   = SEQ_TOKEN_VERSION (1)
     uint16_t scenario_id;                // [6..7]   djb2(module_name) low16
     uint8_t  scenario_state;             // [8]      SequenceRuntime::State
@@ -52,23 +55,26 @@ CRC-CCITT (варіант XMODEM: poly 0x1021, init 0x0000, без reflection).
 
 ## Політика запису (за планом Q7)
 
-`SequenceEngine::persist_scan()` застосовує цю політику щотакту після
-`instance_tick`:
+Engine більше не сканує зміни стану всередині `on_update`. Натомість
+він синхронно емітить крайові події через хуки `IEngineObserver`
+(`on_scenario_started`, `on_phase_entered`, `on_scenario_terminal`)
+з шляху такту. `NvsObserver` реалізує ці хуки і застосовує таку
+політику:
 
 | Подія | Час персистентності | Обґрунтування |
 |-------|---------------|-----------|
-| Зміна стану сценарію (LOADED→RUNNING, abort, complete, fail) | **Негайно** | Критична для збоїв подія має пережити |
-| Просування фази на головній доріжці (доріжка з `MODR_TRACK_FLAG_MAIN`) | **Негайно** | Інваріанти головної доріжки збережено |
-| Просування фази на бічній доріжці | Дроселюється до ≥1 с між записами | Захист від зношування flash |
+| `on_scenario_started` (LOADED→RUNNING) | **Негайно** | Критична для збоїв подія має пережити |
+| `on_scenario_terminal` (COMPLETED, FAILED, включно з ABORTING→FAILED) | **Негайно** | Фінальний стан має бути зафіксований |
+| `on_phase_entered` для головної доріжки (`MODR_TRACK_FLAG_MAIN`) | **Негайно** | Інваріанти головної доріжки збережено |
+| `on_phase_entered` для бічної доріжки | Дроселюється до ≥1 с між записами | Захист від зношування flash |
 | 5-хвилинна контрольна точка (Stage 1.5) | Періодично | Гарантує точність resume, якщо активна лише бічна доріжка |
 
-Поля відстеження на слот у `Slot`:
-- `last_persisted_state` — що було записано востаннє
-- `last_persisted_phase_idx[6]` — індекси фаз на кожну доріжку
-- `time_since_persist_ms` — насичуючий лічильник дроселювання
-
-Виявлення змін порівнює поточний рантайм із last_persisted_*; персистентність
-спрацьовує лише за наявності реальних змін.
+Стан дроселювання на слот живе **у `NvsObserver`**, а не у `Slot`
+engine. Observer тримає насичуючий лічильник `time_since_persist_ms_[]`
+на індекс слоту (просувається з `on_tick`) і використовує його
+всередині `throttle_check()`, щоб гейтити неургентні записи. Engine
+не відстежує «востаннє записане» — він лише емітить краї; observer
+вирішує, що і коли персистувати.
 
 ### Розрахунок ресурсу зношування
 
@@ -91,9 +97,12 @@ NVS розрахований на 100 тис. циклів/сектор. При 
 
 ## Контракт колбеку
 
-Engine не викликає `nvs_set_blob` напряму — натомість викликає колбек,
-наданий викликачем. Це утримує код engine незалежним від цільової
-платформи (хост-тести надають in-memory моки).
+`NvsObserver` не викликає `nvs_set_blob` напряму — натомість викликає
+колбеки, передані до його **конструктора**. Це утримує код observer
+незалежним від цільової платформи (хост-тести надають in-memory моки).
+Сам engine не має NVS-хуків: він приймає observer через параметр
+конструктора `etl::span<IEngineObserver*>` і емітить крайові події;
+observer володіє колбеками.
 
 ```cpp
 using NvsWriteFn = bool (*)(void* user, uint8_t slot,
@@ -101,7 +110,11 @@ using NvsWriteFn = bool (*)(void* user, uint8_t slot,
 using NvsReadFn  = bool (*)(void* user, uint8_t slot,
                             uint8_t* token_buf, size_t* in_out_len);
 
-engine.set_nvs_callbacks(write_fn, read_fn, user_ctx);
+// Конструюється з колбеками; інжектується у engine через observer span.
+NvsObserver nvs_obs{write_fn, read_fn, user_ctx};
+IEngineObserver* obs_list[] = {&nvs_obs};
+Engine engine{state_backend, actions, continuous, obs_list};
+nvs_obs.bind_engine(engine);  // обов'язково до engine.start()
 ```
 
 Підключення на цільовій платформі у `main.cpp`:
@@ -111,7 +124,7 @@ static auto seq_nvs_write = [](void*, uint8_t slot,
                                 const uint8_t* token, size_t len) -> bool {
     char key[8];
     std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
-    return modesp::nvs_helper::write_blob("seqstate", key, token, len);
+    return modesp::nvs_helper::write_blob("scnstate", key, token, len);
 };
 
 static auto seq_nvs_read = [](void*, uint8_t slot,
@@ -119,29 +132,31 @@ static auto seq_nvs_read = [](void*, uint8_t slot,
     char key[8];
     std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
     size_t out_len = 0;
-    bool ok = modesp::nvs_helper::read_blob("seqstate", key, buf,
+    bool ok = modesp::nvs_helper::read_blob("scnstate", key, buf,
                                              *in_out_len, out_len);
     if (ok) *in_out_len = out_len;
     return ok;
 };
 
-sequence_engine.set_nvs_callbacks(seq_nvs_write, seq_nvs_read, nullptr);
+static modesp::scenario::NvsObserver nvs_obs{seq_nvs_write, seq_nvs_read, nullptr};
 ```
 
-Колбеки викликаються лише із задачі оновлення engine — викликачеві не
-потрібна синхронізація поверх тієї, яку надає сам NVS.
+Колбеки викликаються лише із задачі оновлення engine (синхронно
+всередині події observer) — викликачеві не потрібна синхронізація
+поверх тієї, яку надає сам NVS.
 
 ### Обробка збоїв колбеку
 
 `write_fn` повертає `false`:
-- Engine логує попередження (Stage 1.5 — наразі тихий фолбек)
-- `last_persisted_*` слоту НЕ оновлюється → наступний такт повторить
+- Observer логує попередження (Stage 1.5 — наразі тихий фолбек)
+- Лічильник дроселювання observer на слот НЕ скидається → наступна
+  крайова подія повторить
 - Каскадний персистентний збій може блокувати інші операції; рецепти,
   що покладаються на персистентність задля безпеки, мають моніторити
   стан бекенду
 
 `read_fn` повертає `false`:
-- `try_recover()` повертає `EngineError::NVS_ERROR`
+- `engine.try_recover(h, nvs_obs)` повертає `EngineError::NVS_ERROR`
 - Викликач вирішує, чи робити abort сценарію, чи стартувати з нуля
 
 ## Потік відновлення
@@ -154,8 +169,10 @@ sequence_engine.set_nvs_callbacks(seq_nvs_write, seq_nvs_read, nullptr);
 auto handle = engine.load_path("/data/scenarios/abs_test.modr");
 if (handle == 0) { /* рецепт відсутній */ return; }
 
-// Крок 2: Спроба відновлення
-EngineError err = engine.try_recover(handle);
+// Крок 2: Спроба відновлення (observer передається явно — engine не
+// робить ID-каст observers; recovery — це round-trip операція читання,
+// що не вписується в модель fire-and-forget подій)
+EngineError err = engine.try_recover(handle, nvs_obs);
 if (err == EngineError::OK) {
     // Слот тепер у стані PAUSED з відновленими phase_idx + phase_elapsed_ms.
     // Сценарій НЕ авто-резюмується. Користувач вирішує через WebUI:
@@ -178,7 +195,8 @@ if (err == EngineError::OK) {
 ### Ланцюг валідації відновлення
 
 `deserialize_token` виконує в порядку:
-1. Перевірка магії (`SEQ_TOKEN_MAGIC` == 'SQTK')
+1. Перевірка магії (`SEQ_TOKEN_MAGIC` == 'SCTK' / `0x4B544353` LE; старі
+   токени `'SQTK'` від `modesp_sequence` відкидаються)
 2. Перевірка версії (`version` == `SEQ_TOKEN_VERSION`)
 3. Перевірка CRC16 над [0..91]
 4. `scenario_id` збігається із заголовком завантаженого рецепту
@@ -226,4 +244,5 @@ UNSUPPORTED_VERSION, CRC_MISMATCH).
 - [10_error_model.md](10_error_model.md) — коди помилок відновлення
 - [adr/0001-binary-format-not-constexpr.md](adr/0001-binary-format-not-constexpr.md) — дизайн формату токена
 - Джерела: `components/modesp_scenario/src/nvs_token.cpp`,
-  `engine.cpp::persist_scan` і `try_recover`
+  `nvs_observer.cpp` (політика дроселювання + persist_slot),
+  `engine.cpp::try_recover`

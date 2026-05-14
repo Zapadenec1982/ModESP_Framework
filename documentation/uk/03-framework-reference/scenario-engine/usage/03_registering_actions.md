@@ -24,10 +24,15 @@
 
 ## Патерн реєстрації
 
-Реєструйте дії у методі `on_init()` свого модуля ПЕРЕД завантаженням
-будь-яких сценаріїв. План викликає `register_builtins()` один раз у
-`main.cpp` перед ініціалізацією модулів — реєстрації вашого модуля
-відбуваються після цього, у `on_init()`.
+`ActionRegistry` **не** є синглтоном — це інстанс, яким володіє викликач:
+`main.cpp` створює його та інжектить у рушій. Доменні модулі мають отримати
+**той самий** `ActionRegistry&` (зазвичай через сетер або аргумент
+конструктора), щоб їхні реєстрації потрапили в реєстр, який рушій буде
+використовувати для пошуку.
+
+План викликає `builtins::register_builtins(reg)` один раз у `main.cpp`
+перед ініціалізацією модулів — реєстрації вашого модуля відбуваються
+після цього, у `on_init()`.
 
 ```cpp
 #include "modesp/scenario/action_registry.h"
@@ -37,24 +42,31 @@ class MulticookerModule : public modesp::BaseModule {
 public:
     MulticookerModule() : BaseModule("mc", modesp::ModulePriority::NORMAL) {}
 
+    /// Інжекція того самого ActionRegistry, який main.cpp передав у рушій.
+    /// Має бути викликано до on_init().
+    void set_action_registry(modesp::scenario::ActionRegistry& reg) { reg_ = &reg; }
+
     bool on_init() override {
         using namespace modesp::scenario;
-        auto& reg = ActionRegistry::instance();
+        if (!reg_) {
+            ESP_LOGE("mc", "ActionRegistry не інжектовано");
+            return false;
+        }
 
         bool ok = true;
-        ok &= reg.register_action({
+        ok &= reg_->register_action({
             djb2_hash16("mc.set_target_temp"),
             "mc.set_target_temp",
             &MulticookerModule::action_set_target_temp,
             /*param_min=*/1, /*param_max=*/1
         });
-        ok &= reg.register_action({
+        ok &= reg_->register_action({
             djb2_hash16("mc.start_pid"),
             "mc.start_pid",
             &MulticookerModule::action_start_pid,
             /*param_min=*/0, /*param_max=*/0
         });
-        ok &= reg.register_condition({
+        ok &= reg_->register_condition({
             djb2_hash16("mc.temp_within"),
             "mc.temp_within",
             &MulticookerModule::cond_temp_within,
@@ -69,6 +81,8 @@ public:
     }
 
 private:
+    modesp::scenario::ActionRegistry* reg_ = nullptr;
+
     static modesp::scenario::ActionStatus action_set_target_temp(
         modesp::scenario::ActionContext& ctx);
     static modesp::scenario::ActionStatus action_start_pid(
@@ -76,6 +90,19 @@ private:
     static modesp::scenario::ActionStatus cond_temp_within(
         modesp::scenario::ActionContext& ctx);
 };
+```
+
+У `main.cpp` той самий caller-owned реєстр інжектиться і в рушій,
+і в доменний модуль:
+
+```cpp
+static modesp::scenario::ActionRegistry actions;
+static modesp::scenario::Engine engine{sb, actions, continuous, obs_list};
+
+modesp::scenario::builtins::register_builtins(actions);
+
+static MulticookerModule mc_module;
+mc_module.set_action_registry(actions);
 ```
 
 ## Сигнатура функції дії
@@ -244,18 +271,20 @@ class McDemoModule : public modesp::BaseModule {
 public:
     McDemoModule() : BaseModule("mc_demo", modesp::ModulePriority::NORMAL) {}
 
+    void set_action_registry(modesp::scenario::ActionRegistry& reg) { reg_ = &reg; }
+
     bool on_init() override {
         using namespace modesp::scenario;
-        auto& reg = ActionRegistry::instance();
+        if (!reg_) return false;
 
         bool ok = true;
-        ok &= reg.register_action({
+        ok &= reg_->register_action({
             djb2_hash16("mc.set_target_temp"),
             "mc.set_target_temp",
             &action_set_target_temp,
             1, 1
         });
-        ok &= reg.register_condition({
+        ok &= reg_->register_condition({
             djb2_hash16("mc.temp_reached"),
             "mc.temp_reached",
             &cond_temp_reached,
@@ -265,6 +294,7 @@ public:
     }
 
 private:
+    modesp::scenario::ActionRegistry* reg_ = nullptr;
     using AS = modesp::scenario::ActionStatus;
     using AC = modesp::scenario::ActionContext;
     using AP = modesp::scenario::ActionParam;

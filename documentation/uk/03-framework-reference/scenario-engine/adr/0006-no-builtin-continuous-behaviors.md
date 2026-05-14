@@ -2,7 +2,11 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/scenario-engine/adr/0006-no-builtin-continuous-behaviors.md](../../../../en/03-framework-reference/scenario-engine/adr/0006-no-builtin-continuous-behaviors.md)
 
-**Статус:** заглушка. Повністю буде написано на Кроці 6 (continuous_registry).
+## Оновлення статусу (після Stage 1)
+
+Stage 2 додав до фреймворку **стандартні безперервні примітиви**: PID-контролер, контролер з гістерезисом, генератор лінійної зміни (ramp). Вони живуть у `components/modesp_scenario/include/modesp/scenario/continuous_primitives.h` і реєструються через `ContinuousRegistry`. Початкове рішення нижче («0 вбудованих реалізацій») стосувалося Stage 1 MVP — доменні модулі досі можуть реєструвати власні примітиви через `ContinuousRegistry`, але фреймворк тепер постачає стандартні еталонні реалізації з коробки.
+
+Решта ADR залишена дослівно як історичний запис рішення Stage 1.
 
 ## Стислий виклад рішення
 

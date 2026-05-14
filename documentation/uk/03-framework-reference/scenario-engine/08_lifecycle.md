@@ -59,18 +59,31 @@ DriverManager створює драйвери
 Phase 1 ініціалізація модулів: ErrorService, LoggerService, ConfigService, ...
   │
   ▼
-Phase 2 підготовка модулів:
-  - sequence_engine.set_state(&app.state())
-  - modesp::scenario::builtins::register_builtins()      ← вбудовані дії/умови
-  - sequence_engine.set_nvs_callbacks(write, read, ...)  ← підключення персистентності
-  - app.modules().register_module(sequence_engine)
-  - modesp_register_modules(app)                          ← бізнес-модулі, включно з
-                                                            тими, що можуть реєструвати
-                                                            власні дії
+Phase 2 підготовка модулів (constructor-injection, без сетерів):
+  // адаптер SharedState → IStateBackend
+  static SharedStateBackend sb{app.state()};
+  // реєстри, якими володіє викликач (без синглтонів)
+  static modesp::scenario::ActionRegistry   actions;
+  static modesp::scenario::ContinuousRegistry continuous;
+  // NVS observer (єдиний production-observer)
+  static modesp::scenario::NvsObserver nvs_obs{nvs_write_fn, nvs_read_fn, nullptr};
+  static modesp::scenario::IEngineObserver* obs_list[] = {&nvs_obs};
+  // engine конструюється з інжектованими залежностями
+  static modesp::scenario::Engine engine{sb, actions, continuous, obs_list};
+
+  // реєстрація вбудованих дій у каллер-овн реєстр
+  modesp::scenario::register_builtin_actions(actions);
+  // опціонально: стандартні continuous-примітиви (Stage 2)
+  modesp::scenario::register_primitives(continuous);
+
+  nvs_obs.bind_engine(engine);
+  app.modules().register_module(engine);
+  modesp_register_modules(app);   ← бізнес-модулі, включно з тими,
+                                    що можуть реєструвати власні дії
   │
   ▼
 Phase 2 init_all:
-  - викликається sequence_engine.on_init() → arbiter.clear_for_tests, скидання слотів
+  - викликається engine.on_init() → arbiter.clear_for_tests, скидання слотів
   - init бізнес-модулів → вони можуть викликати ActionRegistry::register_action
     у своєму on_init
   │
@@ -80,10 +93,16 @@ Phase 3 модулі: HTTP, WebSocket, MQTT
   ▼
 Головний цикл @ 100 Hz:
   для кожного модуля: on_update(dt_ms)
-    └─ sequence_engine.on_update(10):
-         ├─ instance_tick(...) для кожного запущеного екземпляра
-         ├─ publish_mirror_keys(...) для кожного завантаженого слоту
-         └─ persist_scan(...) для кожного завантаженого слоту
+    └─ engine.on_update(10):
+         ├─ тактуємо кожен running-слот:
+         │    для кожного екземпляра: просуваємо доріжки, оцінюємо
+         │    переходи, виконуємо дії
+         ├─ наприкінці такту слоту: прямий виклик mirror::publish(state, slot)
+         │  (helper у private/mirror.h — НЕ observer)
+         └─ емітимо крайові хуки IEngineObserver (on_scenario_started,
+            on_phase_entered, on_scenario_terminal); NvsObserver пише
+            у NVS згідно зі своєю політикою дроселювання. on_tick(dt_ms)
+            викликається один раз на update для кожного observer.
 ```
 
 ## Runtime — завантаження і запуск рецепту
@@ -99,7 +118,7 @@ if (h == 0) {
 }
 
 // 2. (Необов'язково) Відновлення з персистованого стану
-if (engine.try_recover(h) == EngineError::OK) {
+if (engine.try_recover(h, nvs_obs) == EngineError::OK) {
     // Слот тепер у стані PAUSED з відновленими phase_idx + elapsed_ms.
     // Користувач вирішує через кнопку WebUI: resume() або abort().
     // У цій точці рецепт НЕ виконується — необхідне ручне втручання.
@@ -131,11 +150,14 @@ Tick 0: load_path() → state = LOADED
                        → instance_start() — track 0 → RUNNING, phase_idx = 0
 
 Tick 1: on_update(10):
-        - instance_tick:
+        - тактуємо слот 0:
           - track_tick(0): phase_elapsed_ms = 10
                             запускаються entry-дії (по одній на такт)
-        - publish_mirror_keys: пише "<recipe>.scenario_state" = "running"
-        - persist_scan: стан змінився (LOADED→RUNNING) → спрацьовує write callback
+        - mirror::publish(state, slot): пише "<recipe>.scenario_state" = "running"
+        - емітимо on_scenario_started(h) → NvsObserver негайно пише
+          токен (LOADED→RUNNING — критично для збоїв)
+        - емітимо on_phase_entered(h, 0, 0) для початкової фази →
+          NvsObserver пише (головна доріжка — негайно)
 
 Tick 2..10: доріжка 0 виконує entry-дії, зрештою оцінює переходи.
 
@@ -152,8 +174,9 @@ Tick N: спрацьовує перехід phase 1 → $complete:
         - track 0 → COMPLETED
         - completion_rule (all_tracks_complete) виконано → сценарій → COMPLETED
         - arbiter.release_scenario() (ресурсів тут немає)
-        - publish_mirror_keys: "scenario_state" = "completed"
-        - persist_scan: стан змінився (RUNNING→COMPLETED) → спрацьовує write callback
+        - mirror::publish(state, slot): "scenario_state" = "completed"
+        - емітимо on_scenario_terminal(h, COMPLETED) → NvsObserver
+          негайно пише фінальний токен
 ```
 
 ## Сценарій збою
@@ -162,8 +185,8 @@ Tick N: спрацьовує перехід phase 1 → $complete:
 
 ```
 До втрати живлення (на момент останньої персистентності):
-  NVS["seqstate"]["t0"] = серіалізований seq_token з:
-    - magic = 'SQTK'
+  NVS["scnstate"]["t0"] = серіалізований seq_token з:
+    - magic = 'SCTK'
     - scenario_id = djb2("abs_test")
     - scenario_state = RUNNING
     - tracks[0].phase_idx = 1
@@ -179,7 +202,7 @@ Tick N: спрацьовує перехід phase 1 → $complete:
 auto h = engine.load_path("/data/scenarios/abs_test.modr");
 if (h == 0) return;
 
-EngineError err = engine.try_recover(h);
+EngineError err = engine.try_recover(h, nvs_obs);
 if (err == EngineError::OK) {
     // engine.state(h) == PAUSED
     // engine.track_phase_idx(h, 0) == 1

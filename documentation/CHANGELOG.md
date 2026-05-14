@@ -41,6 +41,50 @@
 - **fix(mqtt): збереження prefix в NVS при _set_tenant (pending after reboot)**
 - **License: Source Available (PolyForm Noncommercial 1.0.0)**
 
+- **refactor(scenario): повна перебудова рушія `modesp_sequence` → `modesp_scenario`:**
+  - Чистий розрив після 38 commits моноліту (4 415 LOC, 157 тестів passing, але cohesion втрачено).
+  - Один компонент `modesp_scenario` з внутрішніми підкаталогами (core/actions/continuous/arbiter/observers) — без overengineering у 6 окремих компонентів.
+  - Namespace `modesp::sequence` → `modesp::scenario`. Клас `SequenceEngine` → `Engine`.
+  - Killed singletons: `ActionRegistry::instance()` і `ContinuousRegistry::instance()` — реєстри тепер caller-owned, injected у Engine через конструктор.
+  - `IStateBackend` — тонкий інтерфейс (2 raw virtuals + non-virtual typed templated helpers); production wrap `modesp::SharedState` через адаптер у `main/`.
+  - `IEngineObserver` — 3 hooks (`on_scenario_started`, `on_phase_entered`, `on_scenario_terminal`) з empty defaults; observers як `etl::span<IEngineObserver*>` у конструкторі.
+  - Mirror writes = **прямі виклики** (`mirror::publish` у `private/mirror.h`), не observer events.
+  - NVS persistence = **єдиний production observer** (`NvsObserver`); engine більше не власник persistence-логіки.
+  - NVS magic bump `'SQTK'` → `'SCTK'` — старі pre-rebuild токени clean-rejected при boot.
+  - `ResourceArbiter` — concrete engine-owned member (без `IResourceArbiter` інтерфейсу).
+  - HIL pytest: 6/6 passing на реальному ESP32 (single-instance, multi-instance, resource contention, global transition, power-cycle recovery, WebUI mirror updates).
+  - Engine.cpp після lift: ~320 LOC. Total component: ~3 500-3 800 LOC (vs 4 415 раніше).
+
+- **feat(scenario): Stage 2 — стандартні безперервні примітиви:**
+  - `PidController`, `HysteresisController`, `RampProfile` у `continuous_primitives.h`.
+  - `register_primitives(registry)` helper — реєстрація в caller-owned `ContinuousRegistry`.
+  - ADR-0006 «no built-in continuous behaviors» оновлено: stage-1 рішення superseded, primitives тепер ship з фреймворком, але доменні модулі досі можуть реєструвати власні.
+
+- **docs: стратегічне переписування документації під `documentation/` (clean-slate):**
+  - Єдиний стандарт якості зафіксовано у `documentation/STYLE.md`.
+  - Двомовна структура EN + UK; на дату commit'у ~150 сторінок, всі ✅ ready.
+  - Module Author Guide (13 сторінок): manifest, writing-a-module/driver, shared-state, ui-widgets, mqtt, persistence, recipe-authoring/actions, continuous-behaviors, debugging, best-practices.
+  - Framework Reference: architecture + 8 components + 4 reference modules + 6 reference drivers + scenario-engine deep dive (11 + 8 ADRs + 3 usage + 2 examples) + web-ui.
+  - Hardware: board.json schema, bindings, OTA flow, deployment.
+  - 05 Tools: generate_ui, compile_scenario, dump_modr.
+  - 06 Contributing: dev setup, host + HIL testing, C++ style, docs style.
+
+- **docs(uk): повна правописна чистка українських сторінок (47 файлів):**
+  - Попередні UK сторінки були мішанкою «Driver registers як `sensor` з `hardware_type:` ...» — це не українська, а суржик.
+  - 9 паралельних агентів-перекладачів переписали всі сторінки за політикою STYLE.md: чиста українська проза, лише технічні ідентифікатори (`code-формат`) лишаються англійською.
+  - Стандартизований словник: `driver→драйвер`, `scenario→сценарій`, `engine→рушій`, `binding→прив'язка`, `mirror keys→дзеркальні ключі`, `tick→такт`, тощо.
+
+- **docs: міграція scenario-engine deep dive у `documentation/` + чистка legacy `docs/`:**
+  - 25 сторінок deep dive (README + 00-10 architectural + 8 ADRs + 3 usage + 2 examples) перенесено з `docs/` у `documentation/` через `git mv` (історія збережена).
+  - 12 паралельних агентів переписали кожну сторінку: EN — чистий англійський текст (без української домішки), UK — справжня українська.
+  - Старий каталог `docs/` повністю видалено (13 дублікатів + 3 README); `docs/CHANGELOG.md` перенесено у `documentation/CHANGELOG.md`.
+  - Виправлено ~25 cross-references на `docs/...` у README, C++ headers, idf_component.yml, tools/, .rules/, інших doc сторінках.
+
+- **docs(scenario-engine): технічна ревізія перенесених документів:**
+  - 3 агенти-аудитори звірили 25 сторінок із реальним кодом `components/modesp_scenario/`.
+  - Знайдено ~30+ CRITICAL розбіжностей: stale class name `SequenceEngine`, неіснуючі файли `sequence_track.{h,cpp}`/`sequence_instance.{h,cpp}`, singletonи `::instance()` що були killed, `set_state`/`set_nvs_callbacks` setters яких більше нема, `'SQTK'` magic замість `'SCTK'`, `MAX_SEQUENCES = 4` замість 2, `MODR_MAX_SIZE = 16 KB` замість 4 KB, описи `publish_mirror_keys`/`persist_scan` що видалені з engine.
+  - 6 паралельних агентів-фіксерів виправили всі знахідки у 22 файлах (11 EN + 11 UK). Дзеркальна синхронність EN/UK збережена.
+
 ## 2026-03-09
 
 - **feat(wifi): AP→STA periodic reconnect probe:**

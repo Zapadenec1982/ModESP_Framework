@@ -2,14 +2,13 @@
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/scenario-engine/02_binary_format.md](../../../uk/03-framework-reference/scenario-engine/02_binary_format.md)
 
-**Status:** Complete (Step 1).
-**Source of truth:** [`components/modesp_scenario/include/modesp/scenario/modr_format.h`](../../components/modesp_scenario/include/modesp/scenario/modr_format.h)
-**Test invariants:** [`tools/tests/test_modr_format.py`](../../tools/tests/test_modr_format.py)
-**Golden binary:** [`tools/tests/fixtures/scenarios/minimal_v1.modr`](../../tools/tests/fixtures/scenarios/minimal_v1.modr) (114 bytes)
+**Source of truth:** [`components/modesp_scenario/include/modesp/scenario/modr_format.h`](../../../../components/modesp_scenario/include/modesp/scenario/modr_format.h)
+**Test invariants:** [`tools/tests/test_modr_format.py`](../../../../tools/tests/test_modr_format.py)
+**Golden binary:** [`tools/tests/fixtures/scenarios/minimal_v1.modr`](../../../../tools/tests/fixtures/scenarios/minimal_v1.modr) (114 bytes)
 
 ## Overview
 
-`.modr` is a single-file binary recipe loaded by SequenceEngine at runtime from LittleFS. Little-endian, 4-byte natural alignment (no `__attribute__((packed))` needed). The whole file fits in a fixed buffer `MODR_MAX_SIZE = 16 KB`.
+`.modr` is a single-file binary recipe loaded by `Engine` at runtime from LittleFS. Little-endian, 4-byte natural alignment (no `__attribute__((packed))` needed). The whole file fits in a fixed buffer `MODR_MAX_SIZE = 4 KB` (Kconfig-configurable via `CONFIG_MODESP_MODR_MAX_SIZE`).
 
 Load pipeline: `f_read` the entire file → validate magic/version/CRC → parse offsets → execute. Zero-parse runtime — the engine reads structs directly from the buffer.
 
@@ -19,7 +18,7 @@ Load pipeline: `f_read` the entire file → validate magic/version/CRC → parse
 |--------|-------|-------------|
 | `MODR_MAGIC` | `0x52444F4D` | 'MODR' as LE uint32 |
 | `MODR_FORMAT_VERSION` | `1` | Bump on breaking schema changes |
-| `MODR_MAX_SIZE` | `16384` (16 KB) | Buffer cap per loaded scenario |
+| `MODR_MAX_SIZE` | `4096` (4 KB) | Buffer cap per loaded scenario; Kconfig-configurable via `CONFIG_MODESP_MODR_MAX_SIZE` |
 | `MODR_NO_OFFSET` | `0xFFFF` | "no entry" sentinel (entry/exit_action_off, etc.) |
 | `MODR_TARGET_COMPLETE` | `0xFFFF` | Transition target = $complete (this track) |
 | `MODR_TARGET_ABORT` | `0xFFFE` | Transition target = $abort (whole scenario) |
@@ -117,9 +116,9 @@ These corrections do NOT break any existing functionality — Stage 0 has no com
 | 48 | 4 | `scenario_timeout_max_ms` | hard cap; 0 = no limit |
 | 52 | 4 | `reserved_c` | |
 
-## Validation rules (loader, Step 8)
+## Validation rules (loader)
 
-To be enforced when `modr_loader.cpp` lands. Documented here for visibility:
+Enforced by `modr_loader.cpp`:
 
 1. `magic == MODR_MAGIC` → else `INVALID_FILE`
 2. `format_version == 1` → else `UNSUPPORTED_VERSION`

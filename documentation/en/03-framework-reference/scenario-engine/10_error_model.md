@@ -2,7 +2,7 @@
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/scenario-engine/10_error_model.md](../../../uk/03-framework-reference/scenario-engine/10_error_model.md)
 
-Catalog of error codes returned by the SequenceEngine API and loader, plus the
+Catalog of error codes returned by the `Engine` API and loader, plus the
 action failure policy machine. Use this as the lookup table when handling
 EngineError in business modules or interpreting HTTP API error responses.
 

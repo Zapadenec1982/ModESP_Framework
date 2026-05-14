@@ -2,7 +2,7 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/scenario-engine/10_error_model.md](../../../en/03-framework-reference/scenario-engine/10_error_model.md)
 
-Каталог кодів помилок, які повертає API SequenceEngine і завантажувач, плюс автомат політики провалів дій. Використовуйте його як довідкову таблицю при обробці `EngineError` у бізнес-модулях або інтерпретації відповідей помилок HTTP API.
+Каталог кодів помилок, які повертає API `Engine` і завантажувач, плюс автомат політики провалів дій. Використовуйте його як довідкову таблицю при обробці `EngineError` у бізнес-модулях або інтерпретації відповідей помилок HTTP API.
 
 ## Коди `EngineError`
 

@@ -3,20 +3,23 @@
 > 📖 **Українською:** [documentation/uk/03-framework-reference/scenario-engine/07_persistence.md](../../../uk/03-framework-reference/scenario-engine/07_persistence.md)
 
 Power-cycle recovery via 96-byte tokens stored in ESP-IDF NVS. The
-engine detects state changes per tick, throttles non-urgent writes, and
-invokes a caller-provided callback. On boot, the recipe is re-loaded
-from the filesystem; the caller invokes `try_recover()` which reads the
-token AND restores phase position before the scenario re-enters PAUSED
-state.
+engine emits scenario lifecycle edge events through `IEngineObserver`
+hooks; `NvsObserver` listens to those edges, applies the throttle
+policy in its own per-slot state, and invokes a caller-provided
+callback to write the token. On boot, the recipe is re-loaded from the
+filesystem; the caller invokes `engine.try_recover(handle, nvs_observer)`
+which reads the token AND restores phase position before the scenario
+re-enters PAUSED state.
 
 ## Storage layout
 
 | NVS namespace | Key format | Value |
 |---|---|---|
-| `seqstate` | `t<slot>` (e.g. `t0`, `t1`, ..., `t<MAX_SEQUENCES-1>`) | 96-byte `seq_token` blob |
+| `scnstate` | `t<slot>` (e.g. `t0`, `t1`, ..., `t<MAX_SEQUENCES-1>`) | 96-byte `seq_token` blob |
 
-`MAX_SEQUENCES = 4` by default → keys `t0`..`t3`. Per-instance keying
-allows independent recovery of multiple concurrent scenarios.
+`MAX_SEQUENCES = 2` by default (Kconfig `CONFIG_MODESP_MAX_SEQUENCES`,
+max 8) → keys `t0`..`t1`. Per-instance keying allows independent
+recovery of multiple concurrent scenarios.
 
 ## Token format (`seq_token`, 96 bytes)
 
@@ -25,7 +28,7 @@ padding beyond explicit fields:
 
 ```c
 struct seq_token {                       // 96 bytes total
-    uint32_t magic;                      // [0..3]   = 'SQTK' (0x4B545153 LE)
+    uint32_t magic;                      // [0..3]   = 'SCTK' (0x4B544353 LE)
     uint16_t version;                    // [4..5]   = SEQ_TOKEN_VERSION (1)
     uint16_t scenario_id;                // [6..7]   djb2(module_name) low16
     uint8_t  scenario_state;             // [8]      SequenceRuntime::State
@@ -52,23 +55,26 @@ Computed over bytes [0..91] inclusive; trailer at [92..93].
 
 ## Write policy (per plan Q7)
 
-`SequenceEngine::persist_scan()` applies the policy each tick after
-`instance_tick`:
+The engine no longer scans for state changes inside `on_update`.
+Instead it emits edge events through `IEngineObserver` hooks
+(`on_scenario_started`, `on_phase_entered`, `on_scenario_terminal`)
+synchronously from the tick path. `NvsObserver` implements those
+hooks and applies this policy:
 
 | Event | Persist timing | Rationale |
 |-------|---------------|-----------|
-| Scenario state change (LOADED→RUNNING, abort, complete, fail) | **Immediate** | Crash-critical event must survive |
-| Main-track phase advance (track with `MODR_TRACK_FLAG_MAIN`) | **Immediate** | Main track invariants preserved |
-| Side-track phase advance | Throttled to ≥1s between writes | Flash wear protection |
+| `on_scenario_started` (LOADED→RUNNING) | **Immediate** | Crash-critical event must survive |
+| `on_scenario_terminal` (COMPLETED, FAILED, including ABORTING→FAILED) | **Immediate** | Final state must be recorded |
+| `on_phase_entered` for main track (`MODR_TRACK_FLAG_MAIN`) | **Immediate** | Main track invariants preserved |
+| `on_phase_entered` for side track | Throttled to ≥1 s between writes | Flash wear protection |
 | 5-minute checkpoint (Stage 1.5) | Periodic | Ensures resume accuracy when only side-track activity |
 
-Per-slot tracking fields in `Slot`:
-- `last_persisted_state` — what was last written
-- `last_persisted_phase_idx[6]` — per-track phase indices
-- `time_since_persist_ms` — saturating throttle counter
-
-Change detection compares current runtime to `last_persisted_*`; a
-persist only fires when an actual change exists.
+Per-slot throttle state lives **in `NvsObserver`**, not in the engine
+`Slot`. The observer keeps a saturating `time_since_persist_ms_[]`
+counter per slot index (advanced from `on_tick`) and uses it inside
+`throttle_check()` to gate non-urgent writes. The engine does not
+track "last persisted" data — it just emits edges; the observer
+decides what to persist when.
 
 ### Wear budget calculation
 
@@ -91,9 +97,12 @@ phase boundaries).
 
 ## Callback contract
 
-The engine does not directly call `nvs_set_blob` — instead it invokes a
-callback provided by the caller. This keeps engine code
-target-agnostic (host tests provide in-memory mocks).
+`NvsObserver` does not call `nvs_set_blob` directly — instead it
+invokes callbacks passed to its **constructor**. This keeps observer
+code target-agnostic (host tests provide in-memory mocks). The engine
+itself has no NVS hooks: it accepts the observer through its
+`etl::span<IEngineObserver*>` constructor parameter and emits edge
+events; the observer owns the callbacks.
 
 ```cpp
 using NvsWriteFn = bool (*)(void* user, uint8_t slot,
@@ -101,7 +110,11 @@ using NvsWriteFn = bool (*)(void* user, uint8_t slot,
 using NvsReadFn  = bool (*)(void* user, uint8_t slot,
                             uint8_t* token_buf, size_t* in_out_len);
 
-engine.set_nvs_callbacks(write_fn, read_fn, user_ctx);
+// Constructed with callbacks; injected into engine via observer span.
+NvsObserver nvs_obs{write_fn, read_fn, user_ctx};
+IEngineObserver* obs_list[] = {&nvs_obs};
+Engine engine{state_backend, actions, continuous, obs_list};
+nvs_obs.bind_engine(engine);  // required before engine.start()
 ```
 
 Reference target wiring in `main.cpp`:
@@ -111,7 +124,7 @@ static auto seq_nvs_write = [](void*, uint8_t slot,
                                 const uint8_t* token, size_t len) -> bool {
     char key[8];
     std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
-    return modesp::nvs_helper::write_blob("seqstate", key, token, len);
+    return modesp::nvs_helper::write_blob("scnstate", key, token, len);
 };
 
 static auto seq_nvs_read = [](void*, uint8_t slot,
@@ -119,28 +132,30 @@ static auto seq_nvs_read = [](void*, uint8_t slot,
     char key[8];
     std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
     size_t out_len = 0;
-    bool ok = modesp::nvs_helper::read_blob("seqstate", key, buf,
+    bool ok = modesp::nvs_helper::read_blob("scnstate", key, buf,
                                              *in_out_len, out_len);
     if (ok) *in_out_len = out_len;
     return ok;
 };
 
-sequence_engine.set_nvs_callbacks(seq_nvs_write, seq_nvs_read, nullptr);
+static modesp::scenario::NvsObserver nvs_obs{seq_nvs_write, seq_nvs_read, nullptr};
 ```
 
-Callbacks are invoked from the engine update task only — the caller
-does not need synchronization beyond what NVS itself provides.
+Callbacks are invoked from the engine update task only (synchronously
+inside an observer event) — the caller does not need synchronization
+beyond what NVS itself provides.
 
 ### Callback failure handling
 
 `write_fn` returning `false`:
-- The engine logs a warning (Stage 1.5 — currently silent fallback).
-- The slot's `last_persisted_*` is NOT updated → the next tick will retry.
+- The observer logs a warning (Stage 1.5 — currently silent fallback).
+- The observer's per-slot throttle counter is NOT reset → the next
+  edge event will retry.
 - Cascading persistent failures can starve other operations; recipes
   that depend on persistence for safety should monitor backend health.
 
 `read_fn` returning `false`:
-- `try_recover()` returns `EngineError::NVS_ERROR`.
+- `engine.try_recover(h, nvs_obs)` returns `EngineError::NVS_ERROR`.
 - The caller decides whether to abort the scenario or start fresh.
 
 ## Recovery flow
@@ -153,8 +168,10 @@ On firmware boot after reset:
 auto handle = engine.load_path("/data/scenarios/abs_test.modr");
 if (handle == 0) { /* recipe missing */ return; }
 
-// Step 2: Attempt recovery
-EngineError err = engine.try_recover(handle);
+// Step 2: Attempt recovery (observer passed explicitly — engine doesn't
+// ID-cast observers; recovery is a round-trip read that doesn't fit
+// the fire-and-forget event model)
+EngineError err = engine.try_recover(handle, nvs_obs);
 if (err == EngineError::OK) {
     // Slot is now in PAUSED state with phase_idx + phase_elapsed_ms restored.
     // Scenario does not auto-resume. User decides via WebUI:
@@ -175,7 +192,8 @@ if (err == EngineError::OK) {
 ### Recovery validation chain
 
 `deserialize_token` performs the following in order:
-1. Magic check (`SEQ_TOKEN_MAGIC` == 'SQTK')
+1. Magic check (`SEQ_TOKEN_MAGIC` == 'SCTK' / `0x4B544353` LE; old
+   `'SQTK'` tokens from `modesp_sequence` are rejected)
 2. Version check (`version` == `SEQ_TOKEN_VERSION`)
 3. CRC16 verification over [0..91]
 4. `scenario_id` matches the loaded recipe header (rejects a token from
@@ -221,4 +239,5 @@ Document as a known constraint.
 - [10_error_model.md](10_error_model.md) — recovery error codes
 - [adr/0001-binary-format-not-constexpr.md](adr/0001-binary-format-not-constexpr.md) — token format design
 - Source: `components/modesp_scenario/src/nvs_token.cpp`,
-  `engine.cpp::persist_scan` and `try_recover`
+  `nvs_observer.cpp` (throttle policy + persist_slot),
+  `engine.cpp::try_recover`

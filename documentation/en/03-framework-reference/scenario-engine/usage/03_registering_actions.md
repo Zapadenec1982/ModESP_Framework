@@ -24,9 +24,13 @@ For these, your module registers custom actions.
 
 ## Registration pattern
 
-Register actions in your module's `on_init()` BEFORE any scenarios load.
-The plan calls `register_builtins()` once in `main.cpp` before module init —
-your module's registrations happen after that, in `on_init()`.
+`ActionRegistry` is **not** a singleton — it's a caller-owned instance that
+`main.cpp` creates and injects into the engine. Domain modules must receive
+the **same** `ActionRegistry&` (typically via a setter or constructor argument)
+so their registrations land in the registry the engine resolves against.
+
+The plan calls `builtins::register_builtins(reg)` once in `main.cpp` before
+module init — your module's registrations happen after that, in `on_init()`.
 
 ```cpp
 #include "modesp/scenario/action_registry.h"
@@ -36,24 +40,31 @@ class MulticookerModule : public modesp::BaseModule {
 public:
     MulticookerModule() : BaseModule("mc", modesp::ModulePriority::NORMAL) {}
 
+    /// Inject the same ActionRegistry instance that main.cpp passed to the engine.
+    /// Must be called before on_init() runs.
+    void set_action_registry(modesp::scenario::ActionRegistry& reg) { reg_ = &reg; }
+
     bool on_init() override {
         using namespace modesp::scenario;
-        auto& reg = ActionRegistry::instance();
+        if (!reg_) {
+            ESP_LOGE("mc", "ActionRegistry not injected");
+            return false;
+        }
 
         bool ok = true;
-        ok &= reg.register_action({
+        ok &= reg_->register_action({
             djb2_hash16("mc.set_target_temp"),
             "mc.set_target_temp",
             &MulticookerModule::action_set_target_temp,
             /*param_min=*/1, /*param_max=*/1
         });
-        ok &= reg.register_action({
+        ok &= reg_->register_action({
             djb2_hash16("mc.start_pid"),
             "mc.start_pid",
             &MulticookerModule::action_start_pid,
             /*param_min=*/0, /*param_max=*/0
         });
-        ok &= reg.register_condition({
+        ok &= reg_->register_condition({
             djb2_hash16("mc.temp_within"),
             "mc.temp_within",
             &MulticookerModule::cond_temp_within,
@@ -68,6 +79,8 @@ public:
     }
 
 private:
+    modesp::scenario::ActionRegistry* reg_ = nullptr;
+
     static modesp::scenario::ActionStatus action_set_target_temp(
         modesp::scenario::ActionContext& ctx);
     static modesp::scenario::ActionStatus action_start_pid(
@@ -75,6 +88,19 @@ private:
     static modesp::scenario::ActionStatus cond_temp_within(
         modesp::scenario::ActionContext& ctx);
 };
+```
+
+In `main.cpp` the caller-owned registry is injected into both the engine
+and the domain module:
+
+```cpp
+static modesp::scenario::ActionRegistry actions;
+static modesp::scenario::Engine engine{sb, actions, continuous, obs_list};
+
+modesp::scenario::builtins::register_builtins(actions);
+
+static MulticookerModule mc_module;
+mc_module.set_action_registry(actions);
 ```
 
 ## Action function signature
@@ -240,18 +266,20 @@ class McDemoModule : public modesp::BaseModule {
 public:
     McDemoModule() : BaseModule("mc_demo", modesp::ModulePriority::NORMAL) {}
 
+    void set_action_registry(modesp::scenario::ActionRegistry& reg) { reg_ = &reg; }
+
     bool on_init() override {
         using namespace modesp::scenario;
-        auto& reg = ActionRegistry::instance();
+        if (!reg_) return false;
 
         bool ok = true;
-        ok &= reg.register_action({
+        ok &= reg_->register_action({
             djb2_hash16("mc.set_target_temp"),
             "mc.set_target_temp",
             &action_set_target_temp,
             1, 1
         });
-        ok &= reg.register_condition({
+        ok &= reg_->register_condition({
             djb2_hash16("mc.temp_reached"),
             "mc.temp_reached",
             &cond_temp_reached,
@@ -261,6 +289,7 @@ public:
     }
 
 private:
+    modesp::scenario::ActionRegistry* reg_ = nullptr;
     using AS = modesp::scenario::ActionStatus;
     using AC = modesp::scenario::ActionContext;
     using AP = modesp::scenario::ActionParam;

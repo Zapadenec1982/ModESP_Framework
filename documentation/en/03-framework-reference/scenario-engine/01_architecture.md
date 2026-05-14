@@ -2,7 +2,7 @@
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/scenario-engine/01_architecture.md](../../../uk/03-framework-reference/scenario-engine/01_architecture.md)
 
-High-level overview of how Sequence Engine components fit together from
+High-level overview of how Scenario Engine components fit together from
 manifest authoring to runtime execution.
 
 ## Build-time + runtime pipeline
@@ -32,12 +32,13 @@ manifest authoring to runtime execution.
 │                        RUNTIME (ESP32)                                │
 │                                                                       │
 │  components/modesp_scenario/                                          │
-│  ├─ SequenceEngine (BaseModule, multi-instance, multi-track)          │
-│  ├─ ActionRegistry (domain modules register actions/conditions)       │
-│  ├─ ContinuousRegistry (Stage 2 — PID, hysteresis, ramp)              │
-│  ├─ ResourceArbiter (ISA-88 §5.3 two-scope arbitration)               │
-│  ├─ ModrLoader (validates .modr blobs)                                │
-│  ├─ NvsToken (persist/recover state)                                  │
+│  ├─ Engine (modesp::scenario::Engine — BaseModule, multi-instance)    │
+│  ├─ ActionRegistry (caller-owned; domain modules register actions)    │
+│  ├─ ContinuousRegistry (caller-owned; standard primitives shipped)    │
+│  ├─ ResourceArbiter (engine-owned; ISA-88 §5.3 two-scope arbitration) │
+│  ├─ IStateBackend (DI interface — adapter to SharedState in main/)    │
+│  ├─ IEngineObserver hooks → NvsObserver (edge-triggered persistence)  │
+│  ├─ mirror::publish (direct-call mirror writer, runs every tick)      │
 │  └─ Loads .modr from /data/scenarios/<name>.modr                       │
 │                                                                       │
 │  modules/<recipe_name>/  (no C++ code; recipe is manifest-only)       │
@@ -47,19 +48,25 @@ manifest authoring to runtime execution.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+Note: there is no `IResourceArbiter` interface — the engine owns a concrete
+`ResourceArbiter` member. Injection points are limited to `IStateBackend`,
+`ActionRegistry`, `ContinuousRegistry`, and the observer span.
+
 ## Component responsibilities
 
 | Component | File | Role |
 |-----------|------|------|
-| `SequenceEngine` | `sequence_engine.{h,cpp}` | Public API surface; multi-instance dispatcher; ticks running scenarios; publishes mirror keys; orchestrates persistence |
-| `ActionRegistry` | `action_registry.{h,cpp}` | Singleton hash → ActionDescriptor table; domain modules register custom actions |
-| `ContinuousRegistry` | `continuous_behavior.{h,cpp}`, `continuous_registry.cpp` | Reserved for Stage 2 (PID, hysteresis, ramp behaviors) |
+| `Engine` | `include/modesp/scenario/engine.h` + `src/core/engine.cpp` | Public API surface; multi-instance dispatcher; ticks running scenarios; emits observer events; calls `mirror::publish` directly each tick. Constructor takes `IStateBackend&`, `ActionRegistry&`, `ContinuousRegistry&`, and an `etl::span<IEngineObserver*>` |
+| `ActionRegistry` | `action_registry.{h,cpp}` | Caller-owned `ActionRegistry` (no singleton); registered actions resolved at compile via djb2 hashes. Injected into Engine via constructor. Two pools (actions / conditions), fixed-capacity ETL flat_maps |
+| `ContinuousRegistry` | `continuous_behavior.{h,cpp}`, `continuous_primitives.{h,cpp}` | Caller-owned, no singleton, injected via constructor. Stage 2 ships standard primitives (PID, hysteresis, ramp) in `continuous_primitives.h` — registration is opt-in via `primitives::register_primitives()` |
+| `ResourceArbiter` | `resource_arbiter.{h,cpp}` (concrete class in `private/` is referenced from the header; engine-owned member, no interface abstraction) | ISA-88 §5.3 atomic acquire/release for scenario- and phase-scope resources; zero-heap ETL flat_map |
+| `IStateBackend` | `i_state_backend.h` | Engine's sole view of the underlying state store. Two raw virtuals (`get_raw`, `set_raw`) over `modesp::StateValue`; typed accessors inline. Production adapter to `modesp::SharedState` lives in `main/`; host tests use `StubStateBackend` |
+| `IEngineObserver` | `i_engine_observer.h` | Three edge hooks (`on_scenario_started`, `on_phase_entered`, `on_scenario_terminal`) + `on_tick`. Observers are read-only — they cannot mutate engine state. Empty default bodies → unused overrides compile to no-ops |
+| `NvsObserver` | `nvs_observer.{h,cpp}` | Implements `IEngineObserver`. Owns NVS write throttling and recovery callback wiring. Throttle policy: state changes immediate, main-track phase changes immediate, non-main phase changes ≥1 s debounce. Engine doesn't link `nvs_flash` directly — observer accepts caller-supplied read/write callbacks |
 | `ModrLoader` | `modr_loader.{h,cpp}` | Validates `.modr` byte buffers, returns a `LoadedScenario` view |
-| `ResourceArbiter` | `resource_arbiter.{h,cpp}` | ISA-88 §5.3 atomic acquire/release for scenario and phase scope |
-| `BuiltinActions` | `builtin_actions.{h,cpp}` | 3 domain-agnostic actions (log, set_state, wait_ms) + 10 leaf conditions |
-| `SequenceTrack` | `sequence_track.{h,cpp}` | Per-track state machine (track_tick); condition evaluator |
-| `SequenceInstance` | `sequence_instance.{h,cpp}` | Per-scenario state machine (instance_tick); global transition handling |
-| `NvsToken` | `nvs_token.{h,cpp}` | 96-byte persistence token; serialize/deserialize with CRC16 |
+| `BuiltinActions` | `builtin_actions.{h,cpp}` | Domain-agnostic actions (`log`, `set_state`, `wait_ms`) + leaf conditions |
+| `runtime_types.h` | `include/modesp/scenario/runtime_types.h` | POD `TrackRuntime` and `SequenceRuntime` (per-instance runtime state). FSM advancement lives in `src/core/track.cpp` and `src/core/instance.cpp` and is folded into `Engine::on_update` — no standalone `SequenceTrack` / `SequenceInstance` classes |
+| `NvsToken` | `nvs_token.{h,cpp}` | 96-byte persistence token; serialize / deserialize with CRC16. Magic `'SCTK'` (`'SQTK'` rejected for legacy compatibility) |
 | `EngineError` | `engine_error.h` | Uniform error code enum |
 
 ## Data flow per tick
@@ -70,27 +77,45 @@ ModuleManager calls engine.on_update(dt_ms)
    ▼
 For each loaded slot in the engine:
    │
-   ├─ instance_tick(runtime, dt_ms, state, arbiter)
+   ├─ Tick the SequenceRuntime (folded into engine.cpp / instance.cpp):
    │     │
    │     ├─ Process global transitions (priority sorted)
-   │     │     └─ On match: instance_abort (release phase_scope, fail tracks)
+   │     │     └─ On match: abort instance (release phase_scope, fail tracks)
    │     │
-   │     ├─ For each track (declaration order):
-   │     │     └─ track_tick(runtime, track_idx, dt_ms, state, arbiter)
-   │     │           │
-   │     │           ├─ Increment phase_elapsed_ms (saturating)
-   │     │           ├─ Handle WAITING_FOR_RESOURCE (try acquire phase resources)
-   │     │           ├─ Run exit actions (one per tick) if pending transition
-   │     │           ├─ Run entry actions (one per tick)
-   │     │           ├─ Evaluate transitions; on match latch target
-   │     │           └─ Check phase timeout
+   │     ├─ For each track (declaration order; src/core/track.cpp):
+   │     │     ├─ Increment phase_elapsed_ms (saturating)
+   │     │     ├─ Handle WAITING_FOR_RESOURCE (retry phase-scope acquire)
+   │     │     ├─ Run exit actions (one per tick) if pending transition
+   │     │     ├─ Run entry actions (one per tick)
+   │     │     ├─ Evaluate transitions; on match latch target phase
+   │     │     └─ Check phase timeout
    │     │
    │     └─ Check completion_rule; transition scenario state if satisfied
    │
-   ├─ publish_mirror_keys(slot)  ← writes <recipe>.<...> keys to SharedState
+   ├─ mirror::publish(state, slot)   ← direct call, runs unconditionally every
+   │                                    tick. Helper in private/mirror.h.
    │
-   └─ persist_scan(dt_ms)   ← detects changes, throttles, invokes NVS callback
+   └─ On state-machine edges, emit observer hooks synchronously:
+         on_scenario_started   — IDLE/LOADED → RUNNING
+         on_phase_entered      — track enters new phase (incl. initial)
+         on_scenario_terminal  — scenario reaches COMPLETED or FAILED
+      NvsObserver listens to these and applies its own throttle policy
+      (state changes immediate; main-track phase changes immediate;
+       non-main phase changes ≥1 s debounce). `on_tick(dt_ms)` is also
+      dispatched to every observer for any tick-driven internal state
+      (NvsObserver uses it to advance its per-slot throttle counter).
 ```
+
+Notes on what is *not* in the engine any more (versus the pre-rebuild
+`modesp_sequence::SequenceEngine`):
+
+- No `publish_mirror_keys()` member — mirror writes are a direct call to
+  `mirror::publish` in the tick path.
+- No `persist_scan()` / `persist_slot()` members — persistence is delegated
+  entirely to `NvsObserver`, which owns its own throttle state.
+- No singletons. `ActionRegistry` and `ContinuousRegistry` are caller-owned
+  references injected into the constructor; multiple engine instances can
+  coexist with independent registries (useful for host test harnesses).
 
 ## Manifest-driven integration
 
@@ -111,19 +136,26 @@ the existing tooling reads standard sections from the manifest.
 
 ## Memory budget (ESP32-WROOM-32)
 
-Per slot (4 default):
-- `SequenceRuntime` ~600 bytes (tracks[6] × ~100 bytes each)
-- `uint8_t buffer[MODR_MAX_SIZE]` = 16 KB
-- Persistence tracking ~24 bytes
-- **Total per slot: ~16.6 KB**
+Per slot (default `CONFIG_MODESP_MAX_SEQUENCES = 2`):
+- `SequenceRuntime` ~600 bytes (`tracks[6]` × ~100 bytes each)
+- `uint8_t buffer[MODR_MAX_SIZE]` = 4 KB (`CONFIG_MODESP_MODR_MAX_SIZE`,
+  default 4 096; bump via menuconfig if a recipe exceeds the budget)
+- Slot bookkeeping (`buffer_size`, dedup flags) ~24 bytes
+- **Total per slot: ~4.6 KB**
 
 Pool overhead:
-- `SequenceEngine` struct: ~64 KB (4 slots × 16.6 KB)
-- `ActionRegistry`: ~3 KB (64 entries × ~50 bytes)
+- `Engine` struct: ~9.2 KB (2 slots × 4.6 KB) + per-slot edge-detect
+  bookkeeping (`last_emitted_state_`, `last_emitted_phase_`)
+- `ActionRegistry`: ~3 KB (up to 64 entries × ~50 bytes, two pools)
 - `ResourceArbiter`: ~640 bytes (32 entries × 20 bytes)
+- `NvsObserver`: ~64 bytes per-slot throttle counters (sized for
+  `MAX_SLOTS = 8`, the Kconfig ceiling)
 
-**Engine total: ~67 KB SRAM** (default config). Fits comfortably in
-WROOM-32's 320 KB DRAM.
+**Engine total: ~13 KB SRAM** at the default `MAX_SEQUENCES = 2` /
+`MODR_MAX_SIZE = 4 KB` configuration. Scales linearly with both Kconfig
+knobs — at the historical 4 × 16 KB settings the engine still fits
+comfortably in WROOM-32's 320 KB DRAM, but the new defaults reclaim
+~54 KB for application code.
 
 ## Cross-references
 

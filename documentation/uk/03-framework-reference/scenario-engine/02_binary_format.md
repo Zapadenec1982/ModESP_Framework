@@ -2,14 +2,13 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/scenario-engine/02_binary_format.md](../../../en/03-framework-reference/scenario-engine/02_binary_format.md)
 
-**Статус:** Завершено (крок 1).
-**Джерело істини:** [`components/modesp_scenario/include/modesp/scenario/modr_format.h`](../../components/modesp_scenario/include/modesp/scenario/modr_format.h)
-**Інваріанти в тестах:** [`tools/tests/test_modr_format.py`](../../tools/tests/test_modr_format.py)
-**Еталонний бінарний файл:** [`tools/tests/fixtures/scenarios/minimal_v1.modr`](../../tools/tests/fixtures/scenarios/minimal_v1.modr) (114 байтів)
+**Джерело істини:** [`components/modesp_scenario/include/modesp/scenario/modr_format.h`](../../../../components/modesp_scenario/include/modesp/scenario/modr_format.h)
+**Інваріанти в тестах:** [`tools/tests/test_modr_format.py`](../../../../tools/tests/test_modr_format.py)
+**Еталонний бінарний файл:** [`tools/tests/fixtures/scenarios/minimal_v1.modr`](../../../../tools/tests/fixtures/scenarios/minimal_v1.modr) (114 байтів)
 
 ## Огляд
 
-`.modr` — однофайловий бінарний рецепт, який `SequenceEngine` завантажує під час роботи з LittleFS. Little-endian, природне вирівнювання по 4 байти (атрибут `__attribute__((packed))` не потрібен). Увесь файл вміщується у фіксований буфер `MODR_MAX_SIZE = 16 КБ`.
+`.modr` — однофайловий бінарний рецепт, який `Engine` завантажує під час роботи з LittleFS. Little-endian, природне вирівнювання по 4 байти (атрибут `__attribute__((packed))` не потрібен). Увесь файл вміщується у фіксований буфер `MODR_MAX_SIZE = 4 КБ` (налаштовується через Kconfig `CONFIG_MODESP_MODR_MAX_SIZE`).
 
 Конвеєр завантаження: `f_read` усього файлу → перевірка магічного числа / версії / CRC → розбір зміщень → виконання. Парсингу на ходу немає — рушій читає структури безпосередньо з буфера.
 
@@ -19,7 +18,7 @@
 |--------|-------|-------------|
 | `MODR_MAGIC` | `0x52444F4D` | 'MODR' як LE `uint32` |
 | `MODR_FORMAT_VERSION` | `1` | Збільшується при несумісних змінах схеми |
-| `MODR_MAX_SIZE` | `16384` (16 КБ) | Граничний розмір буфера на один завантажений сценарій |
+| `MODR_MAX_SIZE` | `4096` (4 КБ) | Граничний розмір буфера на один завантажений сценарій; налаштовується через Kconfig `CONFIG_MODESP_MODR_MAX_SIZE` |
 | `MODR_NO_OFFSET` | `0xFFFF` | Маркер «немає запису» (`entry/exit_action_off` тощо) |
 | `MODR_TARGET_COMPLETE` | `0xFFFF` | Цільове значення переходу = `$complete` (цієї доріжки) |
 | `MODR_TARGET_ABORT` | `0xFFFE` | Цільове значення переходу = `$abort` (усього сценарію) |
@@ -117,9 +116,9 @@ CRC = CRC-32/ISO-HDLC computed over [0 .. total_size-4]
 | 48 | 4 | `scenario_timeout_max_ms` | жорстке обмеження; 0 = без обмеження |
 | 52 | 4 | `reserved_c` | |
 
-## Правила валідації (завантажувач, крок 8)
+## Правила валідації (завантажувач)
 
-Будуть впроваджені, коли з'явиться `modr_loader.cpp`. Документуються тут заздалегідь для прозорості:
+Застосовуються у `modr_loader.cpp`:
 
 1. `magic == MODR_MAGIC` → інакше `INVALID_FILE`
 2. `format_version == 1` → інакше `UNSUPPORTED_VERSION`

@@ -59,18 +59,31 @@ DriverManager creates drivers
 Phase 1 modules init: ErrorService, LoggerService, ConfigService, ...
   │
   ▼
-Phase 2 module preparation:
-  - sequence_engine.set_state(&app.state())
-  - modesp::scenario::builtins::register_builtins()      ← built-in actions/conditions
-  - sequence_engine.set_nvs_callbacks(write, read, ...)  ← persistence wiring
-  - app.modules().register_module(sequence_engine)
-  - modesp_register_modules(app)                          ← business modules incl.
-                                                            those that may register
-                                                            their own actions
+Phase 2 module preparation (constructor-injected, no setters):
+  // adapter from SharedState → IStateBackend
+  static SharedStateBackend sb{app.state()};
+  // caller-owned registries (no singletons)
+  static modesp::scenario::ActionRegistry   actions;
+  static modesp::scenario::ContinuousRegistry continuous;
+  // NVS observer (the only production observer)
+  static modesp::scenario::NvsObserver nvs_obs{nvs_write_fn, nvs_read_fn, nullptr};
+  static modesp::scenario::IEngineObserver* obs_list[] = {&nvs_obs};
+  // engine constructed with injected dependencies
+  static modesp::scenario::Engine engine{sb, actions, continuous, obs_list};
+
+  // register built-in actions into the caller-owned registry
+  modesp::scenario::register_builtin_actions(actions);
+  // optional: register standard continuous primitives (Stage 2)
+  modesp::scenario::register_primitives(continuous);
+
+  nvs_obs.bind_engine(engine);
+  app.modules().register_module(engine);
+  modesp_register_modules(app);   ← business modules incl. those that may
+                                    register their own actions
   │
   ▼
 Phase 2 init_all:
-  - sequence_engine.on_init() called → arbiter.clear_for_tests, slots reset
+  - engine.on_init() called → arbiter.clear_for_tests, slots reset
   - Business modules init → they may call ActionRegistry::register_action
     in their own on_init
   │
@@ -80,10 +93,16 @@ Phase 3 modules: HTTP, WebSocket, MQTT
   ▼
 Main loop @ 100 Hz:
   for each module: on_update(dt_ms)
-    └─ sequence_engine.on_update(10):
-         ├─ instance_tick(...) for each running instance
-         ├─ publish_mirror_keys(...) for each loaded slot
-         └─ persist_scan(...) for each loaded slot
+    └─ engine.on_update(10):
+         ├─ tick each running slot:
+         │    for each instance: advance tracks, evaluate transitions,
+         │    run actions
+         ├─ at end of slot tick: direct call to mirror::publish(state, slot)
+         │  (helper in private/mirror.h — not an observer)
+         └─ emit IEngineObserver edge hooks (on_scenario_started,
+            on_phase_entered, on_scenario_terminal); NvsObserver writes
+            NVS per its throttle policy. on_tick(dt_ms) fires once per
+            update for every observer.
 ```
 
 ## Runtime — recipe load + start
@@ -98,7 +117,7 @@ if (h == 0) {
 }
 
 // 2. (Optional) Recovery from persisted state
-if (engine.try_recover(h) == EngineError::OK) {
+if (engine.try_recover(h, nvs_obs) == EngineError::OK) {
     // Slot is now in PAUSED state with phase_idx + elapsed_ms restored.
     // User decides via WebUI button: resume() or abort().
     // At this point the recipe does not run — manual intervention required.
@@ -130,11 +149,14 @@ Tick 0: load_path() → state = LOADED
                        → instance_start() — track 0 → RUNNING, phase_idx = 0
 
 Tick 1: on_update(10):
-        - instance_tick:
+        - tick slot 0:
           - track_tick(0): phase_elapsed_ms = 10
                             entry actions run (one per tick)
-        - publish_mirror_keys: writes "<recipe>.scenario_state" = "running"
-        - persist_scan: state changed (LOADED→RUNNING) → write callback fires
+        - mirror::publish(state, slot): writes "<recipe>.scenario_state" = "running"
+        - emit on_scenario_started(h) edge → NvsObserver writes token
+          immediately (LOADED→RUNNING is crash-critical)
+        - emit on_phase_entered(h, 0, 0) for initial phase →
+          NvsObserver writes (main-track immediate)
 
 Tick 2..10: track 0 advances entry actions, eventually evaluates transitions.
 
@@ -151,8 +173,9 @@ Tick N: phase 1 transition to $complete fires:
         - track 0 → COMPLETED
         - completion_rule (all_tracks_complete) satisfied → scenario → COMPLETED
         - arbiter.release_scenario() (no resources here)
-        - publish_mirror_keys: "scenario_state" = "completed"
-        - persist_scan: state changed (RUNNING→COMPLETED) → write callback fires
+        - mirror::publish(state, slot): "scenario_state" = "completed"
+        - emit on_scenario_terminal(h, COMPLETED) → NvsObserver writes
+          final token immediately
 ```
 
 ## Crash scenario
@@ -161,8 +184,8 @@ Mid-execution power loss. State in NVS:
 
 ```
 Before power loss (at last persist):
-  NVS["seqstate"]["t0"] = serialized seq_token with:
-    - magic = 'SQTK'
+  NVS["scnstate"]["t0"] = serialized seq_token with:
+    - magic = 'SCTK'
     - scenario_id = djb2("abs_test")
     - scenario_state = RUNNING
     - tracks[0].phase_idx = 1
@@ -178,7 +201,7 @@ A business module's `on_init` (or a dedicated recovery service) calls:
 auto h = engine.load_path("/data/scenarios/abs_test.modr");
 if (h == 0) return;
 
-EngineError err = engine.try_recover(h);
+EngineError err = engine.try_recover(h, nvs_obs);
 if (err == EngineError::OK) {
     // engine.state(h) == PAUSED
     // engine.track_phase_idx(h, 0) == 1
