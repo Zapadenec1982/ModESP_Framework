@@ -43,7 +43,51 @@
 - **fix(mqtt): persist prefix in NVS on _set_tenant (pending after reboot)**
 - **License: Source Available (PolyForm Noncommercial 1.0.0)**
 
-- **refactor(scenario): full rebuild of the `modesp_sequence` engine → `modesp_scenario`:**
+## 2026-05-14
+
+- **docs: bilingual parity for the CHANGELOG:**
+  - `documentation/CHANGELOG.md` → `documentation/uk/CHANGELOG.md` (via `git mv`, history preserved).
+  - Created `documentation/en/CHANGELOG.md` — full translation. Structure 1:1 with UK; technical identifiers verbatim.
+  - Updated references in README, documentation/README, `.rules/`.
+
+- **docs(scenario-engine): technical review of the migrated documents:**
+  - 3 parallel auditor agents cross-checked 25 pages against the real code in `components/modesp_scenario/`.
+  - Discovered ~30+ CRITICAL discrepancies: stale class name `SequenceEngine`, non-existent files `sequence_track.{h,cpp}`/`sequence_instance.{h,cpp}`, `::instance()` calls for killed singletons, `set_state`/`set_nvs_callbacks` setters that no longer exist, `'SQTK'` magic instead of `'SCTK'`, `MAX_SEQUENCES = 4` instead of 2, `MODR_MAX_SIZE = 16 KB` instead of 4 KB, descriptions of `publish_mirror_keys`/`persist_scan` removed from the engine.
+  - 6 parallel fixer agents corrected every finding across 22 files (11 EN + 11 UK). Bilingual EN/UK parity preserved.
+
+- **docs: migration of the scenario-engine deep dive into `documentation/` + cleanup of legacy `docs/`:**
+  - 25 deep dive pages (README + 00-10 architectural + 8 ADRs + 3 usage + 2 examples) moved from `docs/` into `documentation/` via `git mv` (history preserved).
+  - 12 parallel agents rewrote each page: EN — clean English text (no Ukrainian leftovers), UK — real Ukrainian.
+  - The old `docs/` directory removed entirely (13 duplicates + 3 READMEs); `docs/CHANGELOG.md` moved to `documentation/`.
+  - Fixed ~25 cross-references to `docs/...` in README, C++ headers, `idf_component.yml`, `tools/`, `.rules/`, and other doc pages.
+
+- **docs: web-ui.md (EN + UK) — final ⏳ planned page closed:**
+  - Svelte 4 SPA architecture, Rollup 3, ~80 KB gzip.
+  - All 7 Svelte stores (`state`, `uiConfig`, `language`, `theme`, `toast`, `wifiForm`, `mqttForm`) with code samples.
+  - WebSocket flow with exponential backoff and `_ws_connected` meta-event.
+  - HTTP API client with sessionStorage Basic auth and 401 → `needsLogin` → `LoginModal` handling.
+  - Widget catalog of 25 by group (display / input / action / specialised).
+
+- **docs(uk): full spelling cleanup of the Ukrainian pages (47 files):**
+  - The previous UK pages were a mishmash like "Driver registers як `sensor` з `hardware_type:` ..." — that's not Ukrainian, it's surzhyk.
+  - 9 parallel translator agents rewrote every page per the STYLE.md policy: clean Ukrainian prose, only technical identifiers (`code-format`) remain in English.
+  - Standardised glossary: `driver→драйвер`, `scenario→сценарій`, `engine→рушій`, `binding→прив'язка`, `mirror keys→дзеркальні ключі`, `tick→такт`, etc.
+
+- **docs: completed the strategic rewrite under `documentation/`:**
+  - 05 Tools (3 pages): `generate_ui.py`, `compile_scenario.py`, `dump_modr.py`.
+  - 04 Hardware (2 additional pages): OTA flow, deployment workflow.
+  - 01 Getting Started (2 additional pages): installation, concepts.
+  - 06 Contributing (4 pages): development-setup, testing, code-style, docs-style.
+  - All ~150 pages now ✅; no ⏳ planned items left.
+
+- **docs: refreshed the main README:**
+  - Removed the legacy `docs/` callout.
+  - Documentation section rebuilt around the new sections in `documentation/`.
+  - Surzhyk leftovers in prose cleaned up.
+
+## 2026-05-13
+
+- **refactor(scenario): full rebuild of the engine `modesp_sequence` → `modesp_scenario` (Phase 0-4):**
   - Clean break after 38 monolith commits (4,415 LOC, 157 tests passing, but cohesion was lost).
   - A single `modesp_scenario` component with internal subdirectories (core/actions/continuous/arbiter/observers) — no overengineering into 6 separate components.
   - Namespace `modesp::sequence` → `modesp::scenario`. Class `SequenceEngine` → `Engine`.
@@ -57,35 +101,119 @@
   - HIL pytest: 6/6 passing on real ESP32 (single-instance, multi-instance, resource contention, global transition, power-cycle recovery, WebUI mirror updates).
   - Engine.cpp after lift: ~320 LOC. Total component: ~3,500-3,800 LOC (vs 4,415 before).
 
+- **docs: start of the strategic rewrite under `documentation/`:**
+  - Clean start rather than a migration of the half-rewritten `docs/`. Bilingual organisation from scratch.
+  - `documentation/STYLE.md` — single quality standard.
+  - Module Author Guide (12 pages): overview, manifest, writing-a-module, writing-a-driver, shared-state, ui-widgets, mqtt, persistence, recipe-authoring, recipe-actions, continuous-behaviors, debugging, best-practices.
+  - Framework Reference in batches: architecture + components/ (8) + modules/ (4) + drivers/ (6).
+  - Hardware: board.json schema, bindings, Equipment Manager reference.
+
+## 2026-05-04
+
 - **feat(scenario): Stage 2 — standard continuous primitives:**
   - `PidController`, `HysteresisController`, `RampProfile` in `continuous_primitives.h`.
   - `register_primitives(registry)` helper — registration in the caller-owned `ContinuousRegistry`.
-  - ADR-0006 "no built-in continuous behaviors" updated: the stage-1 decision is superseded, primitives now ship with the framework, but domain modules can still register their own.
+  - Domain modules can still register their own primitives via `ContinuousRegistry`.
 
-- **docs: strategic rewrite of the documentation under `documentation/` (clean-slate):**
-  - A single quality standard fixed in `documentation/STYLE.md`.
-  - Bilingual structure EN + UK; on the commit date ~150 pages, all ready.
-  - Module Author Guide (13 pages): manifest, writing-a-module/driver, shared-state, ui-widgets, mqtt, persistence, recipe-authoring/actions, continuous-behaviors, debugging, best-practices.
-  - Framework Reference: architecture + 8 components + 4 reference modules + 6 reference drivers + scenario-engine deep dive (11 + 8 ADRs + 3 usage + 2 examples) + web-ui.
-  - Hardware: board.json schema, bindings, OTA flow, deployment.
-  - 05 Tools: generate_ui, compile_scenario, dump_modr.
-  - 06 Contributing: dev setup, host + HIL testing, C++ style, docs style.
+- **perf(ram): Phase 1 RAM savings ~70 KB:**
+  - sequence Kconfig (max sequences/tracks/phases) + sdkconfig + heap optimisation.
+  - Precondition for running on ESP32-WROOM with 320 KB DRAM.
 
-- **docs(uk): full spelling cleanup of the Ukrainian pages (47 files):**
-  - The previous UK pages were a mishmash like "Driver registers як `sensor` з `hardware_type:` ..." — that's not Ukrainian, it's surzhyk.
-  - 9 parallel translator agents rewrote every page per the STYLE.md policy: clean Ukrainian prose, only technical identifiers (`code-format`) remain in English.
-  - Standardised glossary: `driver→драйвер`, `scenario→сценарій`, `engine→рушій`, `binding→прив'язка`, `mirror keys→дзеркальні ключі`, `tick→такт`, etc.
+- **fix(sequence): bug fixes from deep code review (5 critical + 1 medium):**
+  - `state_key_*` conditions now compare strings (HIL regression fix).
+  - LittleFS mount path `/lfs/` → `/data/` for scenarios (aligned with the rest of the framework).
+  - httpd `max_uri_handlers` 48 → 64 — needed for coexistence of scenario API + WS.
+  - Removed the unused `read_string` helper from `builtin_actions`.
 
-- **docs: migration of the scenario-engine deep dive into `documentation/` + cleanup of legacy `docs/`:**
-  - 25 deep dive pages (README + 00-10 architectural + 8 ADRs + 3 usage + 2 examples) moved from `docs/` into `documentation/` via `git mv` (history preserved).
-  - 12 parallel agents rewrote each page: EN — clean English text (no Ukrainian leftovers), UK — real Ukrainian.
-  - The old `docs/` directory removed entirely (13 duplicates + 3 READMEs); `docs/CHANGELOG.md` moved to `documentation/CHANGELOG.md`.
-  - Fixed ~25 cross-references to `docs/...` in README, C++ headers, idf_component.yml, tools/, .rules/, and other doc pages.
+- **feat(sequence): NVS runtime integration:**
+  - persist callbacks + `try_recover(handle, nvs_observer)`.
+  - Edge-triggered persistence via observer hooks.
 
-- **docs(scenario-engine): technical review of the migrated documents:**
-  - 3 auditor agents cross-checked 25 pages against the real code in `components/modesp_scenario/`.
-  - Discovered ~30+ CRITICAL discrepancies: stale class name `SequenceEngine`, non-existent files `sequence_track.{h,cpp}`/`sequence_instance.{h,cpp}`, `::instance()` singletons that had been killed, `set_state`/`set_nvs_callbacks` setters that no longer exist, `'SQTK'` magic instead of `'SCTK'`, `MAX_SEQUENCES = 4` instead of 2, `MODR_MAX_SIZE = 16 KB` instead of 4 KB, descriptions of `publish_mirror_keys`/`persist_scan` that had been removed from the engine.
-  - 6 parallel fixer agents corrected every finding across 22 files (11 EN + 11 UK). Bilingual EN/UK parity preserved.
+- **docs(sequence): Stage 1 exit ready:**
+  - Filled 7 architectural docs (`00_overview`-`08_lifecycle`, `10_error_model`).
+  - Filled `usage/03_registering_actions.md`.
+
+- **chore: strip refrigeration leftovers:**
+  - Removed stale hardcoded MQTT HA discovery keys.
+  - i18n bloat cleaned up — generic framework instead of domain-specific.
+
+## 2026-05-03
+
+- **feat(sequence): Steps 5-17 — full engine MVP implementation:**
+  - Step 5 — `ActionRegistry` (with the singleton, later killed in Phase 1 of the rebuild) + host tests.
+  - Step 6 — `ContinuousRegistry` + abstract `ContinuousBehavior`.
+  - Step 7 — built-in actions and conditions with host tests.
+  - Step 8 — `modr_loader` validates and views `.modr` binaries.
+  - Step 9 — libFuzzer harness for `modr_loader`.
+  - Step 10 — `ResourceArbiter` (ISA-88 §5.3 two-scope arbitration).
+  - Steps 11-13 — track + instance FSMs + cross-track sync test.
+  - Step 14 — `SequenceEngine` multi-instance dispatcher.
+  - Step 15 — `nvs_token` serialize/deserialize + corruption tests.
+  - Steps 16+17 — reference recipe (`abs_test`) + main.cpp integration + usage docs.
+
+- **feat(sequence): Step 16b — HTTP API endpoints for the scenario engine:**
+  - `POST /api/scenario/{load,start,pause,resume,abort,unload}`.
+  - `GET /api/scenario/{list,info}`.
+
+- **feat(sequence): SharedState mirror keys:**
+  - the engine publishes scenario+track state through mirror keys within the 32-byte budget.
+  - `<recipe>.scenario_state`, `<recipe>.<track>.phase_name`, etc.
+
+- **feat(generator): Step 4 — `generate_ui.py` recognizes `module_type='recipe'`:**
+  - Skip C++ class generation for recipe manifests.
+
+- **feat(sequence): Q-series improvements:**
+  - Q2 — `@param`: compile-time resolution for recipe parameters.
+  - Q5/Q6/Q12 — type matching + `--strict` flag + W0230 warning.
+  - Q9 — `dump_modr.py` inspector tool for binary debugging.
+
+- **fix(sequence): bugs 9 + 10 + missing regression tests for 1, 5, 7:**
+  - Rollback regression test reworked to actually exercise the rollback path.
+
+## 2026-05-02
+
+- **feat(sequence): foundational binary format + compile_scenario.py (Steps 1-2b):**
+  - Step 1 — binary format header + golden-file pytest.
+  - Step 2a — `compile_scenario.py` v0 + schema + `known_actions.json`.
+  - Step 2b.1 — conditional transitions with cond/param pools.
+  - Step 2b.2 — action invocations (entry/exit phase actions).
+  - Step 2b.3 — global transitions + phase-scope resources.
+  - Step 2b.4 — cross-validation E04XX (mirror keys vs `manifest.state`).
+  - Step 0.75 — expressiveness paper pilot + spec refinements.
+
+- **feat(generator): bump SharedState runtime margin 48 → 96 for the sequence engine:**
+  - Required for the additional scenario state keys.
+
+- **docs(sequence): Stage 0 documentation skeleton + foundational ADRs:**
+  - 10 architectural docs (placeholders) + 8 ADRs (binary format, tracks first-class, tick-order sync, recipe-as-manifest, ISA-88 arbitration, no built-in continuous, mandatory phase timeouts, paper pilot).
+
+## 2026-03-19
+
+- **feat: extract `EquipmentBase` — universal HAL owner:**
+  - Generic base class split off from the refrigeration-specific Equipment Manager.
+  - Framework provides driver binding / sensor reading / state publishing; product overrides the arbitration logic.
+
+- **feat: framework decoupling — strip refrigeration artifacts:**
+  - Generic `ChartWidget` + `EquipmentStatus` (no hardcoded channels/roles).
+  - Strip refrigeration i18n keys from chrome strings.
+  - ARCHITECTURE.md + CLAUDE.md rewritten for the generic framework.
+
+- **feat: `simple_thermo` demo module + step-by-step TUTORIAL.md:**
+  - Minimal reference module for an ON/OFF thermostat (~150 LOC C++ + ~100 lines of manifest).
+  - TUTORIAL.md — detailed walkthrough for creating a first module.
+
+- **docs: Board Setup Guide:**
+  - Hardware configuration from scratch — `board.json` schema, bindings, examples.
+
+- **fix: framework builds and runs on ESP32:**
+  - Fixed include paths, `ModulePriority` cast (enum instead of int), build errors.
+  - `fix(datalogger)`: correct include path for generated headers.
+  - `fix`: increase SharedState capacity margin 32 → 48 for dynamic equipment roles.
+
+- **docs: README + datalogger updates:**
+  - Manifest-driven architecture, EquipmentBase + product override pattern.
+  - PRIV_REQUIRES manual step clarified.
+  - Documentation section — TUTORIAL + BOARD_SETUP links.
 
 ## 2026-03-09
 
