@@ -1,0 +1,68 @@
+{
+  "manifest_version": 1,
+  "module": "display",
+  "version": "1.0.0",
+  "description": "Екранне меню — навігація та редагування параметрів, згенерованих з маніфестів",
+  "priority": 3,
+
+  "state": {
+    "display.enabled": {
+      "type": "bool",
+      "access": "readwrite",
+      "default": true,
+      "persist": true,
+      "on_label": "ON",
+      "off_label": "OFF",
+      "description": "Дисплей увімкнено"
+    },
+    "display.btn_up": {
+      "type": "bool",
+      "access": "readwrite",
+      "default": false,
+      "description": "Кнопка ВГОРУ (momentary, самоскидається)"
+    },
+    "display.btn_down": {
+      "type": "bool",
+      "access": "readwrite",
+      "default": false,
+      "description": "Кнопка ВНИЗ (momentary, самоскидається)"
+    },
+    "display.btn_select": {
+      "type": "bool",
+      "access": "readwrite",
+      "default": false,
+      "description": "Кнопка ВИБІР (momentary, самоскидається)"
+    },
+    "display.screen": {
+      "type": "string",
+      "access": "read",
+      "description": "Поточний екран меню"
+    }
+  },
+
+  "ui": {
+    "page": "Дисплей",
+    "icon": "monitor",
+    "cards": [
+      {
+        "title": "Екран",
+        "subtitle": "Стан екранного меню",
+        "layout": "single",
+        "widgets": [
+          {"key": "display.screen", "widget": "value"},
+          {"key": "display.enabled", "widget": "toggle"}
+        ]
+      },
+      {
+        "title": "Навігація",
+        "subtitle": "Віртуальні кнопки (для тесту без заліза)",
+        "layout": "single",
+        "widgets": [
+          {"key": "display.btn_up", "widget": "button"},
+          {"key": "display.btn_down", "widget": "button"},
+          {"key": "display.btn_select", "widget": "button"}
+        ]
+      }
+    ]
+  }
+}

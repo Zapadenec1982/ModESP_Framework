@@ -69,6 +69,7 @@ In order:
 | [modules/datalogger.md](03-framework-reference/modules/datalogger.md) | ✅ | Channel logging, retention, plot API. |
 | [modules/simple_thermo.md](03-framework-reference/modules/simple_thermo.md) | ✅ | Reference ON/OFF thermostat. |
 | [modules/abs_test.md](03-framework-reference/modules/abs_test.md) | ✅ | Reference recipe з two parallel tracks. |
+| [modules/display.md](03-framework-reference/modules/display.md) | ✅ | On-device menu generated from manifests. |
 | [drivers/ds18b20.md](03-framework-reference/drivers/ds18b20.md) | ✅ | Dallas OneWire temperature sensor. |
 | [drivers/ntc.md](03-framework-reference/drivers/ntc.md) | ✅ | NTC thermistor via ADC. |
 | [drivers/relay.md](03-framework-reference/drivers/relay.md) | ✅ | GPIO relay actuator. |

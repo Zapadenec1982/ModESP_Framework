@@ -4,6 +4,19 @@
 
 > Full project changelog.
 
+## 2026-06-11
+
+- **feat(display): on-device menu generated from manifests — full vertical slice, hardware-agnostic:**
+  - `DisplayScreensGenerator` rewritten: flat arrays replaced by a hierarchical menu tree (`MENU_NODES`: module submenus → items, `first_child`/`child_count`, 255-node cap).
+  - Item type is derived from the `state` declaration: `readwrite` float/int → `EDIT_FLOAT/EDIT_INT` with `min`/`max`/`step`, `options` → `EDIT_ENUM` with an option table, bool → `EDIT_BOOL` with `on_label`/`off_label`, `read` → `VALUE`. `menu_items` only need `label` + `key`.
+  - `display:` schema extended: `menu_label` (fallback: `ui.page` → module name), optional per-item `format`. New validator checks: required `label`/`key`, warning for readwrite strings.
+  - New generic module `modules/display/`: **MenuEngine** (pure logic, zero heap, MAIN→MENU→EDIT FSM, 30 s idle timeout, main-value rotation) + **DisplayModule** (`display.btn_up/down/select` SharedState buttons with self-clearing, renders only on frame change) + **IDisplayRenderer** interface (`DisplayFrame` 4×40 UTF-8 bytes; LogRenderer by default — works without hardware).
+  - Virtual buttons on the WebUI "Дисплей" page — full menu testing without a physical display.
+  - Tests: 14 new generator/validator pytest cases (72 passed), 16 MenuEngine doctest cases in `tests/host/test_display_menu.cpp` (40 assertions). Firmware builds with 18% app partition headroom.
+  - Demo: `simple_thermo` got a `display:` section (setpoint, differential, state, heating); `display` added to project.json.
+  - Fixed `run_build.ps1` — a hardcoded `Set-Location 'D:\ModESP_v4'` from the old repository was building the wrong project.
+  - Docs: new `modules/display.md` page, `display` section in `manifest.md`, expanded "Output 4" in `generate_ui.md` (EN + UK).
+
 ## 2026-05-14
 
 - **docs: bilingual parity for the CHANGELOG:**

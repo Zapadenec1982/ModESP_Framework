@@ -71,6 +71,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [modules/datalogger.md](03-framework-reference/modules/datalogger.md) | ✅ | Логування каналів, утримання, plot API. |
 | [modules/simple_thermo.md](03-framework-reference/modules/simple_thermo.md) | ✅ | Еталонний ON/OFF термостат. |
 | [modules/abs_test.md](03-framework-reference/modules/abs_test.md) | ✅ | Еталонний рецепт з двома паралельними треками. |
+| [modules/display.md](03-framework-reference/modules/display.md) | ✅ | Екранне меню, згенероване з маніфестів. |
 | [drivers/ds18b20.md](03-framework-reference/drivers/ds18b20.md) | ✅ | Температурний сенсор Dallas OneWire. |
 | [drivers/ntc.md](03-framework-reference/drivers/ntc.md) | ✅ | NTC термістор через ADC. |
 | [drivers/relay.md](03-framework-reference/drivers/relay.md) | ✅ | Релейний актуатор на GPIO. |

@@ -6,7 +6,7 @@ or MinGW g++, then runs each test suite and reports results back to pytest.
 
 Usage:
     python -m pytest tools/tests/test_cpp_host.py -v
-    python -m pytest tools/tests/test_cpp_host.py -v -k thermostat
+    python -m pytest tools/tests/test_cpp_host.py -v -k equipment
 """
 
 import subprocess
@@ -270,22 +270,22 @@ def test_build(built_binary):
     print(f"\n[C++] Binary: {built_binary} ({size // 1024} KB)")
 
 
-def test_thermostat_suite(built_binary):
-    """Run all thermostat test cases."""
-    out, rc = _run_suite(built_binary, '*thermostat*')
-    assert rc == 0, f"Thermostat tests failed:\n{out}"
+def test_display_menu_suite(built_binary):
+    """Run all display MenuEngine test cases."""
+    out, rc = _run_suite(built_binary, '*MenuEngine*')
+    assert rc == 0, f"MenuEngine tests failed:\n{out}"
 
 
-def test_defrost_suite(built_binary):
-    """Run all defrost test cases."""
-    out, rc = _run_suite(built_binary, '*defrost*')
-    assert rc == 0, f"Defrost tests failed:\n{out}"
+def test_equipment_suite(built_binary):
+    """Run all EquipmentBase test cases."""
+    out, rc = _run_suite(built_binary, '*EquipmentBase*')
+    assert rc == 0, f"EquipmentBase tests failed:\n{out}"
 
 
-def test_protection_suite(built_binary):
-    """Run all protection test cases."""
-    out, rc = _run_suite(built_binary, '*protection*')
-    assert rc == 0, f"Protection tests failed:\n{out}"
+def test_datalogger_suite(built_binary):
+    """Run all DataLogger test cases."""
+    out, rc = _run_suite(built_binary, '*DataLogger*')
+    assert rc == 0, f"DataLogger tests failed:\n{out}"
 
 
 def test_all_pass(built_binary):

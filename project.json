@@ -6,7 +6,8 @@
     "equipment",
     "datalogger",
     "simple_thermo",
-    "recipe_smoke"
+    "recipe_smoke",
+    "display"
   ],
   "system": {
     "device_name": "ModESP",

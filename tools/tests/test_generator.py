@@ -271,7 +271,7 @@ class TestMqttTopicsGenerator:
 # ═══════════════════════════════════════════════════════════════
 
 class TestDisplayScreensGenerator:
-    """Тести генерації display_screens.h."""
+    """Тести генерації display_screens.h (ієрархічне дерево меню)."""
 
     def test_generates_header(self, thermostat_manifests):
         """Генерує C++ header."""
@@ -280,20 +280,130 @@ class TestDisplayScreensGenerator:
         assert "#pragma once" in result
 
     def test_main_value(self, thermostat_manifests):
-        """Містить main_value з thermostat."""
+        """Містить main_value з thermostat (module, label, key, format)."""
         gen = DisplayScreensGenerator()
         result = gen.generate(thermostat_manifests)
         assert '"thermostat.temperature"' in result
+        assert "MAIN_VALUES_COUNT = 1" in result
 
-    def test_menu_items(self, thermostat_manifests):
-        """Містить menu items."""
+    def test_menu_tree_counts(self, thermostat_manifests):
+        """1 submenu (root) + 2 items = 3 nodes."""
         gen = DisplayScreensGenerator()
         result = gen.generate(thermostat_manifests)
-        assert "MENU_ITEMS_COUNT = 2" in result
+        assert "MENU_NODES_COUNT = 3" in result
+        assert "MENU_ROOT_COUNT = 1" in result
+
+    def test_submenu_label_from_ui_page(self, thermostat_manifests):
+        """Submenu label береться з ui.page якщо menu_label відсутній."""
+        gen = DisplayScreensGenerator()
+        result = gen.generate(thermostat_manifests)
+        assert '"Холодильна камера", "", "", "", DisplayItemType::SUBMENU' in result
+
+    def test_menu_label_override(self, valid_thermostat):
+        """display.menu_label має пріоритет над ui.page."""
+        m = json.loads(json.dumps(valid_thermostat))
+        m["display"]["menu_label"] = "Морозилка"
+        gen = DisplayScreensGenerator()
+        result = gen.generate([m])
+        assert '"Морозилка", "", "", "", DisplayItemType::SUBMENU' in result
+
+    def test_edit_constraints_from_state(self, thermostat_manifests):
+        """min/max/step/unit для editable item беруться зі state."""
+        gen = DisplayScreensGenerator()
+        result = gen.generate(thermostat_manifests)
+        # thermostat.setpoint: float readwrite, min -35, max 0, step 0.5
+        line = next(l for l in result.splitlines() if '"thermostat.setpoint"' in l)
+        assert "DisplayItemType::EDIT_FLOAT" in line
+        assert "-35.0f, 0.0f, 0.5f" in line
+        assert '"°C"' in line
+
+    def test_submenu_child_indices(self, thermostat_manifests):
+        """first_child submenu вказує на перший item після root-блоку."""
+        gen = DisplayScreensGenerator()
+        result = gen.generate(thermostat_manifests)
+        line = next(l for l in result.splitlines()
+                    if "DisplayItemType::SUBMENU" in l and "// empty" not in l)
+        assert "1, 2}," in line
+
+    def test_readonly_item_is_value(self, valid_thermostat):
+        """Item з access=read → VALUE (не editable)."""
+        m = json.loads(json.dumps(valid_thermostat))
+        m["display"]["menu_items"].append(
+            {"label": "Температура", "key": "thermostat.temperature"})
+        gen = DisplayScreensGenerator()
+        result = gen.generate([m])
+        line = next(l for l in result.splitlines()
+                    if '"thermostat.temperature"' in l
+                    and "DisplayItemType" in l)
+        assert "DisplayItemType::VALUE" in line
+
+    def test_enum_options_table(self, valid_thermostat):
+        """readwrite int з options → EDIT_ENUM + таблиця опцій."""
+        m = json.loads(json.dumps(valid_thermostat))
+        m["state"]["thermostat.mode"] = {
+            "type": "int", "access": "readwrite", "default": 0,
+            "options": [{"value": 0, "label": "Авто"},
+                        {"value": 1, "label": "Ручний"}],
+        }
+        m["display"]["menu_items"].append(
+            {"label": "Режим", "key": "thermostat.mode"})
+        gen = DisplayScreensGenerator()
+        result = gen.generate([m])
+        assert "OPTIONS_thermostat_mode[]" in result
+        assert '{"Авто", 0},' in result
+        assert '{"Ручний", 1},' in result
+        line = next(l for l in result.splitlines() if '"thermostat.mode"' in l)
+        assert "DisplayItemType::EDIT_ENUM" in line
+        assert "OPTIONS_thermostat_mode, 2" in line
+
+    def test_bool_item_gets_on_off_labels(self, valid_thermostat):
+        """bool item отримує options з on_label/off_label."""
+        m = json.loads(json.dumps(valid_thermostat))
+        m["state"]["thermostat.compressor"]["on_label"] = "Працює"
+        m["state"]["thermostat.compressor"]["off_label"] = "Стоп"
+        m["display"]["menu_items"].append(
+            {"label": "Компресор", "key": "thermostat.compressor"})
+        gen = DisplayScreensGenerator()
+        result = gen.generate([m])
+        assert '{"Стоп", 0},' in result
+        assert '{"Працює", 1},' in result
+
+    def test_item_format_override(self, valid_thermostat):
+        """format в menu_item має пріоритет над дефолтом."""
+        m = json.loads(json.dumps(valid_thermostat))
+        m["display"]["menu_items"][0]["format"] = "%.2f"
+        gen = DisplayScreensGenerator()
+        result = gen.generate([m])
+        line = next(l for l in result.splitlines() if '"thermostat.setpoint"' in l)
+        assert '"%.2f"' in line
+
+    def test_default_format_by_type(self, thermostat_manifests):
+        """Без format — дефолт за типом state (float → %.1f)."""
+        gen = DisplayScreensGenerator()
+        result = gen.generate(thermostat_manifests)
+        line = next(l for l in result.splitlines() if '"thermostat.setpoint"' in l)
+        assert '"%.1f"' in line
 
     def test_empty_manifests(self):
         """Без маніфестів — порожні масиви."""
         gen = DisplayScreensGenerator()
         result = gen.generate([])
         assert "MAIN_VALUES_COUNT = 0" in result
-        assert "MENU_ITEMS_COUNT = 0" in result
+        assert "MENU_NODES_COUNT = 0" in result
+        assert "MENU_ROOT_COUNT = 0" in result
+
+    def test_node_limit_guard(self, valid_thermostat):
+        """> 255 вузлів — SystemExit (uint8_t індекси)."""
+        m = json.loads(json.dumps(valid_thermostat))
+        m["display"]["menu_items"] = [
+            {"label": f"Item {i}", "key": "thermostat.setpoint"}
+            for i in range(300)
+        ]
+        gen = DisplayScreensGenerator()
+        with pytest.raises(SystemExit):
+            gen.generate([m])
+
+    def test_deterministic_output(self, thermostat_manifests):
+        """Повторна генерація дає ідентичний результат."""
+        gen = DisplayScreensGenerator()
+        assert gen.generate(thermostat_manifests) == gen.generate(thermostat_manifests)

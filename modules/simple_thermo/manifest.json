@@ -5,6 +5,17 @@
   "description": "Simple ON/OFF thermostat — demo module",
   "priority": 2,
 
+  "display": {
+    "main_value": {"key": "simple_thermo.temperature", "format": "%.1f°C"},
+    "menu_label": "Термостат",
+    "menu_items": [
+      {"label": "Уставка", "key": "simple_thermo.setpoint"},
+      {"label": "Диференціал", "key": "simple_thermo.differential"},
+      {"label": "Стан", "key": "simple_thermo.state"},
+      {"label": "Нагрів", "key": "simple_thermo.output"}
+    ]
+  },
+
   "state": {
     "simple_thermo.temperature": {
       "type": "float",

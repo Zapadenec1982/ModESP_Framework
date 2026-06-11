@@ -4,6 +4,19 @@
 
 > Повний changelog проекту.
 
+## 2026-06-11
+
+- **feat(display): екранне меню генерується з маніфестів — повний вертикальний зріз без заліза:**
+  - `DisplayScreensGenerator` переписано: замість плоских масивів — ієрархічне дерево меню (`MENU_NODES`: підменю модулів → пункти, `first_child`/`child_count`, ліміт 255 вузлів).
+  - Тип пункту виводиться зі `state`-декларації: `readwrite` float/int → `EDIT_FLOAT/EDIT_INT` з `min`/`max`/`step`, `options` → `EDIT_ENUM` з таблицею опцій, bool → `EDIT_BOOL` з `on_label`/`off_label`, `read` → `VALUE`. У `menu_items` достатньо `label` + `key`.
+  - Схема `display:` розширена: `menu_label` (fallback: `ui.page` → ім'я модуля), опційний `format` на пункт. Нові перевірки валідатора: обов'язкові `label`/`key`, попередження для readwrite string.
+  - Новий generic-модуль `modules/display/`: **MenuEngine** (чиста логіка, zero heap, FSM MAIN→MENU→EDIT, idle-timeout 30 с, ротація main values) + **DisplayModule** (кнопки `display.btn_up/down/select` зі SharedState з самоскиданням, рендер лише при зміні кадру) + інтерфейс **IDisplayRenderer** (`DisplayFrame` 4×40 байт UTF-8; за замовчуванням LogRenderer — робота без заліза).
+  - Віртуальні кнопки на WebUI-сторінці «Дисплей» — повний тест меню без фізичного дисплея.
+  - Тести: 14 нових pytest-кейсів генератора/валідатора (72 passed), 16 doctest-кейсів MenuEngine у `tests/host/test_display_menu.cpp` (40 assertions). Прошивка збирається, 18% запасу app-партиції.
+  - Демо: `simple_thermo` отримав `display:`-секцію (уставка, диференціал, стан, нагрів); `display` додано у project.json.
+  - Виправлено `run_build.ps1` — хардкод `Set-Location 'D:\ModESP_v4'` зі старого репозиторію збирав не той проект.
+  - Документація: нова сторінка `modules/display.md`, секція `display` у `manifest.md`, розширений «Вихід 4» у `generate_ui.md` (EN + UK).
+
 ## 2026-05-14
 
 - **docs: bilingual паритет CHANGELOG:**

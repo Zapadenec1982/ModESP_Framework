@@ -106,8 +106,38 @@ Pre-computed once, avoids `sprintf` at runtime. Used by `modesp_mqtt`.
 
 ## Output 4: `generated/display_screens.h`
 
-Generates menu trees for LCD displays. Optional — only emitted if any
-module manifest contains а `display:` block.
+Hierarchical on-device menu tree merged from every module's `display:`
+section. Consumed by the `display` module
+([modules/display.md](../03-framework-reference/modules/display.md)).
+
+```cpp
+namespace modesp::gen {
+    enum class DisplayItemType : uint8_t {
+        SUBMENU, VALUE, EDIT_FLOAT, EDIT_INT, EDIT_BOOL, EDIT_ENUM };
+
+    struct DisplayMenuNode {
+        const char* label; const char* key;
+        const char* format; const char* unit;
+        DisplayItemType type;
+        float min, max, step;                  // edit bounds from state
+        const DisplayEnumOption* options;      // for enum/bool
+        uint8_t option_count;
+        uint8_t first_child, child_count;      // for SUBMENU
+    };
+
+    static constexpr DisplayMenuNode MENU_NODES[] = { /* ... */ };
+    static constexpr uint8_t MENU_ROOT_COUNT = 1;       // module submenus
+    static constexpr DisplayMainValue MAIN_VALUES[] = { /* idle screen */ };
+}
+```
+
+`MENU_NODES` layout: the first `MENU_ROOT_COUNT` nodes are module
+submenus (root children); items follow, contiguous per submenu
+(`first_child`/`child_count`). Item type is derived from `state`:
+`readwrite` float/int → `EDIT_FLOAT`/`EDIT_INT` with `min`/`max`/`step`;
+`options` → `EDIT_ENUM` with an option table; bool → `EDIT_BOOL` with
+`on_label`/`off_label`; `read` → `VALUE`. The tree is capped at 255
+nodes (`uint8_t` indices) — the generator fails the build beyond that.
 
 ## CLI options
 

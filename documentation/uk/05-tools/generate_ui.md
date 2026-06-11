@@ -114,8 +114,38 @@ namespace modesp::generated::mqtt {
 
 ## Вихід 4: `generated/display_screens.h`
 
-Генерує дерева меню для LCD-дисплеїв. Опціонально — створюється, лише
-якщо будь-який маніфест модуля містить блок `display:`.
+Ієрархічне дерево екранного меню, зібране із секцій `display:` усіх
+модулів. Споживається модулем `display`
+([modules/display.md](../03-framework-reference/modules/display.md)).
+
+```cpp
+namespace modesp::gen {
+    enum class DisplayItemType : uint8_t {
+        SUBMENU, VALUE, EDIT_FLOAT, EDIT_INT, EDIT_BOOL, EDIT_ENUM };
+
+    struct DisplayMenuNode {
+        const char* label; const char* key;
+        const char* format; const char* unit;
+        DisplayItemType type;
+        float min, max, step;                  // межі редагування зі state
+        const DisplayEnumOption* options;      // для enum/bool
+        uint8_t option_count;
+        uint8_t first_child, child_count;      // для SUBMENU
+    };
+
+    static constexpr DisplayMenuNode MENU_NODES[] = { /* ... */ };
+    static constexpr uint8_t MENU_ROOT_COUNT = 1;       // підменю модулів
+    static constexpr DisplayMainValue MAIN_VALUES[] = { /* головний екран */ };
+}
+```
+
+Розкладка `MENU_NODES`: перші `MENU_ROOT_COUNT` вузлів — підменю
+модулів (діти root); далі — пункти, неперервно на кожне підменю
+(`first_child`/`child_count`). Тип пункту виводиться зі `state`:
+`readwrite` float/int → `EDIT_FLOAT`/`EDIT_INT` з `min`/`max`/`step`;
+`options` → `EDIT_ENUM` з таблицею опцій; bool → `EDIT_BOOL` з
+`on_label`/`off_label`; `read` → `VALUE`. Дерево обмежене 255 вузлами
+(індекси `uint8_t`) — генератор зупиняє збірку при перевищенні.
 
 ## Опції CLI
 

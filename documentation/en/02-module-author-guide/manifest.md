@@ -220,6 +220,42 @@ where `<base>` is configured у `sdkconfig` (default `modesp/<device-id>`).
 - Published values get а throttled delta-publish (Stage 1.5 will document
   rates і LWT handling at [mqtt.md](mqtt.md) *(planned)*).
 
+## Section: `display` (service modules, optional)
+
+Describes what the module shows on the device's local display (OLED/LCD).
+The generator merges every module's section into a single menu tree in
+`generated/display_screens.h`; the `display` module renders it and
+handles button navigation. See
+[modules/display.md](../03-framework-reference/modules/display.md).
+
+```json
+"display": {
+  "main_value": {"key": "simple_thermo.temperature", "format": "%.1f°C"},
+  "menu_label": "Термостат",
+  "menu_items": [
+    {"label": "Уставка", "key": "simple_thermo.setpoint"},
+    {"label": "Стан", "key": "simple_thermo.state"}
+  ]
+}
+```
+
+| Field | Description |
+|---|---|
+| `main_value` | Value for the idle screen: `key` + printf `format`. |
+| `menu_label` | The module's submenu title. Falls back to `ui.page`, then the module name. |
+| `menu_items[]` | Submenu entries: required `label` and `key`, optional `format` (printf). |
+
+**Rules:**
+- Every `key` must exist in this module's `state` section — validated
+  at build time.
+- Editability is derived from `state` automatically: `access: "readwrite"`
+  makes the item editable with step/bounds from `min`/`max`/`step`;
+  `options` gives a pick-list; `bool` becomes a toggle using
+  `on_label`/`off_label`. Keys with `access: "read"` render as read-only
+  values.
+- A `readwrite` string without `options` renders read-only on the
+  display (text cannot be edited with buttons) — the generator warns.
+
 ## Section: `loggable` (service modules)
 
 Wires state keys to the DataLogger module — channels for time-series, events

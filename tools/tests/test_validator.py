@@ -202,6 +202,81 @@ class TestDisplayValidation:
         validator.validate_manifest(manifest, "test")
         assert any("Display menu_item" in e for e in validator.errors)
 
+    def test_display_main_value_missing_key(self, validator):
+        """display main_value без key — помилка."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.x": {"type": "float", "access": "read"}},
+            "display": {"main_value": {"format": "%.1f"}}
+        }
+        validator.validate_manifest(manifest, "test")
+        assert any("main_value missing 'key'" in e for e in validator.errors)
+
+    def test_display_menu_item_missing_label(self, validator):
+        """menu_item без label — помилка."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.x": {"type": "float", "access": "read"}},
+            "display": {"menu_items": [{"key": "test.x"}]}
+        }
+        validator.validate_manifest(manifest, "test")
+        assert any("menu_item missing 'label'" in e for e in validator.errors)
+
+    def test_display_menu_item_missing_key(self, validator):
+        """menu_item без key — помилка."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.x": {"type": "float", "access": "read"}},
+            "display": {"menu_items": [{"label": "X"}]}
+        }
+        validator.validate_manifest(manifest, "test")
+        assert any("missing 'key'" in e for e in validator.errors)
+
+    def test_display_menu_label_empty(self, validator):
+        """menu_label порожній рядок — помилка."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.x": {"type": "float", "access": "read"}},
+            "display": {"menu_label": "  ",
+                        "menu_items": [{"label": "X", "key": "test.x"}]}
+        }
+        validator.validate_manifest(manifest, "test")
+        assert any("menu_label" in e for e in validator.errors)
+
+    def test_display_rw_string_warning(self, validator):
+        """readwrite string в menu_items — warning (view-only на дисплеї)."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.name": {"type": "string", "access": "readwrite"}},
+            "display": {"menu_items": [{"label": "Імʼя", "key": "test.name"}]}
+        }
+        validator.validate_manifest(manifest, "test")
+        assert any("view-only" in w for w in validator.warnings)
+
+    def test_display_valid_section_passes(self, validator):
+        """Коректна display-секція — без помилок."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {
+                "test.temp": {"type": "float", "access": "read", "unit": "°C"},
+                "test.sp": {"type": "float", "access": "readwrite",
+                            "min": 0, "max": 10, "step": 0.5},
+            },
+            "display": {
+                "main_value": {"key": "test.temp", "format": "%.1f°C"},
+                "menu_label": "Тест",
+                "menu_items": [{"label": "Уставка", "key": "test.sp"}]
+            }
+        }
+        validator.validate_manifest(manifest, "test")
+        assert validator.errors == []
+
 
 class TestCrossModuleValidation:
     """V12: перевірка дублікатів між модулями."""

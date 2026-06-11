@@ -37,11 +37,9 @@ include_directories(
     "${ROOT}/components/modesp_core/include"                # modesp/shared_state.h, base_module.h, types.h
     "${ROOT}/generated"                                     # features_config.h, state_meta.h, etc.
     "${ROOT}/components/modesp_hal/include"                  # modesp/hal/driver_interfaces.h, hal_types.h
-    "${ROOT}/modules/thermostat/include"                    # thermostat_module.h
-    "${ROOT}/modules/defrost/include"                       # defrost_module.h
-    "${ROOT}/modules/protection/include"                    # protection_module.h
     "${ROOT}/modules/equipment/include"                     # equipment_module.h
     "${ROOT}/modules/datalogger/include"                    # datalogger_module.h
+    "${ROOT}/modules/display/include"                       # display_module.h, display/menu_engine.h
     "${CMAKE_SOURCE_DIR}"                                   # for #include "doctest.h"
 )
 
@@ -55,21 +53,18 @@ set(CORE_SOURCES
 
 # ── Business module sources (compile directly — only need esp_log.h which is mocked) ──
 set(MODULE_SOURCES
-    "${ROOT}/modules/thermostat/src/thermostat_module.cpp"
-    "${ROOT}/modules/defrost/src/defrost_module.cpp"
-    "${ROOT}/modules/protection/src/protection_module.cpp"
-    "${ROOT}/modules/equipment/src/equipment_module.cpp"
+    "${ROOT}/modules/equipment/src/equipment_base.cpp"
     "${ROOT}/modules/datalogger/src/datalogger_module.cpp"
+    "${ROOT}/modules/display/src/menu_engine.cpp"
+    "${ROOT}/modules/display/src/display_module.cpp"
 )
 
 # ── Test sources ──
 set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_main.cpp"
-    "${CMAKE_SOURCE_DIR}/test_thermostat.cpp"
-    "${CMAKE_SOURCE_DIR}/test_defrost.cpp"
-    "${CMAKE_SOURCE_DIR}/test_protection.cpp"
     "${CMAKE_SOURCE_DIR}/test_equipment.cpp"
     "${CMAKE_SOURCE_DIR}/test_datalogger.cpp"
+    "${CMAKE_SOURCE_DIR}/test_display_menu.cpp"
 )
 
 add_executable(test_runner

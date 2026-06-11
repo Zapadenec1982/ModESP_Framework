@@ -144,16 +144,42 @@ class ManifestValidator:
                 self.errors.append(
                     f"[{name}] MQTT subscribe key '{key}' not found in state")
 
-        # Validate display keys reference existing state keys
+        # Validate display section (main_value + hierarchical menu)
         display = manifest.get("display", {})
         mv = display.get("main_value", {})
-        if mv and mv.get("key") and mv["key"] not in state:
+        if mv:
+            if not mv.get("key"):
+                self.errors.append(
+                    f"[{name}] Display main_value missing 'key'")
+            elif mv["key"] not in state:
+                self.errors.append(
+                    f"[{name}] Display main_value key '{mv['key']}' not found in state")
+        menu_label = display.get("menu_label")
+        if menu_label is not None and (not isinstance(menu_label, str)
+                                       or not menu_label.strip()):
             self.errors.append(
-                f"[{name}] Display main_value key '{mv['key']}' not found in state")
+                f"[{name}] Display menu_label must be a non-empty string")
         for item in display.get("menu_items", []):
-            if item.get("key") and item["key"] not in state:
+            if not item.get("label"):
+                self.errors.append(
+                    f"[{name}] Display menu_item missing 'label' "
+                    f"(key '{item.get('key', '?')}')")
+            if not item.get("key"):
+                self.errors.append(
+                    f"[{name}] Display menu_item '{item.get('label', '?')}' "
+                    f"missing 'key'")
+            elif item["key"] not in state:
                 self.errors.append(
                     f"[{name}] Display menu_item key '{item['key']}' not found in state")
+            else:
+                info = state[item["key"]]
+                # readwrite string without options is not editable on a device menu
+                if (info.get("access") == "readwrite"
+                        and info.get("type") == "string"
+                        and "options" not in info):
+                    self.warnings.append(
+                        f"[{name}] Display menu_item key '{item['key']}' is a "
+                        f"readwrite string — shown as view-only on display")
 
         # V14: features.*.controls_settings keys must exist in state
         features = manifest.get("features", {})
@@ -1397,69 +1423,210 @@ class MqttTopicsGenerator:
 
 
 class DisplayScreensGenerator:
-    """Generates generated/display_screens.h for LCD/OLED menus."""
+    """Generates generated/display_screens.h — hierarchical LCD/OLED menu tree.
+
+    Layout of MENU_NODES (flattened tree):
+      [0 .. MENU_ROOT_COUNT-1]  — module submenus (root children)
+      [MENU_ROOT_COUNT .. N-1]  — items, contiguous per submenu
+
+    Edit constraints (min/max/step/unit/options) are merged from the
+    state definition — menu_items only need label + key.
+    """
+
+    DEFAULT_FORMATS = {"float": "%.1f", "int": "%d", "bool": "%s", "string": "%s"}
+
+    @staticmethod
+    def _cstr(s):
+        """Escape a Python string into a C string literal (without quotes)."""
+        return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+    def _item_type(self, info):
+        """Map a state definition to a DisplayItemType."""
+        stype = info.get("type", "string")
+        if info.get("access") != "readwrite":
+            return "VALUE"
+        if "options" in info:
+            return "EDIT_ENUM"
+        if stype == "float":
+            return "EDIT_FLOAT"
+        if stype == "int":
+            return "EDIT_INT"
+        if stype == "bool":
+            return "EDIT_BOOL"
+        return "VALUE"  # readwrite string — view-only on device
+
+    def _options_for(self, key, info):
+        """Options table for enum keys; on/off labels for bool keys."""
+        if "options" in info:
+            return [(opt.get("label", str(opt["value"])), opt["value"])
+                    for opt in info["options"]]
+        if info.get("type") == "bool":
+            return [(info.get("off_label", "OFF"), 0),
+                    (info.get("on_label", "ON"), 1)]
+        return None
 
     def generate(self, manifests):
         main_values = []
-        menu_items = []
+        submenus = []  # [{label, items: [node dict]}]
 
         for m in manifests:
             display = m.get("display", {})
+            state = m.get("state", {})
+            menu_label = (display.get("menu_label")
+                          or m.get("ui", {}).get("page")
+                          or m["module"])
+
             mv = display.get("main_value")
             if mv:
                 main_values.append({
                     "module": m["module"],
+                    "label": menu_label,
                     "key": mv["key"],
                     "format": mv.get("format", "%s"),
                 })
+
+            items = []
             for item in display.get("menu_items", []):
-                menu_items.append({
+                info = state.get(item["key"], {})
+                stype = info.get("type", "string")
+                items.append({
                     "label": item["label"],
                     "key": item["key"],
+                    "format": item.get("format")
+                              or self.DEFAULT_FORMATS.get(stype, "%s"),
+                    "unit": info.get("unit", ""),
+                    "type": self._item_type(info),
+                    "min": float(info.get("min", 0)),
+                    "max": float(info.get("max", 0)),
+                    "step": float(info.get("step", 0)),
+                    "options": self._options_for(item["key"], info),
                 })
+            if items:
+                submenus.append({"label": menu_label, "items": items})
+
+        total_nodes = len(submenus) + sum(len(s["items"]) for s in submenus)
+        if total_nodes > 255:
+            raise SystemExit(
+                f"display: menu tree has {total_nodes} nodes (max 255 — "
+                f"first_child/child_count are uint8_t)")
 
         lines = [
             "#pragma once",
-            "// Auto-generated by generate_ui.py \u2014 DO NOT EDIT",
+            "// Auto-generated by generate_ui.py — DO NOT EDIT",
             "",
             "#include <cstddef>",
+            "#include <cstdint>",
             "",
             "namespace modesp::gen {",
             "",
+            "// ── Idle screen: primary values cycled on the main screen ──",
             "struct DisplayMainValue {",
             "    const char* module;",
+            "    const char* label;",
             "    const char* key;",
             "    const char* format;",
             "};",
             "",
-            "struct DisplayMenuItem {",
+            "// ── Menu tree ──",
+            "enum class DisplayItemType : uint8_t {",
+            "    SUBMENU,     // node with children",
+            "    VALUE,       // read-only value",
+            "    EDIT_FLOAT,  // editable float (min/max/step)",
+            "    EDIT_INT,    // editable int (min/max/step)",
+            "    EDIT_BOOL,   // editable bool (toggle)",
+            "    EDIT_ENUM,   // editable int with named options",
+            "};",
+            "",
+            "struct DisplayEnumOption {",
             "    const char* label;",
-            "    const char* key;",
+            "    int32_t     value;",
+            "};",
+            "",
+            "struct DisplayMenuNode {",
+            "    const char*              label;",
+            "    const char*              key;          // empty for SUBMENU",
+            "    const char*              format;       // printf format for the value",
+            "    const char*              unit;         // empty if none",
+            "    DisplayItemType          type;",
+            "    float                    min;          // EDIT_FLOAT / EDIT_INT",
+            "    float                    max;",
+            "    float                    step;",
+            "    const DisplayEnumOption* options;      // EDIT_ENUM / bool labels",
+            "    uint8_t                  option_count;",
+            "    uint8_t                  first_child;  // SUBMENU: index into MENU_NODES",
+            "    uint8_t                  child_count;",
             "};",
             "",
         ]
+
+        # Option tables (one constexpr array per key that has options)
+        option_arrays = {}  # key -> array name
+        for s in submenus:
+            for it in s["items"]:
+                if it["options"] and it["key"] not in option_arrays:
+                    arr_name = "OPTIONS_" + re.sub(r"[^a-zA-Z0-9]", "_", it["key"])
+                    option_arrays[it["key"]] = arr_name
+                    lines.append(
+                        f"static constexpr DisplayEnumOption {arr_name}[] = {{")
+                    for label, value in it["options"]:
+                        lines.append(
+                            f'    {{"{self._cstr(label)}", {value}}},')
+                    lines.append("};")
+                    lines.append("")
+
+        def fmt_float(v):
+            s = f"{v:g}"
+            if "." not in s and "e" not in s:
+                s += ".0"
+            return s + "f"
+
+        # Menu tree: submenus first (root children), then items per submenu
+        lines.append("static constexpr DisplayMenuNode MENU_NODES[] = {")
+        if submenus:
+            next_child = len(submenus)
+            for s in submenus:
+                lines.append(
+                    f'    {{"{self._cstr(s["label"])}", "", "", "", '
+                    f"DisplayItemType::SUBMENU, 0, 0, 0, nullptr, 0, "
+                    f'{next_child}, {len(s["items"])}}},')
+                next_child += len(s["items"])
+            for s in submenus:
+                for it in s["items"]:
+                    if it["options"]:
+                        opts = option_arrays[it["key"]]
+                        opt_count = len(it["options"])
+                    else:
+                        opts = "nullptr"
+                        opt_count = 0
+                    lines.append(
+                        f'    {{"{self._cstr(it["label"])}", "{it["key"]}", '
+                        f'"{self._cstr(it["format"])}", "{self._cstr(it["unit"])}", '
+                        f'DisplayItemType::{it["type"]}, '
+                        f'{fmt_float(it["min"])}, {fmt_float(it["max"])}, '
+                        f'{fmt_float(it["step"])}, '
+                        f"{opts}, {opt_count}, 0, 0}},")
+        else:
+            lines.append('    {"", "", "", "", DisplayItemType::SUBMENU, '
+                         "0, 0, 0, nullptr, 0, 0, 0},  // empty")
+        lines.append("};")
+        lines.append(f"static constexpr size_t MENU_NODES_COUNT = {total_nodes};")
+        lines.append("")
+        lines.append("// Root children: MENU_NODES[MENU_ROOT_FIRST .. +MENU_ROOT_COUNT)")
+        lines.append("static constexpr uint8_t MENU_ROOT_FIRST = 0;")
+        lines.append(f"static constexpr uint8_t MENU_ROOT_COUNT = {len(submenus)};")
+        lines.append("")
 
         # Main values
         lines.append("static constexpr DisplayMainValue MAIN_VALUES[] = {")
         if main_values:
             for v in main_values:
                 lines.append(
-                    f'    {{"{v["module"]}", "{v["key"]}", "{v["format"]}"}},')
+                    f'    {{"{v["module"]}", "{self._cstr(v["label"])}", '
+                    f'"{v["key"]}", "{self._cstr(v["format"])}"}},')
         else:
-            lines.append('    {"", "", ""},  // empty')
+            lines.append('    {"", "", "", ""},  // empty')
         lines.append("};")
         lines.append(f"static constexpr size_t MAIN_VALUES_COUNT = {len(main_values)};")
-        lines.append("")
-
-        # Menu items
-        lines.append("static constexpr DisplayMenuItem MENU_ITEMS[] = {")
-        if menu_items:
-            for item in menu_items:
-                lines.append(f'    {{"{item["label"]}", "{item["key"]}"}},')
-        else:
-            lines.append('    {"", ""},  // empty')
-        lines.append("};")
-        lines.append(f"static constexpr size_t MENU_ITEMS_COUNT = {len(menu_items)};")
         lines.append("")
         lines.append("} // namespace modesp::gen")
         lines.append("")
