@@ -53,10 +53,15 @@ manifest-driven.
   справжні ключі.
 - Специфічне для рецептів: імена доріжок, посилання на фази, імена дій
   та умов у `tools/known_actions.json`.
+- **Bindings ↔ board ↔ driver** (`bindings.json` активної плати): кожен
+  `hardware` існує в `board.json`; кожен `driver` має маніфест; `hardware_type`
+  драйвера збігається з секцією board його hardware; `requires_address`
+  дотримано; повтор hardware лише з `multiple_per_bus` + окремими адресами;
+  унікальна role в межах модуля. Неправильна прив'язка ламає білд.
 
 У разі помилки генератор виводить
-`<file>:<line>:<col>: error[<code>]: <msg>` і виходить із кодом 1.
-Складання падає.
+`<file>:<line>:<col>: error[<code>]: <msg>` (або `[context] message` для
+крос-перевірок) і виходить із кодом 1. Складання падає.
 
 ## Вихід 1: `data/ui.json` (схема часу виконання)
 
@@ -146,6 +151,26 @@ namespace modesp::gen {
 `options` → `EDIT_ENUM` з таблицею опцій; bool → `EDIT_BOOL` з
 `on_label`/`off_label`; `read` → `VALUE`. Дерево обмежене 255 вузлами
 (індекси `uint8_t`) — генератор зупиняє збірку при перевищенні.
+
+## Вихід 5: реєстрація модулів, драйверний glue та інше
+
+Компактні виходи, що зв'язують білд (усе `DO NOT EDIT`):
+
+| Файл | З чого | Призначення |
+|---|---|---|
+| `generated/module_includes.h` / `module_instances.h` / `module_register.h` | `project.json` | `#include`, статичні інстанси, виклики `register_module()` для `main.cpp` |
+| `generated/modules.cmake` | `project.json` | список module-компонентів для REQUIRES у `main/CMakeLists.txt` |
+| `generated/mqtt_topics.h` | секції `mqtt` | константи топіків на ключ для `MqttService` |
+| `generated/datalogger_channels.h` / `datalogger_events.h` | секції `loggable` | таблиці id каналів/подій для DataLogger |
+| `components/modesp_hal/Kconfig` | `drivers/*/manifest.json` | toggle `CONFIG_MODESP_DRIVER_<NAME>` на драйвер (menu "ModESP Drivers") |
+| `generated/drivers.cmake` | драйвери | список `MODESP_ALL_DRIVERS` для REQUIRES `modesp_hal` |
+| `generated/driver_register_all.h` | драйвери | guarded `modesp_register_all_drivers()` (пропускає вимкнені) |
+| `generated/required_drivers.cmake` | активний `bindings.json` | `MODESP_BOUND_DRIVERS` — перевіряється `modesp_hal/CMakeLists.txt`: FATAL, якщо bound-драйвер вимкнено |
+| `data/www/i18n/*.json` | `i18n/` модулів | об'єднані пакети перекладів |
+
+Драйверний glue робить кожен драйвер опційним і самореєструваним; див.
+[drivers_sync.md](drivers_sync.md) і
+[writing-a-driver.md](../02-module-author-guide/writing-a-driver.md).
 
 ## Опції CLI
 

@@ -48,9 +48,14 @@ The `ManifestValidator` runs over each manifest before generation:
 - Cross-module references: visible_when conditions point to real keys.
 - Recipe-specific: track names, phase references, action/condition names
   у `tools/known_actions.json`.
+- **Bindings ↔ board ↔ driver** (the active board's `bindings.json`): every
+  `hardware` exists in `board.json`; every `driver` has a manifest; the driver's
+  `hardware_type` matches the board section of its hardware; `requires_address`
+  honored; hardware reuse only with `multiple_per_bus` + distinct addresses;
+  unique role per module. A mis-wired binding fails the build.
 
 On error, the generator prints `<file>:<line>:<col>: error[<code>]: <msg>`
-і exits з code 1. Build fails.
+(or `[context] message` for cross-checks) і exits з code 1. Build fails.
 
 ## Output 1: `data/ui.json` (the runtime schema)
 
@@ -138,6 +143,26 @@ submenus (root children); items follow, contiguous per submenu
 `options` → `EDIT_ENUM` with an option table; bool → `EDIT_BOOL` with
 `on_label`/`off_label`; `read` → `VALUE`. The tree is capped at 255
 nodes (`uint8_t` indices) — the generator fails the build beyond that.
+
+## Output 5: module registration, driver glue, and the rest
+
+Compact outputs that wire the build together (all `DO NOT EDIT`):
+
+| File | From | Purpose |
+|---|---|---|
+| `generated/module_includes.h` / `module_instances.h` / `module_register.h` | `project.json` | `#include`, static instances, and `register_module()` calls used by `main.cpp` |
+| `generated/modules.cmake` | `project.json` | module component list for `main/CMakeLists.txt` REQUIRES |
+| `generated/mqtt_topics.h` | `mqtt` sections | per-key topic constants for `MqttService` |
+| `generated/datalogger_channels.h` / `datalogger_events.h` | `loggable` sections | channel/event id tables for DataLogger |
+| `components/modesp_hal/Kconfig` | `drivers/*/manifest.json` | one `CONFIG_MODESP_DRIVER_<NAME>` toggle per driver (menu "ModESP Drivers") |
+| `generated/drivers.cmake` | drivers | `MODESP_ALL_DRIVERS` list for `modesp_hal` REQUIRES |
+| `generated/driver_register_all.h` | drivers | guarded `modesp_register_all_drivers()` (skips disabled drivers) |
+| `generated/required_drivers.cmake` | active `bindings.json` | `MODESP_BOUND_DRIVERS` — checked by `modesp_hal/CMakeLists.txt` to FATAL if a bound driver is disabled |
+| `data/www/i18n/*.json` | per-module `i18n/` | merged translation packs |
+
+The driver glue makes each driver optional and self-registering; see
+[drivers_sync.md](drivers_sync.md) and
+[writing-a-driver.md](../02-module-author-guide/writing-a-driver.md).
 
 ## CLI options
 

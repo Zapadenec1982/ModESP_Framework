@@ -18,9 +18,11 @@ In order:
 
 1. **[Quickstart](01-getting-started/quickstart.md)** — flash а device,
    run the reference scenario, see live state у WebUI. Under 10 minutes.
-2. **[Concepts](01-getting-started/concepts.md)** — four key
+2. **[System overview](01-getting-started/system-overview.md)** — how it all
+   connects: philosophy, the single source of truth, pin→widget chain.
+3. **[Concepts](01-getting-started/concepts.md)** — four key
    ideas (manifest-driven, modules, scenarios, SharedState).
-3. **[Module Author Guide → Overview](02-module-author-guide/overview.md)**
+4. **[Module Author Guide → Overview](02-module-author-guide/overview.md)**
    — start writing your first module.
 
 ## Navigation
@@ -31,6 +33,7 @@ In order:
 |---|---|---|
 | [quickstart.md](01-getting-started/quickstart.md) | ✅ | Flash, configure, run the reference scenario. |
 | [installation.md](01-getting-started/installation.md) | ✅ | ESP-IDF install, repo clone, first build. |
+| [system-overview.md](01-getting-started/system-overview.md) | ✅ | How it all connects: philosophy, single source of truth, pin→widget chain, navigation map. |
 | [concepts.md](01-getting-started/concepts.md) | ✅ | Core mental model. |
 
 ### 02 — Module Author Guide (Primary audience)
@@ -91,8 +94,9 @@ In order:
 
 | Document | Status | Purpose |
 |---|---|---|
-| [generate_ui.md](05-tools/generate_ui.md) | ✅ | Build-time generator overview. |
+| [generate_ui.md](05-tools/generate_ui.md) | ✅ | Build-time generator: validation + all generated outputs. |
 | [compile_scenario.md](05-tools/compile_scenario.md) | ✅ | Recipe compiler і `.modr` format. |
+| [drivers_sync.md](05-tools/drivers_sync.md) | ✅ | Reconcile menuconfig driver toggles with the active board. |
 | [dump_modr.md](05-tools/dump_modr.md) | ✅ | `.modr` inspector / debugger. |
 
 ### 06 — Contributing

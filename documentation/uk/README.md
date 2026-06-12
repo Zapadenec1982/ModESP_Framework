@@ -20,9 +20,11 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 1. **[Швидкий старт](01-getting-started/quickstart.md)** — прошити пристрій,
    запустити еталонний сценарій, побачити стан у реальному часі в WebUI.
    Менш ніж 10 хвилин.
-2. **[Концепції](01-getting-started/concepts.md)** — чотири ключові ідеї
+2. **[Огляд системи](01-getting-started/system-overview.md)** — як усе
+   сполучається: філософія, єдине джерело істини, ланцюг пін→віджет.
+3. **[Концепції](01-getting-started/concepts.md)** — чотири ключові ідеї
    (керування маніфестами, модулі, сценарії, SharedState).
-3. **[Module Author Guide → Огляд](02-module-author-guide/overview.md)** —
+4. **[Module Author Guide → Огляд](02-module-author-guide/overview.md)** —
    починаєте писати свій перший модуль.
 
 ## Навігація
@@ -33,6 +35,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 |---|---|---|
 | [quickstart.md](01-getting-started/quickstart.md) | ✅ | Прошивка, налаштування, запуск еталонного сценарію. |
 | [installation.md](01-getting-started/installation.md) | ✅ | Встановлення ESP-IDF, клонування репозиторію, перше збирання. |
+| [system-overview.md](01-getting-started/system-overview.md) | ✅ | Як усе сполучається: філософія, єдине джерело істини, ланцюг пін→віджет, навігаційна мапа. |
 | [concepts.md](01-getting-started/concepts.md) | ✅ | Ментальна модель ядра. |
 
 ### 02 — Module Author Guide (Основна аудиторія)
@@ -93,8 +96,9 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 
 | Документ | Статус | Призначення |
 |---|---|---|
-| [generate_ui.md](05-tools/generate_ui.md) | ✅ | Огляд генератора часу збирання. |
+| [generate_ui.md](05-tools/generate_ui.md) | ✅ | Генератор часу збирання: валідація + усі згенеровані виходи. |
 | [compile_scenario.md](05-tools/compile_scenario.md) | ✅ | Компілятор рецептів і формат `.modr`. |
+| [drivers_sync.md](05-tools/drivers_sync.md) | ✅ | Узгодження driver-toggle'ів menuconfig з активною платою. |
 | [dump_modr.md](05-tools/dump_modr.md) | ✅ | Інспектор / зневаджувач `.modr`. |
 
 ### 06 — Контриб'ютори
