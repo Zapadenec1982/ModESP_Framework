@@ -143,6 +143,12 @@ class ManifestValidator:
             if key not in state:
                 self.errors.append(
                     f"[{name}] MQTT subscribe key '{key}' not found in state")
+            elif state[key].get("access") != "readwrite":
+                # SECURITY: subscribing makes the device accept remote writes to
+                # this key — a read-only key must not be in the subscribe list.
+                self.errors.append(
+                    f"[{name}] MQTT subscribe key '{key}' has access="
+                    f"'{state[key].get('access')}' — must be 'readwrite'")
 
         # Validate display section (main_value + hierarchical menu)
         display = manifest.get("display", {})
@@ -290,6 +296,45 @@ class ManifestValidator:
                                 f"[{mod_name}] Feature '{feat_name}' "
                                 f"requires_role '{role}' not found in "
                                 f"equipment.requires")
+
+        # V20: visible_when must reference a declared state key or a known runtime
+        # namespace — catches dangling refs (e.g. a leftover 'equipment.evap_temp'
+        # after the hardware it gated was removed).
+        RUNTIME_KEY_PREFIXES = (
+            "equipment.has_",  # dynamic per-role presence flags
+            "wifi.", "mqtt.", "system.", "_ota.", "scenario.",  # framework-populated
+        )
+
+        def _vw_key(vw):
+            """Extract the state key a visible_when refers to (both schema forms)."""
+            if not isinstance(vw, dict):
+                return None
+            if isinstance(vw.get("key"), str):          # canonical {"key": "...", op: ...}
+                return vw["key"]
+            if len(vw) == 1:                            # short form {"<state.key>": [...]}
+                only = next(iter(vw))
+                if isinstance(only, str):
+                    return only
+            return None
+
+        def _check_vw(vw, context, mod):
+            k = _vw_key(vw)
+            if k is None or k in seen_keys:
+                return
+            if any(k.startswith(p) for p in RUNTIME_KEY_PREFIXES):
+                return
+            self.errors.append(
+                f"[{mod}] {context}: visible_when key '{k}' is not a declared "
+                f"state key or known runtime namespace")
+
+        for m in manifests:
+            mod = m.get("module", "?")
+            for card in m.get("ui", {}).get("cards", []):
+                if "visible_when" in card:
+                    _check_vw(card["visible_when"], f"card '{card.get('title', '?')}'", mod)
+                for w in card.get("widgets", []):
+                    if "visible_when" in w:
+                        _check_vw(w["visible_when"], f"widget '{w.get('key', '?')}'", mod)
 
         # Валідація inputs секцій
         if active_modules is None:
@@ -612,6 +657,44 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings):
                     errors.append(
                         f"[{mod_name}] Require '{role}' type='{req_type}' but "
                         f"driver '{drv_name}' category='{drv_cat}'")
+
+
+def validate_loggable(manifests, errors):
+    """Validate DataLogger event ids in the pre-write gate (before any file lands).
+
+    Mirrors the runtime contract enforced by datalogger_module.cpp:
+      - ids are uint8_t (0-255, integer, not bool);
+      - system ids 7 (EVENT_ALARM_CLEAR) and 10 (EVENT_POWER_ON) are reserved;
+      - BOTH-edge events consume id (rising) AND id+1 (falling).
+    Runs as part of the existing ERROR gate so a bad manifest fails the build
+    before partial datalogger_*.h headers are written to generated/.
+    """
+    event_ids_seen = {7, 10}
+    for m in manifests:
+        mod = m.get("module", "?")
+        for key, cfg in m.get("loggable", {}).get("events", {}).items():
+            eid = cfg.get("id")
+            if eid is None:
+                errors.append(f"[{mod}] loggable event '{key}' missing explicit 'id'")
+                continue
+            if not isinstance(eid, int) or isinstance(eid, bool):
+                errors.append(f"[{mod}] loggable event '{key}' id must be an integer, got {eid!r}")
+                continue
+            if not (0 <= eid <= 255):
+                errors.append(f"[{mod}] loggable event '{key}' id={eid} out of range 0-255 (uint8_t)")
+                continue
+            used = {eid}
+            if cfg.get("edge", "rising") == "both":
+                if eid + 1 > 255:
+                    errors.append(f"[{mod}] BOTH event '{key}' id={eid} leaves no room for id+1")
+                    continue
+                used.add(eid + 1)
+            clash = used & event_ids_seen
+            if clash:
+                errors.append(f"[{mod}] event '{key}' id(s) {sorted(used)} collide with "
+                              f"{sorted(clash)} (system ids 7/10, a BOTH id+1, or another event)")
+                continue
+            event_ids_seen |= used
 
 
 def load_all_driver_manifests(drivers_dir, warnings):
@@ -1932,6 +2015,10 @@ def main():
     all_driver_manifests = load_all_driver_manifests(args.drivers_dir, binding_warnings)
     validate_bindings(board, bindings, all_driver_manifests, binding_errors, binding_warnings)
 
+    # DataLogger event-id validation (before any generated/ file is written)
+    loggable_errors = []
+    validate_loggable(manifests, loggable_errors)
+
     # Print validation results
     print("\nValidating...")
     ok = validator.report()
@@ -1947,6 +2034,9 @@ def main():
     for w in binding_warnings:
         print(f"  WARNING: {w}")
     for e in binding_errors:
+        print(f"  ERROR: {e}")
+        ok = False
+    for e in loggable_errors:
         print(f"  ERROR: {e}")
         ok = False
 
@@ -2300,66 +2390,64 @@ def main():
                 "label": cfg.get("label", ch_id),
             })
 
-    if log_channels:
-        MAX_CHANNELS = 6  # Fixed for binary compatibility
-        if len(log_channels) > MAX_CHANNELS:
-            print(f"  WARNING: {len(log_channels)} channels declared, MAX_CHANNELS={MAX_CHANNELS}")
+    # Always (re)write the header — even with zero channels — so removing the last
+    # loggable channel can't leave a stale datalogger_channels.h that the
+    # unconditional #include in datalogger_module.h would still compile against.
+    MAX_CHANNELS = 6  # Fixed for binary compatibility
+    if len(log_channels) > MAX_CHANNELS:
+        print(f"  WARNING: {len(log_channels)} channels declared, MAX_CHANNELS={MAX_CHANNELS}")
 
-        ch_lines = [
-            "#pragma once",
-            "// Auto-generated from module manifests — DO NOT EDIT",
-            "",
-            "#include <cstddef>",
-            "#include <cstdint>",
-            "",
-            "namespace modesp::gen {",
-            "",
-            "struct LogChannel {",
-            "    const char* id;",
-            "    const char* state_key;",
-            "    const char* enable_key;   // nullptr = always enabled",
-            "    const char* requires_key; // nullptr = no hardware condition",
-            "    bool default_enabled;",
-            "};",
-            "",
-            f"static constexpr size_t MAX_LOG_CHANNELS = {MAX_CHANNELS};",
-            f"static constexpr size_t LOG_CHANNELS_COUNT = {len(log_channels)};",
-            "",
-            "static constexpr LogChannel LOG_CHANNELS[] = {",
-        ]
-        for ch in log_channels:
-            ek = f'"{ch["enable_key"]}"' if ch["enable_key"] else "nullptr"
-            rk = f'"{ch["requires"]}"' if ch["requires"] else "nullptr"
-            de = "true" if ch["default"] else "false"
-            ch_lines.append(f'    {{"{ch["id"]}", "{ch["state_key"]}", {ek}, {rk}, {de}}},')
-        ch_lines.extend([
-            "};",
-            "",
-            "} // namespace modesp::gen",
-        ])
+    ch_lines = [
+        "#pragma once",
+        "// Auto-generated from module manifests — DO NOT EDIT",
+        "",
+        "#include <cstddef>",
+        "#include <cstdint>",
+        "",
+        "namespace modesp::gen {",
+        "",
+        "struct LogChannel {",
+        "    const char* id;",
+        "    const char* state_key;",
+        "    const char* enable_key;   // nullptr = always enabled",
+        "    const char* requires_key; // nullptr = no hardware condition",
+        "    bool default_enabled;",
+        "};",
+        "",
+        f"static constexpr size_t MAX_LOG_CHANNELS = {MAX_CHANNELS};",
+        f"static constexpr size_t LOG_CHANNELS_COUNT = {len(log_channels)};",
+        "",
+        "static constexpr LogChannel LOG_CHANNELS[] = {",
+    ]
+    for ch in log_channels:
+        ek = f'"{ch["enable_key"]}"' if ch["enable_key"] else "nullptr"
+        rk = f'"{ch["requires"]}"' if ch["requires"] else "nullptr"
+        de = "true" if ch["default"] else "false"
+        ch_lines.append(f'    {{"{ch["id"]}", "{ch["state_key"]}", {ek}, {rk}, {de}}},')
+    if not log_channels:
+        # Zero-length C++ arrays are non-standard; emit one never-indexed sentinel
+        # (LOG_CHANNELS_COUNT == 0 guards every access).
+        ch_lines.append('    {"", "", nullptr, nullptr, false},  // sentinel (COUNT==0)')
+    ch_lines.extend([
+        "};",
+        "",
+        "} // namespace modesp::gen",
+    ])
 
-        ch_path = gen_dir / "datalogger_channels.h"
-        with open(ch_path, "w", encoding="utf-8") as f:
-            f.write('\n'.join(ch_lines) + '\n')
-        print(f"  + {ch_path} ({len(log_channels)} channels)")
-        files_written += 1
+    ch_path = gen_dir / "datalogger_channels.h"
+    with open(ch_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(ch_lines) + '\n')
+    print(f"  + {ch_path} ({len(log_channels)} channels)")
+    files_written += 1
 
     # ── 8. DataLogger events (manifest-driven) ─────────────
+    # Event ids were already validated in the pre-write gate (validate_loggable),
+    # so this only collects + emits — no sys.exit mid-generation.
     log_events = []
-    event_ids_seen = set()
     for m in manifests:
-        loggable = m.get("loggable", {})
-        for key, cfg in loggable.get("events", {}).items():
-            eid = cfg.get("id")
-            if eid is None:
-                print(f"  ERROR: loggable event '{key}' missing explicit 'id'")
-                sys.exit(1)
-            if eid in event_ids_seen:
-                print(f"  ERROR: duplicate event id={eid} for '{key}'")
-                sys.exit(1)
-            event_ids_seen.add(eid)
+        for key, cfg in m.get("loggable", {}).get("events", {}).items():
             log_events.append({
-                "id": eid,
+                "id": cfg["id"],
                 "state_key": key,
                 "edge": cfg.get("edge", "rising"),
                 "label": cfg.get("label", key),
@@ -2370,54 +2458,58 @@ def main():
     # Sort by ID for stable ordering
     log_events.sort(key=lambda e: e["id"])
 
-    if log_events:
-        ev_lines = [
-            "#pragma once",
-            "// Auto-generated from module manifests — DO NOT EDIT",
-            "",
-            "#include <cstddef>",
-            "#include <cstdint>",
-            "",
-            "namespace modesp::gen {",
-            "",
-            "enum class EdgeType : uint8_t { RISING = 0, FALLING = 1, BOTH = 2 };",
-            "",
-            "struct LogEvent {",
-            "    uint8_t     id;          // unique event ID (stable across builds)",
-            "    const char* state_key;   // SharedState key to watch",
-            "    EdgeType    edge;        // which edge triggers the event",
-            "    const char* label;       // default label (or label_on for BOTH)",
-            "    const char* label_off;   // label for falling edge (BOTH only, nullptr otherwise)",
-            "};",
-            "",
-            "// System events (not edge-detect, logged explicitly in code)",
-            "static constexpr uint8_t EVENT_POWER_ON    = 10;",
-            "static constexpr uint8_t EVENT_ALARM_CLEAR = 7;",
-            "",
-            f"static constexpr size_t LOG_EVENTS_COUNT = {len(log_events)};",
-            "",
-            "static constexpr LogEvent LOG_EVENTS[] = {",
-        ]
-        for ev in log_events:
-            edge_str = {"rising": "EdgeType::RISING", "falling": "EdgeType::FALLING", "both": "EdgeType::BOTH"}[ev["edge"]]
-            if ev["edge"] == "both" and ev["label_on"]:
-                label = ev["label_on"]
-                label_off = f'"{ev["label_off"]}"' if ev["label_off"] else "nullptr"
-            else:
-                label = ev["label"]
-                label_off = "nullptr"
-            ev_lines.append(f'    {{{ev["id"]}, "{ev["state_key"]}", {edge_str}, "{label}", {label_off}}},')
-        ev_lines.extend([
-            "};",
-            "",
-            "} // namespace modesp::gen",
-        ])
+    # Always (re)write the header — same stale-header reasoning as channels above.
+    ev_lines = [
+        "#pragma once",
+        "// Auto-generated from module manifests — DO NOT EDIT",
+        "",
+        "#include <cstddef>",
+        "#include <cstdint>",
+        "",
+        "namespace modesp::gen {",
+        "",
+        "enum class EdgeType : uint8_t { RISING = 0, FALLING = 1, BOTH = 2 };",
+        "",
+        "struct LogEvent {",
+        "    uint8_t     id;          // unique event ID (stable across builds)",
+        "    const char* state_key;   // SharedState key to watch",
+        "    EdgeType    edge;        // which edge triggers the event",
+        "    const char* label;       // default label (or label_on for BOTH)",
+        "    const char* label_off;   // label for falling edge (BOTH only, nullptr otherwise)",
+        "};",
+        "",
+        "// System events (not edge-detect, logged explicitly in code)",
+        "static constexpr uint8_t EVENT_POWER_ON    = 10;",
+        "static constexpr uint8_t EVENT_ALARM_CLEAR = 7;",
+        "",
+        f"static constexpr size_t LOG_EVENTS_COUNT = {len(log_events)};",
+        "",
+        "static constexpr LogEvent LOG_EVENTS[] = {",
+    ]
+    for ev in log_events:
+        edge_str = {"rising": "EdgeType::RISING", "falling": "EdgeType::FALLING", "both": "EdgeType::BOTH"}[ev["edge"]]
+        if ev["edge"] == "both" and ev["label_on"]:
+            label = ev["label_on"]
+            label_off = f'"{ev["label_off"]}"' if ev["label_off"] else "nullptr"
+        else:
+            label = ev["label"]
+            label_off = "nullptr"
+        ev_lines.append(f'    {{{ev["id"]}, "{ev["state_key"]}", {edge_str}, "{label}", {label_off}}},')
+    if not log_events:
+        # Zero-length C++ arrays are non-standard; emit one never-indexed sentinel
+        # (LOG_EVENTS_COUNT == 0 guards every access).
+        ev_lines.append('    {0, "", EdgeType::RISING, "", nullptr},  // sentinel (COUNT==0)')
+    ev_lines.extend([
+        "};",
+        "",
+        "} // namespace modesp::gen",
+    ])
 
-        ev_path = gen_dir / "datalogger_events.h"
-        with open(ev_path, "w", encoding="utf-8") as f:
-            f.write('\n'.join(ev_lines) + '\n')
-        print(f"  + {ev_path} ({len(log_events)} events)")
-        files_written += 1
+    ev_path = gen_dir / "datalogger_events.h"
+    with open(ev_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(ev_lines) + '\n')
+    print(f"  + {ev_path} ({len(log_events)} events)")
+    files_written += 1
 
     # ── i18n: build language packs ───────────────────────────
     i18n_out = args.output_data / "www" / "i18n"
