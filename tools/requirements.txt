@@ -6,7 +6,9 @@
 #   tools/compile_scenario.py   — JSON Schema validation
 #   tools/tests/                — pytest suite
 #
-# Production firmware build does NOT depend on these — only host-side tooling.
+# REQUIRED for `idf.py build`: the root CMakeLists.txt runs generate_ui.py and
+# compile_scenario.py at configure time, and compile_scenario.py needs jsonschema.
+# Install into the ESP-IDF Python env: pip install -r tools/requirements.txt
 
 jsonschema>=4.0,<5.0
 pytest>=8.0,<10.0

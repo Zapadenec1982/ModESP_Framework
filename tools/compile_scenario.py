@@ -1153,6 +1153,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0] if __doc__ else "")
     parser.add_argument("--modules-dir", type=Path, default=Path("modules"))
     parser.add_argument("--output-dir", type=Path, default=Path("data/scenarios"))
+    parser.add_argument("--project", type=Path,
+                        help="project.json — only compile recipes whose module is "
+                             "listed in 'modules' (skips test recipes like abs_test)")
     parser.add_argument("--recipe", type=Path, help="compile single recipe manifest path (overrides --modules-dir)")
     parser.add_argument("--output", type=Path, help="explicit output path для --recipe mode")
     parser.add_argument("--known-actions", type=Path, default=Path("tools/known_actions.json"))
@@ -1183,9 +1186,21 @@ def main(argv: list[str] | None = None) -> int:
     else:
         manifests = sorted(args.modules_dir.glob("*/manifest.json"))
 
+        # Filter to modules enabled in project.json — otherwise test recipes
+        # (e.g. abs_test) leak their .modr into the flashed LittleFS image.
+        if args.project:
+            try:
+                proj = json.loads(args.project.read_text(encoding="utf-8"))
+                enabled = set(proj.get("modules", []))
+                manifests = [m for m in manifests if m.parent.name in enabled]
+            except Exception as e:
+                print(f"failed to read project {args.project}: {e}", file=sys.stderr)
+                return 1
+
     args.output_dir.mkdir(parents=True, exist_ok=True)
     compiled_count = 0
     error_count = 0
+    expected_outputs: set[str] = set()  # .modr files we (re)generate this run
 
     for mpath in manifests:
         try:
@@ -1207,9 +1222,19 @@ def main(argv: list[str] | None = None) -> int:
             args.output_dir / f"{result.module_name}.modr"
         )
         out_path.write_bytes(result.blob)
+        expected_outputs.add(out_path.name)
         compiled_count += 1
         if not args.quiet:
             print(f"  + {out_path} ({result.size} bytes)")
+
+    # Remove orphan .modr files (recipe deleted/disabled) so stale scenarios
+    # don't keep shipping in the LittleFS image. Only in scan mode, not --recipe.
+    if not args.recipe:
+        for stale in args.output_dir.glob("*.modr"):
+            if stale.name not in expected_outputs:
+                stale.unlink()
+                if not args.quiet:
+                    print(f"  - {stale} (orphan removed)")
 
     if not args.quiet:
         print(f"\n{compiled_count} scenarios compiled, {error_count} errors")

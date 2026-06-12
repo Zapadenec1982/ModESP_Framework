@@ -41,8 +41,25 @@ if(Python3_FOUND)
     if(NOT GEN_RESULT EQUAL 0)
         message(FATAL_ERROR "generate_ui.py failed (exit code ${GEN_RESULT})")
     endif()
+
+    # Compile recipe scenarios (.modr) from manifests — same single-source-of-truth
+    # contract as generate_ui.py. Without this, editing a recipe's "scenario" block
+    # would silently flash a stale .modr. --project filters out test recipes.
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tools/compile_scenario.py"
+            --modules-dir "${CMAKE_SOURCE_DIR}/modules"
+            --output-dir  "${CMAKE_SOURCE_DIR}/data/scenarios"
+            --project     "${CMAKE_SOURCE_DIR}/project.json"
+            --strict
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RESULT_VARIABLE SCENARIO_RESULT
+    )
+    if(NOT SCENARIO_RESULT EQUAL 0)
+        message(FATAL_ERROR "compile_scenario.py failed (exit code ${SCENARIO_RESULT})")
+    endif()
 else()
-    message(WARNING "Python3 not found — skipping UI generation")
+    message(FATAL_ERROR "Python3 not found — cannot generate UI/scenarios. Install Python 3.")
 endif()
 
 # Читаємо назву плати з board.json для ідентифікації прошивки
