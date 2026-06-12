@@ -20,3 +20,18 @@ idf_component_register(
 
 # Generated driver_register_all.h (modesp_register_all_drivers())
 target_include_directories(${COMPONENT_LIB} PRIVATE "${_modesp_root}/generated")
+
+# Consistency gate: the active board's bindings must not reference a driver that
+# is disabled in menuconfig (otherwise it would silently no-op at runtime).
+# This runs ONLY in the real build-config phase — ESP-IDF's requirements-expansion
+# redefines idf_component_register to return() early, so code here never runs there
+# (where CONFIG_* are undefined). MODESP_BOUND_DRIVERS comes from bindings.json.
+include("${_modesp_root}/generated/required_drivers.cmake")
+foreach(_drv ${MODESP_BOUND_DRIVERS})
+    string(TOUPPER "${_drv}" _u)
+    if(NOT CONFIG_MODESP_DRIVER_${_u})
+        message(FATAL_ERROR
+            "Board binds driver '${_drv}' but it is disabled in menuconfig "
+            "(CONFIG_MODESP_DRIVER_${_u}=n). Enable it, or run: python tools/drivers_sync.py --fix")
+    endif()
+endforeach()

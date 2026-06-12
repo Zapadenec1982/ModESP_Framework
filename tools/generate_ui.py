@@ -614,6 +614,153 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings):
                         f"driver '{drv_name}' category='{drv_cat}'")
 
 
+def load_all_driver_manifests(drivers_dir, warnings):
+    """Load EVERY drivers/*/manifest.json → {driver_name: manifest}.
+
+    Unlike DriverManifestLoader.load_required (which loads only drivers a module
+    requires), this is the full set — needed for binding validation, since a
+    binding may reference a driver no module requires. Malformed manifest →
+    warning + skip (non-fatal), mirroring the driver-glue block.
+    """
+    out = {}
+    for path in sorted(Path(drivers_dir).glob("*/manifest.json")):
+        try:
+            dm = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            warnings.append(f"[drivers] skipping '{path.parent.name}': {e}")
+            continue
+        out[dm.get("driver", path.parent.name)] = dm
+    return out
+
+
+def validate_bindings(board, bindings, all_driver_manifests, errors, warnings):
+    """Cross-validate bindings.json against board.json + driver manifests.
+
+    Appends to mutable errors/warnings (same idiom as cross_validate). All checks
+    are ERROR-level (fail the build): a mis-wired binding must not reach firmware
+    as a silent runtime skip. board/bindings may be None (boardless build) → skip.
+    """
+    # (a) No board or no bindings → nothing to cross-check.
+    if not board or not bindings:
+        return
+
+    # (b) hw_id -> hardware_type map; duplicate id within board is a board bug.
+    hw_type = {}
+    hw_section = {}
+    for section, htype in BOARD_SECTION_TO_HW_TYPE.items():
+        for entry in board.get(section, []):
+            hw_id = entry.get("id")
+            if not hw_id:
+                errors.append(f"[board] section '{section}' has an entry with no 'id'")
+                continue
+            if hw_id in hw_type:
+                errors.append(
+                    f"[board] duplicate hardware id '{hw_id}' "
+                    f"(in '{hw_section[hw_id]}' and '{section}')")
+                continue
+            hw_type[hw_id] = htype
+            hw_section[hw_id] = section
+
+    valid_ids = ", ".join(sorted(hw_type)) or "(none)"
+    hw_usage = {}             # hw_id -> [(role, driver, address)]
+    roles_by_module = {}      # module -> set(role)
+
+    for idx, b in enumerate(bindings.get("bindings", [])):
+        hw_id = b.get("hardware")
+        drv_name = b.get("driver")
+        role = b.get("role")
+        module = b.get("module")
+        addr = b.get("address", "") or ""
+        tag = role or hw_id or f"#{idx}"
+
+        # (i) required fields present
+        missing = [name for name, val in
+                   (("hardware", hw_id), ("driver", drv_name),
+                    ("role", role), ("module", module)) if not val]
+        if missing:
+            errors.append(
+                f"[bindings] binding '{tag}' missing required field(s): {', '.join(missing)}")
+            continue
+
+        # (c) hardware exists on board
+        if hw_id not in hw_type:
+            errors.append(
+                f"[bindings] role '{role}' references hardware '{hw_id}' not in board "
+                f"— valid ids: {valid_ids}")
+            continue
+
+        # (d) driver manifest exists
+        drv = all_driver_manifests.get(drv_name)
+        if drv is None:
+            errors.append(
+                f"[bindings] role '{role}' references driver '{drv_name}' which has no manifest")
+            continue
+
+        # (e) driver.hardware_type matches the board section's type
+        drv_htype = drv.get("hardware_type", "")
+        if drv_htype and drv_htype != hw_type[hw_id]:
+            errors.append(
+                f"[bindings] role '{role}': driver '{drv_name}' expects hardware_type "
+                f"'{drv_htype}' but hardware '{hw_id}' is '{hw_type[hw_id]}'")
+
+        # (f) requires_address — opt-in only (ds18b20 SKIP_ROM stays valid)
+        if drv.get("requires_address", False) and not addr:
+            errors.append(
+                f"[bindings] role '{role}': driver '{drv_name}' requires an 'address' "
+                f"but none was given for hardware '{hw_id}'")
+
+        # accumulate for (g)/(h)
+        hw_usage.setdefault(hw_id, []).append((role, drv_name, addr))
+        seen = roles_by_module.setdefault(module, set())
+        # (h) duplicate role within a module
+        if role in seen:
+            errors.append(f"[{module}] duplicate role '{role}' bound more than once")
+        else:
+            seen.add(role)
+
+    # (g) same hardware reused across bindings
+    for hw_id, uses in hw_usage.items():
+        if len(uses) < 2:
+            continue
+        roles = ", ".join(u[0] for u in uses)
+        multi = all(
+            all_driver_manifests.get(dn, {}).get("multiple_per_bus", False)
+            for dn in {u[1] for u in uses})
+        if not multi:
+            errors.append(
+                f"[bindings] hardware '{hw_id}' bound {len(uses)} times (roles: {roles}) "
+                f"but its driver does not allow multiple_per_bus")
+            continue
+        addrs = [u[2] for u in uses]
+        if any(not a for a in addrs):
+            errors.append(
+                f"[bindings] hardware '{hw_id}' has {len(uses)} bindings (roles: {roles}); "
+                f"each needs a distinct 'address', but one or more are missing")
+        elif len(set(addrs)) != len(addrs):
+            errors.append(
+                f"[bindings] hardware '{hw_id}' has duplicate addresses across its "
+                f"{len(uses)} bindings (roles: {roles}) — addresses must be unique")
+
+
+def unused_drivers(bindings, all_driver_manifests):
+    """Drivers with a manifest that the active board's bindings do NOT use.
+
+    Excludes discovery-capable drivers (e.g. ds18b20) — they're needed to scan for
+    devices before any binding exists. Pure helper (advisory hint, print in main).
+    """
+    if not bindings:
+        return []
+    used = {b.get("driver") for b in bindings.get("bindings", [])}
+    out = []
+    for name, dm in sorted(all_driver_manifests.items()):
+        if name in used:
+            continue
+        if dm.get("discovery", {}).get("supported", False):
+            continue
+        out.append(name)
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Feature Resolver
 # ═══════════════════════════════════════════════════════════════
@@ -1761,17 +1908,29 @@ def main():
     cross_warnings = []
     cross_validate(manifests, driver_manifests, cross_errors, cross_warnings)
 
-    # Load board.json and bindings.json for bindings page
+    # Load board.json and bindings.json for bindings page (+ cross-validate them)
     board = None
     bindings = None
     board_path = args.output_data / "board.json"
     bindings_path = args.output_data / "bindings.json"
+    binding_errors = []
+    binding_warnings = []
     if board_path.exists():
-        with open(board_path, "r", encoding="utf-8") as f:
-            board = json.load(f)
+        try:
+            with open(board_path, "r", encoding="utf-8") as f:
+                board = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            binding_errors.append(f"[board] invalid JSON in {board_path.name}: {e}")
     if bindings_path.exists():
-        with open(bindings_path, "r", encoding="utf-8") as f:
-            bindings = json.load(f)
+        try:
+            with open(bindings_path, "r", encoding="utf-8") as f:
+                bindings = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            binding_errors.append(f"[bindings] invalid JSON in {bindings_path.name}: {e}")
+
+    # Full driver set (not just module-required) for binding validation.
+    all_driver_manifests = load_all_driver_manifests(args.drivers_dir, binding_warnings)
+    validate_bindings(board, bindings, all_driver_manifests, binding_errors, binding_warnings)
 
     # Print validation results
     print("\nValidating...")
@@ -1785,11 +1944,23 @@ def main():
     for e in cross_errors:
         print(f"  ERROR: {e}")
         ok = False
+    for w in binding_warnings:
+        print(f"  WARNING: {w}")
+    for e in binding_errors:
+        print(f"  ERROR: {e}")
+        ok = False
 
     if not ok:
         print("\nERROR: Validation failed. Fix errors above.")
         sys.exit(1)
     print("  All checks passed.")
+
+    # Advisory: drivers compiled (default y) but unused by this board's bindings.
+    _unused = unused_drivers(bindings, all_driver_manifests)
+    if _unused:
+        print(f"\n  INFO: drivers enabled but unused by this board — run "
+              f"'python tools/drivers_sync.py --prune' to shrink the binary: "
+              f"{', '.join(_unused)}")
 
     # Create FeatureResolver if bindings available
     resolver = None
@@ -2059,6 +2230,22 @@ def main():
         f.write("# Auto-generated from drivers/*/manifest.json — DO NOT EDIT\n")
         f.write(f"set(MODESP_ALL_DRIVERS {' '.join(n for n, _, _ in drivers_meta)})\n")
     print(f"  + {dcmake_path}")
+    files_written += 1
+
+    # required_drivers.cmake — distinct driver set the ACTIVE board's bindings use.
+    # modesp_hal/CMakeLists.txt FATAL_ERRORs if any of these is disabled in menuconfig.
+    driver_names = {n for n, _, _ in drivers_meta}
+    bound_drivers = []
+    if bindings:
+        for b in bindings.get("bindings", []):
+            d = b.get("driver")
+            if d in driver_names and d not in bound_drivers:
+                bound_drivers.append(d)
+    req_path = gen_dir / "required_drivers.cmake"
+    with open(req_path, "w", encoding="utf-8") as f:
+        f.write("# Auto-generated from the active board's bindings.json — DO NOT EDIT\n")
+        f.write(f"set(MODESP_BOUND_DRIVERS {' '.join(sorted(bound_drivers))})\n")
+    print(f"  + {req_path}")
     files_written += 1
 
     # driver_register_all.h — guarded extern decls + register-all body.
