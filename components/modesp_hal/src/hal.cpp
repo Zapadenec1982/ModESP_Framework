@@ -160,12 +160,13 @@ bool HAL::init_gpio_inputs(const BoardConfig& config) {
         res.id = cfg.id;
         res.gpio = cfg.gpio;
         res.pull_up = cfg.pull_up;
+        res.invert = cfg.invert;
         res.initialized = true;
         gpio_input_count_++;
 
-        ESP_LOGI(TAG, "  GPIO input '%s' on GPIO %d (pull_%s)",
+        ESP_LOGI(TAG, "  GPIO input '%s' on GPIO %d (pull_%s, invert=%s)",
                  cfg.id.c_str(), cfg.gpio,
-                 cfg.pull_up ? "UP" : "DOWN");
+                 cfg.pull_up ? "UP" : "DOWN", cfg.invert ? "yes" : "no");
     }
 
     return true;
@@ -302,11 +303,21 @@ bool HAL::init_i2c_expanders(const BoardConfig& config) {
             return false;
         }
 
+        // Bus clock from board.json (was hardcoded 100 kHz — a board configured
+        // for 400 kHz silently ran at 100 kHz).
+        uint32_t bus_freq = 100000;
+        for (const auto& b : config.i2c_buses) {
+            if (b.id == cfg.bus_id) {
+                if (b.freq_hz != 0) bus_freq = b.freq_hz;
+                break;
+            }
+        }
+
         // Додати пристрій на шину
         i2c_device_config_t dev_cfg = {};
         dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
         dev_cfg.device_address = cfg.address;
-        dev_cfg.scl_speed_hz = 100000;
+        dev_cfg.scl_speed_hz = bus_freq;
 
         auto& res = i2c_expanders_[i2c_expander_count_];
         esp_err_t err = i2c_master_bus_add_device(bus_handle, &dev_cfg, &res.dev_handle);
@@ -348,16 +359,21 @@ bool HAL::init_i2c_expanders(const BoardConfig& config) {
 // I2CExpanderResource — I2C byte read/write
 // ═══════════════════════════════════════════════════════════════
 
+// A 1-byte PCF8574 transfer at 100 kHz is < 1 ms; 100 ms × several per-pin reads
+// stalled the 100 Hz main loop for up to ~600 ms when the bus hung. 20 ms is
+// ample headroom and bounds the worst-case stall to a tick or two.
+static constexpr int I2C_XFER_TIMEOUT_MS = 20;
+
 bool I2CExpanderResource::write_state() {
     if (!dev_handle) return false;
     uint8_t data = output_state;
-    esp_err_t err = i2c_master_transmit(dev_handle, &data, 1, 100);
+    esp_err_t err = i2c_master_transmit(dev_handle, &data, 1, I2C_XFER_TIMEOUT_MS);
     return err == ESP_OK;
 }
 
 bool I2CExpanderResource::read_state(uint8_t& input_byte) {
     if (!dev_handle) return false;
-    esp_err_t err = i2c_master_receive(dev_handle, &input_byte, 1, 100);
+    esp_err_t err = i2c_master_receive(dev_handle, &input_byte, 1, I2C_XFER_TIMEOUT_MS);
     return err == ESP_OK;
 }
 

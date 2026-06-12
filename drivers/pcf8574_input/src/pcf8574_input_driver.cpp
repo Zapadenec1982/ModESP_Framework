@@ -38,6 +38,17 @@ void PCF8574InputDriver::update(uint32_t dt_ms) {
         bool raw_bit = (input_byte & (1 << pin_)) != 0;
         // Застосовуємо інверсію: KC868-A6 opto-inputs active-LOW → invert=true
         state_ = invert_ ? !raw_bit : raw_bit;
+        consecutive_errors_ = 0;
+    } else {
+        // I2C read failed — don't keep serving a stale state silently; count the
+        // error so is_healthy() can report a wedged bus instead of a frozen input.
+        if (consecutive_errors_ < MAX_CONSECUTIVE_ERRORS) {
+            consecutive_errors_++;
+            if (consecutive_errors_ == MAX_CONSECUTIVE_ERRORS) {
+                ESP_LOGE(TAG, "[%s] %d consecutive I2C read errors — unhealthy",
+                         role_.c_str(), consecutive_errors_);
+            }
+        }
     }
 }
 

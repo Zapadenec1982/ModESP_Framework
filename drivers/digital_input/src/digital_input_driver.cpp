@@ -92,7 +92,7 @@ modesp::ISensorDriver* digital_input_factory(const modesp::Binding& b, modesp::H
         return nullptr;
     }
     auto& drv = s_di_pool[s_di_n++];
-    drv.configure(b.role.c_str(), gpio_res->gpio, gpio_res->pull_up);
+    drv.configure(b.role.c_str(), gpio_res->gpio, gpio_res->pull_up, gpio_res->invert);
     return &drv;
 }
 } // namespace

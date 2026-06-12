@@ -21,9 +21,13 @@ public:
     bool init() override;
     void update(uint32_t dt_ms) override;
     bool read(float& value) override;   // 1.0f = active, 0.0f = inactive
-    bool is_healthy() const override { return initialized_ && expander_ != nullptr; }
+    bool is_healthy() const override {
+        return initialized_ && expander_ != nullptr
+            && consecutive_errors_ < MAX_CONSECUTIVE_ERRORS;
+    }
     const char* role() const override { return role_.c_str(); }
     const char* type() const override { return "pcf8574_input"; }
+    uint32_t error_count() const override { return consecutive_errors_; }
 
 private:
     etl::string<16> role_;
@@ -33,6 +37,8 @@ private:
     bool state_        = false;
     bool initialized_  = false;
     bool configured_   = false;
+    uint8_t consecutive_errors_ = 0;   // saturating; I2C read failures
     uint32_t poll_ms_  = 0;
     static constexpr uint32_t POLL_INTERVAL_MS = 100;
+    static constexpr uint8_t MAX_CONSECUTIVE_ERRORS = 5;
 };

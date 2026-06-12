@@ -64,6 +64,7 @@ struct GpioInputConfig {
     HalId id;
     gpio_num_t gpio;
     bool pull_up;       // true = pull-up, false = pull-down
+    bool invert = false; // true = NC contact / active-low (door, limit switch)
 };
 
 struct AdcChannelConfig {
@@ -151,6 +152,7 @@ struct GpioInputResource {
     HalId id;
     gpio_num_t gpio;
     bool pull_up;
+    bool invert = false;   // NC contact / active-low
     bool initialized = false;
 };
 

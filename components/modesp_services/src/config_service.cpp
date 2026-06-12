@@ -324,6 +324,9 @@ bool ConfigService::parse_board_json() {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.pull_up = (strcmp(tmp, "up") == 0);
                         j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "invert")) {
+                        cfg.invert = tok_to_bool(buf, &tokens[j + 1]);
+                        j += 2;
                     } else {
                         j += 2;
                     }
