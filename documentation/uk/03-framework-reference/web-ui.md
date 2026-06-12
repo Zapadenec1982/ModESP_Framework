@@ -310,7 +310,7 @@ App.svelte
 
 **Спеціалізовані:** `WifiScan`, `WifiSave`, `ApSave`, `MqttSave`,
 `CloudSave`, `TimeSave`, `TimezoneSelect`, `AuthSave`, `FirmwareUpload`,
-`FileUpload`, `CertUpload`, `DefrostToggle`. Кожен поєднує невелику
+`FileUpload`, `CertUpload`. Кожен поєднує невелику
 форму та виділений ендпоінт, тож `WidgetRenderer` може вставити їх
 у звичайну картку з простого запису в маніфесті, не описуючи у
 маніфесті повну розкладку форми.

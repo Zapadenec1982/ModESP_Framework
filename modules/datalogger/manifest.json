@@ -30,22 +30,6 @@
     "datalogger.flash_used": {
       "type": "int", "access": "read",
       "description": "Flash (KB)"
-    },
-    "datalogger.log_evap": {
-      "type": "bool", "access": "readwrite", "default": false,
-      "persist": true, "description": "Логувати T випарника"
-    },
-    "datalogger.log_cond": {
-      "type": "bool", "access": "readwrite", "default": false,
-      "persist": true, "description": "Логувати T конденсатора"
-    },
-    "datalogger.log_setpoint": {
-      "type": "bool", "access": "readwrite", "default": false,
-      "persist": true, "description": "Логувати уставку"
-    },
-    "datalogger.log_humidity": {
-      "type": "bool", "access": "readwrite", "default": false,
-      "persist": true, "description": "Логувати вологість"
     }
   },
 
@@ -85,21 +69,14 @@
         "title": "Налаштування",
         "icon": "settings",
         "icon_color": "orange",
-        "subtitle": "Увімкнення, канали, інтервал",
+        "subtitle": "Увімкнення, інтервал",
         "summary_keys": ["datalogger.enabled", "datalogger.sample_interval"],
         "collapsible": true,
         "wide": true,
         "widgets": [
           {"key": "datalogger.sample_interval",  "widget": "number_input"},
           {"key": "datalogger.retention_hours",  "widget": "number_input"},
-          {"key": "datalogger.enabled",         "widget": "toggle"},
-          {"key": "datalogger.log_evap",     "widget": "toggle",
-           "visible_when": {"key": "equipment.has_evap_temp", "eq": true}},
-          {"key": "datalogger.log_cond",     "widget": "toggle",
-           "visible_when": {"key": "equipment.has_cond_temp", "eq": true}},
-          {"key": "datalogger.log_setpoint", "widget": "toggle"},
-          {"key": "datalogger.log_humidity", "widget": "toggle",
-           "visible_when": {"key": "equipment.has_humidity", "eq": true}}
+          {"key": "datalogger.enabled",         "widget": "toggle"}
         ]
       }
     ]
@@ -114,11 +91,7 @@
     "subscribe": [
       "datalogger.enabled",
       "datalogger.retention_hours",
-      "datalogger.sample_interval",
-      "datalogger.log_evap",
-      "datalogger.log_cond",
-      "datalogger.log_setpoint",
-      "datalogger.log_humidity"
+      "datalogger.sample_interval"
     ]
   }
 }

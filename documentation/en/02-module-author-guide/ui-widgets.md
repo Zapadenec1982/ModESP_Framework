@@ -295,7 +295,6 @@ completeness.
 | `cert_upload` | Upload TLS certificates | Network → Cloud |
 | `file_upload` | Generic file upload to LittleFS | System (rarely) |
 | `actions_grid` | Grid of buttons для administrative ops | System |
-| `defrost_toggle` | Refrigeration-specific manual defrost | Equipment (refrigeration only) |
 
 These are wired up у the framework's own manifest sections (under
 `components/modesp_net/`, `modules/equipment/`, etc.). Reference but don't

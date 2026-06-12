@@ -301,7 +301,7 @@ without bound state.
 
 **Specialised:** `WifiScan`, `WifiSave`, `ApSave`, `MqttSave`, `CloudSave`,
 `TimeSave`, `TimezoneSelect`, `AuthSave`, `FirmwareUpload`, `FileUpload`,
-`CertUpload`, `DefrostToggle`. Each one bundles а small form + а
+`CertUpload`. Each one bundles а small form + а
 dedicated endpoint, so the WidgetRenderer can drop them into а
 generic card from а simple manifest entry without the manifest needing
 to describe the full form layout.

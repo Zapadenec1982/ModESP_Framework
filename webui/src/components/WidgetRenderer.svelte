@@ -17,7 +17,6 @@
   import WifiScan from './widgets/WifiScan.svelte';
   import ApSave from './widgets/ApSave.svelte';
   import TimezoneSelect from './widgets/TimezoneSelect.svelte';
-  import DefrostToggle from './widgets/DefrostToggle.svelte';
   import FileUploadWidget from './widgets/FileUploadWidget.svelte';
   import ChartWidget from './widgets/ChartWidget.svelte';
   import AuthSave from './widgets/AuthSave.svelte';
@@ -47,7 +46,6 @@
     wifi_scan: WifiScan,
     ap_save: ApSave,
     timezone_select: TimezoneSelect,
-    defrost_toggle: DefrostToggle,
     file_upload: FileUploadWidget,
     chart: ChartWidget,
     auth_save: AuthSave,
