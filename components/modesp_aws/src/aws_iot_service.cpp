@@ -18,6 +18,7 @@
 
 #include "modesp/services/ota_handler.h"
 #include "modesp/net/http_service.h"   // HttpService::check_auth
+#include "modesp/json_escape.h"        // json_escape for shadow strings
 
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -399,6 +400,21 @@ void AwsIotService::handle_job_notify(const char* data, int data_len) {
     char version[32] = {};
     char checksum[80] = {};
 
+    // SECURITY: locate the jobDocument object's text bounds. The OTA-critical
+    // fields (url/version/checksum) are read ONLY from inside it — a crafted
+    // top-level "url" must not be able to redirect the firmware download.
+    int doc_start = -1, doc_end = -1;
+    for (int i = 1; i < r - 1; i++) {
+        if (tokens[i].type == JSMN_STRING &&
+            (tokens[i].end - tokens[i].start) == 11 &&
+            strncmp(data + tokens[i].start, "jobDocument", 11) == 0 &&
+            tokens[i + 1].type == JSMN_OBJECT) {
+            doc_start = tokens[i + 1].start;
+            doc_end   = tokens[i + 1].end;
+            break;
+        }
+    }
+
     for (int i = 1; i < r - 1; i++) {
         if (tokens[i].type != JSMN_STRING) continue;
 
@@ -406,17 +422,20 @@ void AwsIotService::handle_job_notify(const char* data, int data_len) {
         const char* k = data + tokens[i].start;
         int vlen = tokens[i + 1].end - tokens[i + 1].start;
         const char* v = data + tokens[i + 1].start;
+        // true only when this key sits inside the jobDocument object
+        bool in_doc = (doc_start >= 0 &&
+                       tokens[i].start > doc_start && tokens[i].end <= doc_end);
 
         if (klen == 5 && strncmp(k, "jobId", 5) == 0 && tokens[i + 1].type == JSMN_STRING) {
-            int l = (vlen < 63) ? vlen : 63;
+            int l = (vlen < 63) ? vlen : 63;   // jobId lives at execution level
             strncpy(job_id, v, l); job_id[l] = '\0';
-        } else if (klen == 3 && strncmp(k, "url", 3) == 0 && tokens[i + 1].type == JSMN_STRING) {
+        } else if (in_doc && klen == 3 && strncmp(k, "url", 3) == 0 && tokens[i + 1].type == JSMN_STRING) {
             int l = (vlen < 255) ? vlen : 255;
             strncpy(url, v, l); url[l] = '\0';
-        } else if (klen == 7 && strncmp(k, "version", 7) == 0 && tokens[i + 1].type == JSMN_STRING) {
+        } else if (in_doc && klen == 7 && strncmp(k, "version", 7) == 0 && tokens[i + 1].type == JSMN_STRING) {
             int l = (vlen < 31) ? vlen : 31;
             strncpy(version, v, l); version[l] = '\0';
-        } else if (klen == 8 && strncmp(k, "checksum", 8) == 0 && tokens[i + 1].type == JSMN_STRING) {
+        } else if (in_doc && klen == 8 && strncmp(k, "checksum", 8) == 0 && tokens[i + 1].type == JSMN_STRING) {
             int l = (vlen < 79) ? vlen : 79;
             strncpy(checksum, v, l); checksum[l] = '\0';
         }
@@ -508,8 +527,12 @@ void AwsIotService::publish_shadow_reported() {
             pos += snprintf(shadow_buf + pos, sizeof(shadow_buf) - pos,
                             "\"%s\":%s", gen::MQTT_SUBSCRIBE[i], payload);
         } else {
+            // String — escape before embedding so a value with " or \ can't
+            // break/inject the shadow JSON document.
+            char esc[72];
+            modesp::json_escape(esc, sizeof(esc), payload);
             pos += snprintf(shadow_buf + pos, sizeof(shadow_buf) - pos,
-                            "\"%s\":\"%s\"", gen::MQTT_SUBSCRIBE[i], payload);
+                            "\"%s\":\"%s\"", gen::MQTT_SUBSCRIBE[i], esc);
         }
 
         if (pos >= (int)sizeof(shadow_buf) - 32) break;  // Захист від overflow
@@ -614,24 +637,29 @@ void AwsIotService::handle_shadow_delta(const char* data, int data_len) {
 
 void AwsIotService::handle_incoming(const char* topic, int topic_len,
                                      const char* data, int data_len) {
-    // IoT Jobs: $aws/things/{thing}/jobs/notify-next
-    if (topic_len > 10 && strstr(topic, "/jobs/notify-next") != nullptr) {
+    // SECURITY: reserved $aws/things/<thing>/... topics must belong to THIS thing.
+    // Exact match (the topic is NOT NUL-terminated, and strstr ignored the thing
+    // namespace — a crafted topic for another thing could trigger Jobs/Shadow).
+    auto aws_exact = [&](const char* suffix) -> bool {
+        char expected[128];
+        int n = snprintf(expected, sizeof(expected),
+                         "$aws/things/%s/%s", thing_name_, suffix);
+        return n > 0 && topic_len == n && strncmp(topic, expected, n) == 0;
+    };
+
+    if (aws_exact("jobs/notify-next")) {
         handle_job_notify(data, data_len);
         return;
     }
-
-    // Shadow delta: $aws/things/{thing}/shadow/update/delta
-    if (topic_len > 10 && strstr(topic, "/shadow/update/delta") != nullptr) {
+    if (aws_exact("shadow/update/delta")) {
         handle_shadow_delta(data, data_len);
         return;
     }
-
-    // Shadow accepted/rejected — просто логуємо
-    if (topic_len > 10 && strstr(topic, "/shadow/update/accepted") != nullptr) {
+    if (aws_exact("shadow/update/accepted")) {
         ESP_LOGD(TAG, "Shadow update accepted");
         return;
     }
-    if (topic_len > 10 && strstr(topic, "/shadow/update/rejected") != nullptr) {
+    if (aws_exact("shadow/update/rejected")) {
         ESP_LOGW(TAG, "Shadow update REJECTED: %.*s", data_len, data);
         return;
     }

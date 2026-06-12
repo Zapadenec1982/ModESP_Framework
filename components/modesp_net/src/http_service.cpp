@@ -259,6 +259,7 @@ static void serialize_state_entry(const StateKey& key, const StateValue& value, 
 // ── API Handlers ────────────────────────────────────────────────
 
 esp_err_t HttpService::handle_get_state(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
     auto* self = static_cast<HttpService*>(req->user_ctx);
 
     char buf[4096];  // AUDIT-021: ~87 ключів × ~35 bytes/key, запас до ~115
@@ -276,6 +277,7 @@ esp_err_t HttpService::handle_get_state(httpd_req_t* req) {
 }
 
 esp_err_t HttpService::handle_get_board(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
     char buf[1024];
     int len = read_file_to_buf("/data/board.json", buf, sizeof(buf));
     if (len < 0) {
@@ -315,6 +317,7 @@ esp_err_t HttpService::handle_get_ui(httpd_req_t* req) {
 }
 
 esp_err_t HttpService::handle_get_bindings(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
     char buf[1024];
     int len = read_file_to_buf("/data/bindings.json", buf, sizeof(buf));
     if (len < 0) {
@@ -464,6 +467,7 @@ static void serialize_module(const BaseModule& module, void* ud) {
 }
 
 esp_err_t HttpService::handle_get_modules(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
     auto* self = static_cast<HttpService*>(req->user_ctx);
 
     char buf[1536];
@@ -1276,6 +1280,7 @@ esp_err_t HttpService::handle_post_time(httpd_req_t* req) {
 // ── OneWire Scan Handler ────────────────────────────────────────
 
 esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
 #ifndef CONFIG_MODESP_DRIVER_DS18B20
     // DS18B20 driver disabled in menuconfig — OneWire scan unavailable.
     set_cors_headers(req);
@@ -1395,6 +1400,7 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
 // ── DataLogger API ──────────────────────────────────────────────
 
 esp_err_t HttpService::handle_get_log(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
     auto* self = static_cast<HttpService*>(req->user_ctx);
     set_cors_headers(req);
 
@@ -1420,6 +1426,7 @@ esp_err_t HttpService::handle_get_log(httpd_req_t* req) {
 }
 
 esp_err_t HttpService::handle_get_log_summary(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
     auto* self = static_cast<HttpService*>(req->user_ctx);
     set_cors_headers(req);
 
