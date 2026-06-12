@@ -94,6 +94,14 @@ void DataLoggerModule::migrate_old_format() {
 // ── Init ──
 
 bool DataLoggerModule::on_init() {
+    // М'ютекси для захисту буферів/файлів від гонки HTTP-задача ↔ main loop
+    if (!buf_mutex_) buf_mutex_ = xSemaphoreCreateMutex();
+    if (!io_mutex_)  io_mutex_  = xSemaphoreCreateMutex();
+    if (!buf_mutex_ || !io_mutex_) {
+        ESP_LOGE(TAG, "Не вдалося створити м'ютекси");
+        return false;
+    }
+
     // Створити директорію логів
     mkdir(LOG_DIR, 0775);
 
@@ -196,11 +204,22 @@ void DataLoggerModule::on_update(uint32_t dt_ms) {
             }
         }
 
-        if (!temp_buf_.full()) {
-            temp_buf_.push_back(rec);
-            state_set("datalogger.records_count",
-                      static_cast<int32_t>(temp_count_ + temp_buf_.size()));
+        // H5: уникнути тихої втрати семплів. При sample_interval < ~37 с
+        // 16-record буфер заповнюється швидше за 10-хв flush — якщо повний,
+        // примусовий flush ПЕРЕД додаванням (не стоїть на main loop: try-lock).
+        if (temp_buf_.full()) {
+            flush_to_flash();
         }
+        if (xSemaphoreTake(buf_mutex_, portMAX_DELAY) == pdTRUE) {
+            if (!temp_buf_.full()) {
+                temp_buf_.push_back(rec);
+            } else {
+                ESP_LOGW(TAG, "temp buffer full — sample dropped (HTTP read in progress?)");
+            }
+            xSemaphoreGive(buf_mutex_);
+        }
+        state_set("datalogger.records_count",
+                  static_cast<int32_t>(temp_count_ + temp_buf_.size()));
     }
 
     // 2. Polling подій (edge-detect)
@@ -258,45 +277,72 @@ void DataLoggerModule::log_event(uint8_t event_id) {
     rec._pad[1] = 0;
     rec._pad[2] = 0;
 
-    if (!event_buf_.full()) {
-        event_buf_.push_back(rec);
-    } else {
-        ESP_LOGW(TAG, "Event buffer full, dropping event %d", event_id);
+    if (xSemaphoreTake(buf_mutex_, portMAX_DELAY) == pdTRUE) {
+        if (!event_buf_.full()) {
+            event_buf_.push_back(rec);
+        } else {
+            ESP_LOGW(TAG, "Event buffer full, dropping event %d", event_id);
+        }
+        xSemaphoreGive(buf_mutex_);
     }
 }
 
 // ── Flush RAM → LittleFS ──
 
 bool DataLoggerModule::flush_to_flash() {
-    if (temp_buf_.empty() && event_buf_.empty()) return true;
+    // Non-blocking: якщо HTTP-задача зараз читає файли (io_mutex_ зайнятий),
+    // відкласти flush — main loop НЕ повинен чекати на багатосекундний download.
+    if (!io_mutex_ || xSemaphoreTake(io_mutex_, 0) != pdTRUE) {
+        return false;
+    }
+
+    // Снепшот + clear RAM-буферів під buf_mutex_ (швидко), потім файлові операції
+    // вже з локальних копій — буфери одразу вільні для нових семплів/подій.
+    etl::vector<TempRecord, 16>  temp_snap;
+    etl::vector<EventRecord, 32> event_snap;
+    if (buf_mutex_ && xSemaphoreTake(buf_mutex_, portMAX_DELAY) == pdTRUE) {
+        temp_snap  = temp_buf_;
+        event_snap = event_buf_;
+        temp_buf_.clear();
+        event_buf_.clear();
+        xSemaphoreGive(buf_mutex_);
+    }
+
+    if (temp_snap.empty() && event_snap.empty()) {
+        xSemaphoreGive(io_mutex_);
+        return true;
+    }
 
     // Flush температури
-    if (!temp_buf_.empty()) {
+    if (!temp_snap.empty()) {
         FILE* f = fopen(TEMP_FILE, "ab");
         if (f) {
-            size_t written = fwrite(temp_buf_.data(), sizeof(TempRecord),
-                                    temp_buf_.size(), f);
+            size_t written = fwrite(temp_snap.data(), sizeof(TempRecord),
+                                    temp_snap.size(), f);
             fclose(f);
             temp_count_ += written;
-            temp_buf_.clear();
             state_set("datalogger.records_count", static_cast<int32_t>(temp_count_));
         } else {
             ESP_LOGE(TAG, "Не вдалося відкрити %s", TEMP_FILE);
         }
 
-        size_t max_size = static_cast<size_t>(retention_hours_) * 60 * sizeof(TempRecord);
+        // M4: розмір ротації від РЕАЛЬНОГО інтервалу семплювання, не фіксованих
+        // 60 записів/год — інакше при sample_interval≠60с retention брехливий.
+        uint32_t per_hour = (sample_interval_ms_ > 0)
+                          ? (3600000u / static_cast<uint32_t>(sample_interval_ms_)) : 60;
+        if (per_hour == 0) per_hour = 1;
+        size_t max_size = static_cast<size_t>(retention_hours_) * per_hour * sizeof(TempRecord);
         rotate_if_needed(TEMP_FILE, max_size);
     }
 
     // Flush подій
-    if (!event_buf_.empty()) {
+    if (!event_snap.empty()) {
         FILE* f = fopen(EVENT_FILE, "ab");
         if (f) {
-            size_t written = fwrite(event_buf_.data(), sizeof(EventRecord),
-                                    event_buf_.size(), f);
+            size_t written = fwrite(event_snap.data(), sizeof(EventRecord),
+                                    event_snap.size(), f);
             fclose(f);
             event_count_ += written;
-            event_buf_.clear();
             state_set("datalogger.events_count", static_cast<int32_t>(event_count_));
         } else {
             ESP_LOGE(TAG, "Не вдалося відкрити %s", EVENT_FILE);
@@ -308,6 +354,7 @@ bool DataLoggerModule::flush_to_flash() {
     update_flash_used();
     state_set("datalogger.flash_used", static_cast<int32_t>(flash_used_kb_));
 
+    xSemaphoreGive(io_mutex_);
     ESP_LOGD(TAG, "Flush: %lu temp, %lu events",
              (unsigned long)temp_count_, (unsigned long)event_count_);
     return true;
@@ -365,6 +412,20 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
         }
     }
 
+    // Тримаємо io_mutex_ на весь час читання файлів — flush_to_flash() через
+    // try-lock відкладеться, тож файли не ротуються/не дописуються під час читання.
+    if (io_mutex_) xSemaphoreTake(io_mutex_, portMAX_DELAY);
+
+    // Снепшот RAM-буферів під buf_mutex_ — далі ітеруємо локальні копії, не
+    // живі буфери, у які main loop одночасно пише.
+    etl::vector<TempRecord, 16>  temp_snap;
+    etl::vector<EventRecord, 32> event_snap;
+    if (buf_mutex_ && xSemaphoreTake(buf_mutex_, portMAX_DELAY) == pdTRUE) {
+        temp_snap  = temp_buf_;
+        event_snap = event_buf_;
+        xSemaphoreGive(buf_mutex_);
+    }
+
     // Визначити які канали мають дані (scan файлів + RAM)
     bool ch_has_data[MAX_CHANNELS] = {};
     // Scan файлів
@@ -381,9 +442,9 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
         }
         fclose(f);
     }
-    // Scan RAM буфер
-    for (size_t bi = 0; bi < temp_buf_.size(); bi++) {
-        const auto& rec = temp_buf_[bi];
+    // Scan RAM буфер (снепшот)
+    for (size_t bi = 0; bi < temp_snap.size(); bi++) {
+        const auto& rec = temp_snap[bi];
         if (rec.timestamp < cutoff) continue;
         for (int i = 0; i < MAX_CHANNELS; i++) {
             if (rec.ch[i] != TEMP_NO_DATA) ch_has_data[i] = true;
@@ -432,6 +493,7 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
 
             if (httpd_resp_send_chunk(req, tmp, p) != ESP_OK) {
                 fclose(f);
+                if (io_mutex_) xSemaphoreGive(io_mutex_);
                 httpd_resp_send_chunk(req, nullptr, 0);
                 return ESP_FAIL;
             }
@@ -440,9 +502,9 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
         fclose(f);
     }
 
-    // 3. RAM буфер
-    for (size_t i = 0; i < temp_buf_.size(); i++) {
-        const auto& rec = temp_buf_[i];
+    // 3. RAM буфер (снепшот)
+    for (size_t i = 0; i < temp_snap.size(); i++) {
+        const auto& rec = temp_snap[i];
         if (rec.timestamp < cutoff) continue;
 
         char tmp[128];
@@ -479,6 +541,7 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
                           (int)rec.event_type);
             if (httpd_resp_send_chunk(req, buf, len) != ESP_OK) {
                 fclose(f);
+                if (io_mutex_) xSemaphoreGive(io_mutex_);
                 httpd_resp_send_chunk(req, nullptr, 0);
                 return ESP_FAIL;
             }
@@ -487,9 +550,9 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
         fclose(f);
     }
 
-    // RAM events
-    for (size_t i = 0; i < event_buf_.size(); i++) {
-        const auto& rec = event_buf_[i];
+    // RAM events (снепшот)
+    for (size_t i = 0; i < event_snap.size(); i++) {
+        const auto& rec = event_snap[i];
         if (rec.timestamp < cutoff) continue;
         len = snprintf(buf, sizeof(buf), "%s[%lu,%d]",
                       first ? "" : ",",
@@ -502,6 +565,7 @@ esp_err_t DataLoggerModule::serialize_log_chunked(httpd_req_t* req, int hours) c
     // 5. Footer
     httpd_resp_send_chunk(req, "]}", 2);
     httpd_resp_send_chunk(req, nullptr, 0);  // end chunked
+    if (io_mutex_) xSemaphoreGive(io_mutex_);
     return ESP_OK;
 }
 

@@ -131,6 +131,12 @@ private:
     RoleBinding roles_[MAX_ROLES] = {};
     size_t      role_count_ = 0;
 
+    /// Latched safe-mode: once a FATAL/SAFE_MODE message arrives, ALL outputs
+    /// stay forced OFF every cycle (product apply_arbitration is bypassed)
+    /// until reboot. Without this latch a product override would re-energize
+    /// actuators on the very next on_update() tick after safe mode.
+    bool        safe_mode_ = false;
+
     /// Find role index by name (-1 if not found)
     int find_role(const char* role) const;
 

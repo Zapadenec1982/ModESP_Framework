@@ -17,6 +17,7 @@
 #include "state_meta.h"
 
 #include "modesp/services/ota_handler.h"
+#include "modesp/net/http_service.h"   // HttpService::check_auth
 
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -744,12 +745,15 @@ void AwsIotService::set_http_server(httpd_handle_t server) {
 }
 
 void AwsIotService::set_cors_headers(httpd_req_t* req) {
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    // No wildcard Access-Control-Allow-Origin — matches http_service hardening
+    // (AUDIT-039): a malicious external page must not read/write device cloud
+    // config cross-origin. Same-origin SPA requests carry no Origin restriction.
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 esp_err_t AwsIotService::handle_get_cloud(httpd_req_t* req) {
+    if (!HttpService::check_auth(req)) return ESP_OK;
     auto* self = static_cast<AwsIotService*>(req->user_ctx);
     set_cors_headers(req);
     httpd_resp_set_type(req, "application/json");
@@ -793,13 +797,27 @@ static size_t json_unescape(char* dst, const char* src, size_t src_len) {
 }
 
 esp_err_t AwsIotService::handle_post_cloud(httpd_req_t* req) {
+    if (!HttpService::check_auth(req)) return ESP_OK;
     auto* self = static_cast<AwsIotService*>(req->user_ctx);
     set_cors_headers(req);
 
+    // Read the full body in a loop. A single httpd_req_recv() may return only the
+    // first TCP segment; a PEM cert+key pair easily spans multiple segments and a
+    // short read would silently truncate the key written to NVS.
     static char body[4096];
-    int received = httpd_req_recv(req, body, sizeof(body) - 1);
+    int received = 0;
+    while (received < (int)sizeof(body) - 1) {
+        int r = httpd_req_recv(req, body + received, sizeof(body) - 1 - received);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r <= 0) break;
+        received += r;
+    }
     if (received <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    if (received >= (int)sizeof(body) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body too large");
         return ESP_FAIL;
     }
     body[received] = '\0';

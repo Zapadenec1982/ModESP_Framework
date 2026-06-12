@@ -758,9 +758,10 @@ void MqttService::handle_incoming(const char* topic, int topic_len,
 // ── HTTP API ────────────────────────────────────────────────────
 
 void MqttService::set_cors_headers(httpd_req_t* req) {
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    // No wildcard Access-Control-Allow-Origin (AUDIT-039) — broker/user/tenant
+    // config must not be readable cross-origin by a malicious external page.
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 esp_err_t MqttService::handle_options(httpd_req_t* req) {
@@ -807,6 +808,7 @@ void MqttService::register_http_handlers() {
 }
 
 esp_err_t MqttService::handle_get_mqtt(httpd_req_t* req) {
+    if (!HttpService::check_auth(req)) return ESP_OK;
     auto* self = static_cast<MqttService*>(req->user_ctx);
 
     // Визначаємо status рядок

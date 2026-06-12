@@ -11,7 +11,7 @@ idf_component_register(
         "src/ota_handler.cpp"
     INCLUDE_DIRS "include"
     REQUIRES modesp_core modesp_hal jsmn nvs_flash
-    PRIV_REQUIRES esp_timer esp_system joltwallet__littlefs esp_http_client app_update mbedtls
+    PRIV_REQUIRES esp_timer esp_system joltwallet__littlefs esp_http_client app_update mbedtls esp-tls
 )
 
 # Доступ до згенерованих headers (state_meta.h)

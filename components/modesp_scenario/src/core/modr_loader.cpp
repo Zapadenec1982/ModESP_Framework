@@ -27,6 +27,7 @@
 
 #include "modesp/scenario/modr_loader.h"
 #include "modesp/scenario/action_registry.h"
+#include "modesp/scenario/resource_arbiter.h"  // MAX_RESOURCES — arbiter array bound
 
 #include <cstring>
 
@@ -326,6 +327,9 @@ EngineError validate_phase(const ValidatorCtx& ctx, const modr_phase& ph,
     }
     // Phase-scope resources
     if (ph.phase_resource_n > 0) {
+        // Cap to arbiter capacity: try_acquire_phase() indexes inserted[MAX_RESOURCES]
+        // by claim index — same OOB hazard as scenario-scope resources.
+        if (ph.phase_resource_n > MAX_RESOURCES) return EngineError::INVALID_FILE;
         uint32_t bytes = uint32_t{ph.phase_resource_n} * sizeof(modr_phase_resource_claim);
         if (!in_bounds(ph.phase_resources_off, bytes, ctx.limit)) {
             return EngineError::BUFFER_OVERFLOW;
@@ -334,6 +338,11 @@ EngineError validate_phase(const ValidatorCtx& ctx, const modr_phase& ph,
             ctx.buf + ph.phase_resources_off);
         for (uint8_t i = 0; i < ph.phase_resource_n; ++i) {
             if (claims[i].exclusive > 1) return EngineError::INVALID_FILE;
+            for (uint8_t j = 0; j < i; ++j) {
+                if (claims[j].resource_hash == claims[i].resource_hash) {
+                    return EngineError::INVALID_FILE;
+                }
+            }
         }
     }
     return EngineError::OK;
@@ -382,6 +391,9 @@ EngineError validate_global_transitions(const ValidatorCtx& ctx) {
 EngineError validate_resources(const ValidatorCtx& ctx) {
     const modr_header* h = ctx.hdr;
     if (h->resource_count == 0) return EngineError::OK;
+    // Cap to arbiter capacity: acquire_scenario() indexes inserted[MAX_RESOURCES]
+    // by declaration index, so a larger count would write past the stack array.
+    if (h->resource_count > MAX_RESOURCES) return EngineError::INVALID_FILE;
     uint32_t bytes = uint32_t{h->resource_count} * sizeof(modr_resource_decl);
     if (!in_bounds(h->resource_off, bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
@@ -391,6 +403,13 @@ EngineError validate_resources(const ValidatorCtx& ctx) {
         if (res[i].exclusive > 1) return EngineError::INVALID_FILE;
         // Scenario-scope resources only — phase-scope claims live в modr_phase_resource_claim
         if (res[i].scope != MODR_RESOURCE_SCOPE_SCENARIO) return EngineError::INVALID_FILE;
+        // Reject duplicate hashes: the idempotent-skip path in acquire_scenario
+        // would otherwise let the declaration index outrun the inserted[] array.
+        for (uint8_t j = 0; j < i; ++j) {
+            if (res[j].resource_hash == res[i].resource_hash) {
+                return EngineError::INVALID_FILE;
+            }
+        }
     }
     return EngineError::OK;
 }

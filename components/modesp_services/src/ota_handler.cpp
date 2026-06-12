@@ -12,6 +12,7 @@
 
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 #include "mbedtls/sha256.h"
@@ -83,6 +84,12 @@ static void ota_task(void* arg) {
     http_cfg.url = params->url;
     http_cfg.timeout_ms = 30000;
     http_cfg.buffer_size = 4096;
+    // Verify the server certificate against the public CA bundle for https URLs
+    // so the firmware download cannot be silently MITM'd. Plain http:// is still
+    // permitted for LAN servers, but integrity then rests on the mandatory SHA256.
+    if (strncmp(params->url, "https://", 8) == 0) {
+        http_cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    }
 
     esp_http_client_handle_t http_client = esp_http_client_init(&http_cfg);
     if (!http_client) {
@@ -160,6 +167,14 @@ static void ota_task(void* arg) {
     bool board_checked = false;
     bool download_ok = true;
 
+    // Accumulate the firmware header across reads so magic + board checks run
+    // regardless of how the first esp_http_client_read() is chunked. The old
+    // `received_total == 0 && read_len >= 0x70` guard silently skipped the board
+    // check whenever the first segment was short (chunked transfer / slow link).
+    static constexpr size_t HEADER_NEEDED = 0x70;  // covers esp_app_desc_t fields
+    uint8_t header[HEADER_NEEDED];
+    size_t header_len = 0;
+
     while (true) {
         int read_len = esp_http_client_read(http_client, buf, sizeof(buf));
         if (read_len < 0) {
@@ -173,45 +188,59 @@ static void ota_task(void* arg) {
             break;  // EOF
         }
 
-        // Перевірка magic byte (перший байт = 0xE9 — ESP image header)
-        if (!magic_checked) {
-            magic_checked = true;
-            if (static_cast<uint8_t>(buf[0]) != 0xE9) {
-                ESP_LOGE(TAG, "Invalid magic byte 0x%02X (expected 0xE9)",
-                         static_cast<uint8_t>(buf[0]));
-                set_status("error");
-                set_error("Invalid firmware file");
-                download_ok = false;
-                break;
-            }
-        }
+        // Накопичуємо заголовок із перших читань
+        if (header_len < HEADER_NEEDED) {
+            size_t need = HEADER_NEEDED - header_len;
+            size_t copy = (static_cast<size_t>(read_len) < need)
+                          ? static_cast<size_t>(read_len) : need;
+            memcpy(header + header_len, buf, copy);
+            header_len += copy;
 
-        // Перевірка board (project_name в esp_app_desc_t, offset 0x20+48)
-        if (!board_checked && received_total == 0 && read_len >= 0x70) {
-            board_checked = true;
-            static constexpr size_t DESC_OFFSET = 0x20;
-            static constexpr size_t NAME_OFFSET = DESC_OFFSET + 48;  // project_name field
-
-            uint32_t desc_magic;
-            memcpy(&desc_magic, buf + DESC_OFFSET, 4);
-
-            if (desc_magic == 0xABCD5432) {
-                char incoming_name[33] = {};
-                memcpy(incoming_name, buf + NAME_OFFSET, 32);
-                const char* running_name = esp_app_get_description()->project_name;
-
-                if (strcmp(incoming_name, running_name) != 0) {
-                    ESP_LOGE(TAG, "Board mismatch: running '%s', incoming '%s'",
-                             running_name, incoming_name);
+            // Magic byte (перший байт = 0xE9 — ESP image header)
+            if (!magic_checked && header_len >= 1) {
+                magic_checked = true;
+                if (header[0] != 0xE9) {
+                    ESP_LOGE(TAG, "Invalid magic byte 0x%02X (expected 0xE9)", header[0]);
                     set_status("error");
-                    char err_msg[96];
-                    snprintf(err_msg, sizeof(err_msg),
-                             "Board mismatch: %.32s vs %.32s", running_name, incoming_name);
-                    set_error(err_msg);
+                    set_error("Invalid firmware file");
                     download_ok = false;
                     break;
                 }
-                ESP_LOGI(TAG, "Board check OK (%s)", running_name);
+            }
+
+            // Board check (project_name в esp_app_desc_t, offset 0x20+48)
+            if (!board_checked && header_len >= HEADER_NEEDED) {
+                board_checked = true;
+                static constexpr size_t DESC_OFFSET = 0x20;
+                static constexpr size_t NAME_OFFSET = DESC_OFFSET + 48;
+
+                uint32_t desc_magic;
+                memcpy(&desc_magic, header + DESC_OFFSET, 4);
+
+                if (desc_magic == 0xABCD5432) {
+                    char incoming_name[33] = {};
+                    memcpy(incoming_name, header + NAME_OFFSET, 32);
+                    const char* running_name = esp_app_get_description()->project_name;
+
+                    if (strcmp(incoming_name, running_name) != 0) {
+                        ESP_LOGE(TAG, "Board mismatch: running '%s', incoming '%s'",
+                                 running_name, incoming_name);
+                        set_status("error");
+                        char err_msg[96];
+                        snprintf(err_msg, sizeof(err_msg),
+                                 "Board mismatch: %.32s vs %.32s", running_name, incoming_name);
+                        set_error(err_msg);
+                        download_ok = false;
+                        break;
+                    }
+                    ESP_LOGI(TAG, "Board check OK (%s)", running_name);
+                } else {
+                    ESP_LOGE(TAG, "Missing esp_app_desc magic — refusing unverifiable image");
+                    set_status("error");
+                    set_error("Invalid app descriptor");
+                    download_ok = false;
+                    break;
+                }
             }
         }
 
@@ -264,8 +293,21 @@ static void ota_task(void* arg) {
 
     ESP_LOGI(TAG, "Downloaded %d bytes", received_total);
 
-    // 5. Перевірити SHA256 checksum
-    if (params->checksum[0] != '\0') {
+    // 5. Перевірити SHA256 checksum — ОБОВ'ЯЗКОВО.
+    // Без checksum цілісність образу не гарантована (esp_ota_end робить лише
+    // CRC32, який атакувальник з контролем байтів тривіально задовольняє).
+    {
+        if (params->checksum[0] == '\0') {
+            mbedtls_sha256_free(&sha_ctx);
+            ESP_LOGE(TAG, "No checksum provided — refusing to flash unverified image");
+            set_status("error");
+            set_error("Checksum required");
+            esp_ota_abort(ota_handle);
+            s_ota_in_progress.store(false);
+            vTaskDelete(nullptr);
+            return;
+        }
+
         unsigned char sha_result[32];
         mbedtls_sha256_finish(&sha_ctx, sha_result);
         mbedtls_sha256_free(&sha_ctx);
@@ -295,9 +337,6 @@ static void ota_task(void* arg) {
         }
 
         ESP_LOGI(TAG, "SHA256 checksum verified OK");
-    } else {
-        mbedtls_sha256_free(&sha_ctx);
-        ESP_LOGW(TAG, "No checksum provided — skipping verification");
     }
 
     // 6. Фіналізація OTA (CRC32 валідація ESP-IDF)

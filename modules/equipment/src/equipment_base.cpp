@@ -213,6 +213,15 @@ void EquipmentBase::on_update(uint32_t dt_ms) {
     // 2. Read all sensors → SharedState
     read_all_sensors();
 
+    // SAFE MODE latch: keep every output forced OFF and bypass product
+    // arbitration entirely. Sensors are still read/published for diagnostics.
+    if (safe_mode_) {
+        for (size_t i = 0; i < role_count_; i++) roles_[i].output_req = false;
+        apply_all_outputs();
+        publish_all_states();
+        return;
+    }
+
     // 3. Product hook (before arbitration)
     on_product_update(dt_ms);
 
@@ -228,12 +237,13 @@ void EquipmentBase::on_update(uint32_t dt_ms) {
 
 void EquipmentBase::on_message(const etl::imessage& msg) {
     if (msg.get_message_id() == modesp::msg_id::SYSTEM_SAFE_MODE) {
+        safe_mode_ = true;  // latch — outputs stay OFF until reboot (see on_update)
         for (size_t i = 0; i < role_count_; i++) {
             roles_[i].output_req = false;
         }
         apply_all_outputs();
         publish_all_states();
-        ESP_LOGW(TAG, "SAFE MODE — all outputs OFF");
+        ESP_LOGW(TAG, "SAFE MODE LATCHED — all outputs OFF until reboot");
     }
 }
 

@@ -10,6 +10,8 @@
 #include "modesp/base_module.h"
 #include <esp_http_server.h>
 #include <etl/vector.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <cstdint>
 #include <climits>
 
@@ -62,6 +64,16 @@ private:
     // ── RAM буфери ──
     etl::vector<TempRecord, 16>   temp_buf_;
     etl::vector<EventRecord, 32>  event_buf_;
+
+    // ── Concurrency: on_update()/flush() run on the main loop, while
+    //    serialize_*() run on the esp_http_server task. ──
+    //  buf_mutex_ — short critical sections around RAM buffer push/snapshot.
+    //  io_mutex_  — guards file append/rotate (flush) vs file reads (serialize).
+    //               flush takes it non-blocking (0 timeout) so the main loop is
+    //               NEVER stalled by a multi-second HTTP download; if the HTTP
+    //               task holds it, that flush is simply deferred to next round.
+    SemaphoreHandle_t buf_mutex_ = nullptr;
+    SemaphoreHandle_t io_mutex_  = nullptr;
 
     // ── Попередній стан для edge-detect (generated events) ──
     static constexpr size_t MAX_EVENTS = 32;  // max edge-detect events
