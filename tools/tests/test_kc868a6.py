@@ -1,15 +1,32 @@
 """
-test_kc868a6.py — тести для підтримки KC868-A6 (Phase 12a)
+test_kc868a6.py — board-config + bindings-page tests (KC868-A6 + dev board).
 
-Перевіряє:
-1. Нові driver manifests (pcf8574_relay, pcf8574_input) проходять валідацію
-2. Equipment manifest з multi-driver — cross-validation
-3. Board JSON для KC868-A6 — структура та конфігурація
-4. Generator _bindings_page — hw_types масив для multi-driver ролей
-5. Generator з KC868-A6 board+bindings — повний цикл генерації
+Exercises the still-current board/bindings subsystems against the framework
+template's CURRENT modules (whatever project.json lists — equipment, datalogger,
+simple_thermo, abs_test, display):
+
+1. PCF8574 driver manifests (pcf8574_relay, pcf8574_input) pass DriverManifestValidator.
+2. Generator hardware-type config (VALID_HARDWARE_TYPES, BOARD_SECTION_TO_HW_TYPE)
+   maps the I2C-expander sections.
+3. Equipment manifest multi-driver roles cross-validate against the real drivers/.
+4. boards/kc868a6/board.json + bindings.json — structure + clean validate_bindings.
+5. UIJsonGenerator._bindings_page — roles carry hw_types/drivers arrays, and the
+   hardware inventory reflects the board (expanders for KC868-A6, GPIO for dev).
+
+Like test_modules.py, the active module set is read from project.json and brittle
+totals are computed from the source data; only stable facts are pinned as literals.
+
+NOTE vs the pre-framework version: this file used to load deleted refrigeration
+modules (thermostat/defrost/protection) and assert on equipment roles that no
+longer exist (compressor/door_contact/evap_*). Those modules and roles are gone.
+The current equipment manifest exposes two multi-driver roles — air_temp
+(ds18b20/ntc) and actuator_1 (relay/pcf8574_relay) — which carry the same
+"multi-driver → multiple hw_types" behaviour the old compressor/air_temp tests
+verified, so the intent is preserved against the roles that actually exist.
 """
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -21,11 +38,10 @@ if str(TOOLS_DIR) not in sys.path:
 
 from generate_ui import (
     DriverManifestValidator,
-    ManifestValidator,
     UIJsonGenerator,
     FeatureResolver,
-    FeaturesConfigGenerator,
     cross_validate,
+    validate_bindings,
     VALID_HARDWARE_TYPES,
     BOARD_SECTION_TO_HW_TYPE,
 )
@@ -33,42 +49,31 @@ from generate_ui import (
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DRIVERS_DIR = PROJECT_ROOT / "drivers"
 MODULES_DIR = PROJECT_ROOT / "modules"
-DATA_DIR = PROJECT_ROOT / "data"
 BOARDS_DIR = PROJECT_ROOT / "boards"
 
 
 def load_driver_manifest(name):
-    path = DRIVERS_DIR / name / "manifest.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(DRIVERS_DIR / name / "manifest.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_module_manifest(name):
-    path = MODULES_DIR / name / "manifest.json"
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_data_file(name):
-    path = DATA_DIR / name
-    with open(path, "r", encoding="utf-8") as f:
+    with open(MODULES_DIR / name / "manifest.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_board_file(board_name, filename):
-    path = BOARDS_DIR / board_name / filename
-    with open(path, "r", encoding="utf-8") as f:
+    with open(BOARDS_DIR / board_name / filename, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_project():
-    path = PROJECT_ROOT / "project.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(PROJECT_ROOT / "project.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_all_drivers():
-    """Завантажити всі реальні driver manifests."""
+    """Завантажити всі реальні driver manifests, keyed by name."""
     drivers = {}
     for drv_dir in DRIVERS_DIR.iterdir():
         mf = drv_dir / "manifest.json"
@@ -79,58 +84,68 @@ def load_all_drivers():
     return drivers
 
 
-def load_all_manifests():
-    """Завантажити всі module manifests."""
-    return [
-        load_module_manifest("equipment"),
-        load_module_manifest("thermostat"),
-        load_module_manifest("defrost"),
-        load_module_manifest("protection"),
-        load_module_manifest("datalogger"),
-    ]
+# ═══════════════════════════════════════════════════════════════
+#  Fixtures — follow project.json so the suite tracks the active set
+# ═══════════════════════════════════════════════════════════════
+
+@pytest.fixture(scope="module")
+def project():
+    return load_project()
+
+
+@pytest.fixture(scope="module")
+def active_modules(project):
+    return list(project["modules"])
+
+
+@pytest.fixture(scope="module")
+def all_manifests(active_modules):
+    return [load_module_manifest(m) for m in active_modules]
+
+
+@pytest.fixture(scope="module")
+def equipment():
+    return load_module_manifest("equipment")
+
+
+@pytest.fixture(scope="module")
+def all_drivers():
+    return load_all_drivers()
 
 
 # ═══════════════════════════════════════════════════════════════
-#  Driver manifest validation
+#  Driver manifest validation — PCF8574 (I2C expander) drivers
 # ═══════════════════════════════════════════════════════════════
 
 class TestPCF8574DriverManifests:
     """Нові driver manifests проходять валідацію."""
 
     def test_pcf8574_relay_valid(self):
-        """pcf8574_relay manifest проходить валідацію."""
         v = DriverManifestValidator()
         manifest = load_driver_manifest("pcf8574_relay")
-        result = v.validate(manifest, "pcf8574_relay/manifest.json")
-        assert result is True
-        assert len(v.errors) == 0
+        assert v.validate(manifest, "pcf8574_relay/manifest.json") is True
+        assert v.errors == []
 
     def test_pcf8574_relay_is_actuator(self):
-        """pcf8574_relay — категорія actuator."""
         manifest = load_driver_manifest("pcf8574_relay")
         assert manifest["category"] == "actuator"
 
     def test_pcf8574_relay_hw_type(self):
-        """pcf8574_relay — hardware_type i2c_expander_output."""
         manifest = load_driver_manifest("pcf8574_relay")
         assert manifest["hardware_type"] == "i2c_expander_output"
         assert manifest["hardware_type"] in VALID_HARDWARE_TYPES
 
     def test_pcf8574_input_valid(self):
-        """pcf8574_input manifest проходить валідацію."""
         v = DriverManifestValidator()
         manifest = load_driver_manifest("pcf8574_input")
-        result = v.validate(manifest, "pcf8574_input/manifest.json")
-        assert result is True
-        assert len(v.errors) == 0
+        assert v.validate(manifest, "pcf8574_input/manifest.json") is True
+        assert v.errors == []
 
     def test_pcf8574_input_is_sensor(self):
-        """pcf8574_input — категорія sensor."""
         manifest = load_driver_manifest("pcf8574_input")
         assert manifest["category"] == "sensor"
 
     def test_pcf8574_input_hw_type(self):
-        """pcf8574_input — hardware_type i2c_expander_input."""
         manifest = load_driver_manifest("pcf8574_input")
         assert manifest["hardware_type"] == "i2c_expander_input"
         assert manifest["hardware_type"] in VALID_HARDWARE_TYPES
@@ -141,7 +156,7 @@ class TestPCF8574DriverManifests:
 # ═══════════════════════════════════════════════════════════════
 
 class TestHardwareTypeMappings:
-    """Нові hardware types додані в конфігурацію генератора."""
+    """I2C-expander hardware types присутні в конфігурації генератора."""
 
     def test_i2c_expander_output_in_valid_types(self):
         assert "i2c_expander_output" in VALID_HARDWARE_TYPES
@@ -150,11 +165,9 @@ class TestHardwareTypeMappings:
         assert "i2c_expander_input" in VALID_HARDWARE_TYPES
 
     def test_expander_outputs_section_mapped(self):
-        assert "expander_outputs" in BOARD_SECTION_TO_HW_TYPE
         assert BOARD_SECTION_TO_HW_TYPE["expander_outputs"] == "i2c_expander_output"
 
     def test_expander_inputs_section_mapped(self):
-        assert "expander_inputs" in BOARD_SECTION_TO_HW_TYPE
         assert BOARD_SECTION_TO_HW_TYPE["expander_inputs"] == "i2c_expander_input"
 
 
@@ -163,31 +176,7 @@ class TestHardwareTypeMappings:
 # ═══════════════════════════════════════════════════════════════
 
 class TestEquipmentMultiDriver:
-    """Equipment manifest з масивами драйверів."""
-
-    @pytest.fixture
-    def equipment(self):
-        return load_module_manifest("equipment")
-
-    @pytest.fixture
-    def all_drivers(self):
-        return load_all_drivers()
-
-    def test_compressor_has_multi_driver(self, equipment):
-        """Compressor role має масив драйверів [relay, pcf8574_relay]."""
-        req = next(r for r in equipment["requires"] if r["role"] == "compressor")
-        drivers = req["driver"]
-        assert isinstance(drivers, list)
-        assert "relay" in drivers
-        assert "pcf8574_relay" in drivers
-
-    def test_door_contact_has_multi_driver(self, equipment):
-        """door_contact має масив [digital_input, pcf8574_input]."""
-        req = next(r for r in equipment["requires"] if r["role"] == "door_contact")
-        drivers = req["driver"]
-        assert isinstance(drivers, list)
-        assert "digital_input" in drivers
-        assert "pcf8574_input" in drivers
+    """Equipment manifest з масивами драйверів (одна роль → кілька драйверів)."""
 
     def test_air_temp_multi_driver(self, equipment):
         """air_temp підтримує ds18b20 та ntc."""
@@ -197,27 +186,29 @@ class TestEquipmentMultiDriver:
         assert "ds18b20" in drivers
         assert "ntc" in drivers
 
-    def test_cross_validate_with_all_drivers(self, equipment, all_drivers):
-        """Cross-validation проходить з усіма реальними drivers."""
-        errors = []
-        warnings = []
-        cross_validate([equipment], all_drivers, errors, warnings)
-        assert len(errors) == 0, f"Errors: {errors}"
+    def test_actuator_1_multi_driver(self, equipment):
+        """actuator_1 має масив [relay, pcf8574_relay] (GPIO або I2C-expander)."""
+        req = next(r for r in equipment["requires"] if r["role"] == "actuator_1")
+        drivers = req["driver"]
+        assert isinstance(drivers, list)
+        assert "relay" in drivers
+        assert "pcf8574_relay" in drivers
 
-    def test_cross_validate_multi_driver_category(self, all_drivers):
-        """Multi-driver: всі драйвери однієї категорії."""
-        equipment = load_module_manifest("equipment")
+    def test_cross_validate_with_all_drivers(self, equipment, all_drivers):
+        """Cross-validation проходить з усіма реальними drivers без помилок."""
+        errors, warnings = [], []
+        cross_validate([equipment], all_drivers, errors, warnings)
+        assert errors == [], f"Errors: {errors}"
+
+    def test_cross_validate_multi_driver_category(self, equipment, all_drivers):
+        """Multi-driver: всі драйвери однієї ролі мають однакову категорію."""
         for req in equipment["requires"]:
             drivers = req.get("driver", [])
             if isinstance(drivers, str):
                 drivers = [drivers]
             if len(drivers) <= 1:
                 continue
-            categories = set()
-            for drv_name in drivers:
-                if drv_name in all_drivers:
-                    categories.add(all_drivers[drv_name]["category"])
-            # Всі драйвери однієї ролі повинні мати однакову категорію
+            categories = {all_drivers[d]["category"] for d in drivers if d in all_drivers}
             assert len(categories) == 1, \
                 f"Role '{req['role']}' has mixed categories: {categories}"
 
@@ -227,9 +218,9 @@ class TestEquipmentMultiDriver:
 # ═══════════════════════════════════════════════════════════════
 
 class TestBoardKC868A6:
-    """Валідація board_kc868a6.json."""
+    """Валідація boards/kc868a6/board.json."""
 
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def board(self):
         return load_board_file("kc868a6", "board.json")
 
@@ -246,20 +237,17 @@ class TestBoardKC868A6:
         assert bus["scl"] == 15
 
     def test_has_relay_expander(self, board):
-        exps = board["i2c_expanders"]
-        relay_exp = next(e for e in exps if e["id"] == "relay_exp")
+        relay_exp = next(e for e in board["i2c_expanders"] if e["id"] == "relay_exp")
         assert relay_exp["address"] == "0x24"
         assert relay_exp["chip"] == "pcf8574"
 
     def test_has_input_expander(self, board):
-        exps = board["i2c_expanders"]
-        input_exp = next(e for e in exps if e["id"] == "input_exp")
+        input_exp = next(e for e in board["i2c_expanders"] if e["id"] == "input_exp")
         assert input_exp["address"] == "0x22"
         assert input_exp["chip"] == "pcf8574"
 
     def test_6_relay_outputs(self, board):
-        outputs = board["expander_outputs"]
-        assert len(outputs) == 6
+        assert len(board["expander_outputs"]) == 6
 
     def test_relays_active_low(self, board):
         """Критично: всі реле active_high=false (active-LOW)."""
@@ -268,8 +256,7 @@ class TestBoardKC868A6:
                 f"Relay '{out['id']}' must be active_high=false (active-LOW)"
 
     def test_6_digital_inputs(self, board):
-        inputs = board["expander_inputs"]
-        assert len(inputs) == 6
+        assert len(board["expander_inputs"]) == 6
 
     def test_inputs_inverted(self, board):
         """Opto-isolated inputs inverted (active-LOW)."""
@@ -287,175 +274,163 @@ class TestBoardKC868A6:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  Bindings JSON — KC868-A6
+#  Bindings JSON — KC868-A6 (structure + clean validate_bindings)
 # ═══════════════════════════════════════════════════════════════
 
 class TestBindingsKC868A6:
-    """Валідація bindings_kc868a6.json."""
+    """Валідація boards/kc868a6/bindings.json проти board + drivers."""
 
-    @pytest.fixture
+    @pytest.fixture(scope="class")
+    def board(self):
+        return load_board_file("kc868a6", "board.json")
+
+    @pytest.fixture(scope="class")
     def bindings(self):
         return load_board_file("kc868a6", "bindings.json")
 
     def test_manifest_version(self, bindings):
         assert bindings["manifest_version"] == 1
 
-    def test_has_compressor(self, bindings):
-        comp = next(b for b in bindings["bindings"] if b["role"] == "compressor")
-        assert comp["driver"] == "pcf8574_relay"
-        assert comp["hardware"] == "relay_1"
+    def test_uses_expander_relay_driver(self, bindings):
+        """Реле прив'язані до pcf8574_relay (I2C expander)."""
+        relay_rows = [b for b in bindings["bindings"] if b["driver"] == "pcf8574_relay"]
+        assert relay_rows, "expected at least one pcf8574_relay binding"
+        for b in relay_rows:
+            assert b["hardware"].startswith("relay_")
 
-    def test_has_air_temp(self, bindings):
+    def test_has_air_temp_onewire(self, bindings):
+        """air_temp прив'язаний до ds18b20 на OneWire шині."""
         air = next(b for b in bindings["bindings"] if b["role"] == "air_temp")
         assert air["driver"] == "ds18b20"
+        assert air["hardware"].startswith("ow_")
 
-    def test_has_door_contact(self, bindings):
-        door = next(b for b in bindings["bindings"] if b["role"] == "door_contact")
-        assert door["driver"] == "pcf8574_input"
+    def test_validate_bindings_clean(self, board, bindings, all_drivers):
+        """bindings ↔ board ↔ driver узгоджені — нема помилок валідації."""
+        errors, warnings = [], []
+        validate_bindings(board, bindings, all_drivers, errors, warnings)
+        assert errors == [], f"errors: {errors}"
 
 
 # ═══════════════════════════════════════════════════════════════
-#  Generator — _bindings_page з multi-driver
+#  Generator — _bindings_page з KC868-A6 board (multi-driver roles)
 # ═══════════════════════════════════════════════════════════════
 
-class TestBindingsPageMultiDriver:
-    """Generator _bindings_page емітує hw_types для multi-driver ролей."""
+class TestBindingsPageKC868A6:
+    """Generator _bindings_page емітує hw_types/drivers + hardware inventory."""
 
-    @pytest.fixture
-    def generator_output(self):
-        """Запускає генератор з KC868-A6 board та bindings."""
-        manifests = load_all_manifests()
-        driver_manifests = load_all_drivers()
-        project = load_project()
-        equipment = load_module_manifest("equipment")
-
+    @pytest.fixture(scope="class")
+    def bindings_page(self, project, all_manifests, equipment, all_drivers):
         board = load_board_file("kc868a6", "board.json")
         bindings = load_board_file("kc868a6", "bindings.json")
-
-        gen = UIJsonGenerator()
         resolver = FeatureResolver(bindings, equipment)
-        result = gen.generate(project, manifests, driver_manifests, board, bindings, resolver)
-        return result
+        out = UIJsonGenerator().generate(
+            project, all_manifests, all_drivers, board, bindings, resolver)
+        bp = next((p for p in out["pages"] if p["id"] == "bindings"), None)
+        assert bp is not None, "bindings page missing"
+        return bp
 
-    def test_bindings_page_exists(self, generator_output):
-        """Сторінка bindings генерується."""
-        pages = generator_output["pages"]
-        bp = next((p for p in pages if p["id"] == "bindings"), None)
-        assert bp is not None
+    def _role(self, bindings_page, role):
+        return next(r for r in bindings_page["roles"] if r["role"] == role)
 
-    def test_compressor_role_has_hw_types(self, generator_output):
-        """Compressor role має hw_types масив."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        roles = bp["roles"]
-        comp = next(r for r in roles if r["role"] == "compressor")
-        assert "hw_types" in comp
-        assert "gpio_output" in comp["hw_types"]
-        assert "i2c_expander_output" in comp["hw_types"]
+    def test_bindings_page_exists(self, bindings_page):
+        assert bindings_page["id"] == "bindings"
 
-    def test_compressor_role_has_drivers(self, generator_output):
-        """Compressor role має drivers масив."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        roles = bp["roles"]
-        comp = next(r for r in roles if r["role"] == "compressor")
-        assert "drivers" in comp
-        assert "relay" in comp["drivers"]
-        assert "pcf8574_relay" in comp["drivers"]
+    def test_actuator_role_multi_hw_types(self, bindings_page):
+        """actuator_1 (relay|pcf8574_relay) → gpio_output + i2c_expander_output."""
+        act = self._role(bindings_page, "actuator_1")
+        assert "gpio_output" in act["hw_types"]
+        assert "i2c_expander_output" in act["hw_types"]
 
-    def test_air_temp_multi_driver_role(self, generator_output):
-        """air_temp (multi driver) має drivers та hw_types."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        roles = bp["roles"]
-        air = next(r for r in roles if r["role"] == "air_temp")
+    def test_actuator_role_multi_drivers(self, bindings_page):
+        act = self._role(bindings_page, "actuator_1")
+        assert "relay" in act["drivers"]
+        assert "pcf8574_relay" in act["drivers"]
+
+    def test_air_temp_multi_driver_role(self, bindings_page):
+        """air_temp (ds18b20|ntc) → onewire_bus + adc_channel."""
+        air = self._role(bindings_page, "air_temp")
         assert "ds18b20" in air["drivers"]
         assert "ntc" in air["drivers"]
         assert "onewire_bus" in air["hw_types"]
         assert "adc_channel" in air["hw_types"]
 
-    def test_hardware_includes_expander_outputs(self, generator_output):
-        """Hardware inventory включає expander_outputs."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        hardware = bp["hardware"]
-        hw_types = {h["hw_type"] for h in hardware}
+    def test_roles_match_equipment_requires(self, bindings_page, equipment):
+        """Кожна equipment-роль присутня на сторінці bindings."""
+        page_roles = {r["role"] for r in bindings_page["roles"]}
+        equip_roles = {r["role"] for r in equipment["requires"]}
+        assert equip_roles.issubset(page_roles)
+
+    def test_hardware_includes_expander_outputs(self, bindings_page):
+        hw_types = {h["hw_type"] for h in bindings_page["hardware"]}
         assert "i2c_expander_output" in hw_types
 
-    def test_hardware_includes_expander_inputs(self, generator_output):
-        """Hardware inventory включає expander_inputs."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        hardware = bp["hardware"]
-        hw_types = {h["hw_type"] for h in hardware}
+    def test_hardware_includes_expander_inputs(self, bindings_page):
+        hw_types = {h["hw_type"] for h in bindings_page["hardware"]}
         assert "i2c_expander_input" in hw_types
 
-    def test_hardware_relay_count(self, generator_output):
-        """6 relays in hardware inventory."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        hardware = bp["hardware"]
-        relays = [h for h in hardware if h["hw_type"] == "i2c_expander_output"]
+    def test_hardware_relay_count(self, bindings_page):
+        """6 relays (i2c_expander_output) у інвентарі обладнання."""
+        relays = [h for h in bindings_page["hardware"]
+                  if h["hw_type"] == "i2c_expander_output"]
         assert len(relays) == 6
 
-    def test_hardware_input_count(self, generator_output):
-        """6 digital inputs in hardware inventory."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        hardware = bp["hardware"]
-        inputs = [h for h in hardware if h["hw_type"] == "i2c_expander_input"]
+    def test_hardware_input_count(self, bindings_page):
+        """6 digital inputs (i2c_expander_input) у інвентарі обладнання."""
+        inputs = [h for h in bindings_page["hardware"]
+                  if h["hw_type"] == "i2c_expander_input"]
         assert len(inputs) == 6
+
+    def test_hardware_inventory_matches_board(self, bindings_page):
+        """Інвентар == сума всіх board-секцій (computed, не хардкод)."""
+        board = load_board_file("kc868a6", "board.json")
+        expected = Counter()
+        for section, hw_type in BOARD_SECTION_TO_HW_TYPE.items():
+            expected[hw_type] += len(board.get(section, []))
+        actual = Counter(h["hw_type"] for h in bindings_page["hardware"])
+        assert actual == expected
 
 
 # ═══════════════════════════════════════════════════════════════
-#  Generator з dev board — backward compatibility
+#  Generator — dev board (GPIO, no expanders) backward compatibility
 # ═══════════════════════════════════════════════════════════════
 
 class TestDevBoardBackwardCompat:
-    """Dev board (cold_room_dev_v1) продовжує працювати з multi-driver."""
+    """Dev board (template_dev_v1) продовжує працювати з multi-driver ролями."""
 
-    @pytest.fixture
-    def generator_output(self):
-        manifests = load_all_manifests()
-        driver_manifests = load_all_drivers()
-        project = load_project()
-        equipment = load_module_manifest("equipment")
-
+    @pytest.fixture(scope="class")
+    def bindings_page(self, project, all_manifests, equipment, all_drivers):
         board = load_board_file("dev", "board.json")
         bindings = load_board_file("dev", "bindings.json")
-
-        gen = UIJsonGenerator()
         resolver = FeatureResolver(bindings, equipment)
-        return gen.generate(project, manifests, driver_manifests, board, bindings, resolver)
+        out = UIJsonGenerator().generate(
+            project, all_manifests, all_drivers, board, bindings, resolver)
+        bp = next((p for p in out["pages"] if p["id"] == "bindings"), None)
+        assert bp is not None, "bindings page missing"
+        return bp
 
-    def test_bindings_page_exists(self, generator_output):
-        pages = generator_output["pages"]
-        bp = next((p for p in pages if p["id"] == "bindings"), None)
-        assert bp is not None
+    def test_bindings_page_exists(self, bindings_page):
+        assert bindings_page["id"] == "bindings"
 
-    def test_compressor_has_hw_types(self, generator_output):
-        """Compressor role має hw_types навіть з dev board."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        roles = bp["roles"]
-        comp = next(r for r in roles if r["role"] == "compressor")
-        assert "hw_types" in comp
-        assert "gpio_output" in comp["hw_types"]
-        assert "i2c_expander_output" in comp["hw_types"]
+    def test_actuator_role_still_multi_hw_types(self, bindings_page):
+        """Роль actuator_1 несе обидва hw_types навіть на GPIO-only платі."""
+        act = next(r for r in bindings_page["roles"] if r["role"] == "actuator_1")
+        assert "gpio_output" in act["hw_types"]
+        assert "i2c_expander_output" in act["hw_types"]
 
-    def test_gpio_hardware_present(self, generator_output):
+    def test_gpio_hardware_present(self, bindings_page):
         """Dev board має gpio_output hardware."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        hardware = bp["hardware"]
-        hw_types = {h["hw_type"] for h in hardware}
+        hw_types = {h["hw_type"] for h in bindings_page["hardware"]}
         assert "gpio_output" in hw_types
 
-    def test_no_expander_hardware(self, generator_output):
+    def test_no_expander_hardware(self, bindings_page):
         """Dev board НЕ має expander hardware."""
-        pages = generator_output["pages"]
-        bp = next(p for p in pages if p["id"] == "bindings")
-        hardware = bp["hardware"]
-        hw_types = {h["hw_type"] for h in hardware}
+        hw_types = {h["hw_type"] for h in bindings_page["hardware"]}
         assert "i2c_expander_output" not in hw_types
         assert "i2c_expander_input" not in hw_types
+
+    def test_validate_bindings_clean(self, all_drivers):
+        board = load_board_file("dev", "board.json")
+        bindings = load_board_file("dev", "bindings.json")
+        errors, warnings = [], []
+        validate_bindings(board, bindings, all_drivers, errors, warnings)
+        assert errors == [], f"errors: {errors}"

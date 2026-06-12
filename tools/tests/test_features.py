@@ -1,12 +1,28 @@
 """
-test_features.py — тести для Features System + Select Widgets
+test_features.py — тести для Features / Constraints subsystem у generate_ui.py.
 
-Перевіряє:
-1. FeatureResolver — визначення active features з bindings
-2. Constraints — фільтрація options за active features
-3. Select widgets — options в ui.json
-4. Disabled widgets — inactive features → disabled=true
-5. FeaturesConfigGenerator — генерація features_config.h
+Перевіряє підсистему, яка ЩЕ використовується фреймворком (FeatureResolver →
+UIJsonGenerator select/disabled widgets → FeaturesConfigGenerator):
+
+  1. FeatureResolver — конструюється з реальних data/bindings.json + board.json
+     та equipment manifest; роздільна здатність active features з bindings.
+  2. Constraints — enum_filter → всі options + requires_state/disabled_hint.
+  3. Select widgets — state key з options → widget type 'select' в ui.json.
+  4. Disabled widgets — inactive feature → disabled=true + disabled_reason.
+  5. FeaturesConfigGenerator — генерація features_config.h.
+
+ВАЖЛИВО про fixtures
+--------------------
+Старі тести вантажили видалені refrigeration-модулі (thermostat/defrost/protection)
+та fixtures (bindings_*.json) із refrigeration-ролями. Поточні template-модулі
+(equipment, datalogger, simple_thermo, abs_test, display) НЕ оголошують секцій
+`features` / `constraints` і не мають state-keys з `options` — тож проти них
+підсистема коректно повертає порожній результат (це теж перевіряється нижче).
+
+Щоб усе ж покрити *алгоритм* підсистеми (а він живий), решта тестів будує
+маленькі СИНТЕТИЧНІ маніфести прямо в тесті з нейтральними іменами фіч/ролей.
+Реальний equipment manifest + реальні data/bindings.json / data/board.json
+використовуються там, де вони мають сенс (конструкція резолвера, bound_roles).
 """
 import json
 import sys
@@ -14,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-# Setup path for imports
+# tools/ on sys.path so we can import generate_ui
 TOOLS_DIR = Path(__file__).parent.parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
@@ -28,499 +44,513 @@ from generate_ui import (
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 MODULES_DIR = PROJECT_ROOT / "modules"
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
-def load_fixture(name):
-    with open(FIXTURES_DIR / name, "r", encoding="utf-8") as f:
-        return json.load(f)
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 def load_manifest(module_name):
     """Завантажити реальний manifest.json модуля."""
-    path = MODULES_DIR / module_name / "manifest.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(MODULES_DIR / module_name / "manifest.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_project():
-    path = PROJECT_ROOT / "project.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(PROJECT_ROOT / "project.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_data(name):
+    """Завантажити реальний файл з data/ (bindings.json / board.json)."""
+    with open(DATA_DIR / name, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 # ═══════════════════════════════════════════════════════════════
-# Fixtures
+#  Fixtures — follow project.json so the suite tracks the active set
 # ═══════════════════════════════════════════════════════════════
 
-@pytest.fixture
-def equipment():
-    return load_manifest("equipment")
-
-
-@pytest.fixture
-def thermostat():
-    return load_manifest("thermostat")
-
-
-@pytest.fixture
-def defrost():
-    return load_manifest("defrost")
-
-
-@pytest.fixture
-def protection():
-    return load_manifest("protection")
-
-
-@pytest.fixture
-def all_manifests(equipment, thermostat, defrost, protection):
-    return [equipment, thermostat, defrost, protection]
-
-
-@pytest.fixture
+@pytest.fixture(scope="module")
 def project():
     return load_project()
 
 
+@pytest.fixture(scope="module")
+def active_modules(project):
+    return list(project["modules"])
+
+
+@pytest.fixture(scope="module")
+def all_manifests(active_modules):
+    return [load_manifest(m) for m in active_modules]
+
+
+@pytest.fixture(scope="module")
+def equipment():
+    """Реальний equipment manifest — джерело all_equipment_roles для резолвера."""
+    return load_manifest("equipment")
+
+
+@pytest.fixture(scope="module")
+def real_bindings():
+    """Реальний data/bindings.json (плата kc868_a6)."""
+    return load_data("bindings.json")
+
+
+@pytest.fixture(scope="module")
+def real_board():
+    """Реальний data/board.json."""
+    return load_data("board.json")
+
+
+# ── Синтетичні маніфести (нейтральні імена; підсистема живе, але template
+#    модулі поки features/constraints не оголошують) ───────────────────────
+
+@pytest.fixture(scope="module")
+def synth_module():
+    """Маленький модуль, що вправляє ВСІ гілки підсистеми:
+    always_active, single-role, multi-role, enum_filter constraint,
+    controls_settings (disabled widget) та звичайний number/slider widget."""
+    return {
+        "manifest_version": 1,
+        "module": "demo",
+        "description": "synthetic demo module for features subsystem tests",
+        "features": {
+            # always_active — активна навіть з порожніми bindings
+            "core": {"always_active": True, "controls_settings": ["demo.core_set"]},
+            # один required role
+            "fan": {"requires_roles": ["evap_fan"],
+                    "controls_settings": ["demo.fan_set"],
+                    "description": "Fan control"},
+            # два required roles (AND)
+            "fan_temp": {"requires_roles": ["evap_fan", "evap_temp"]},
+        },
+        "constraints": {
+            # option value 2 ('Auto') доступна лише коли є evap_temp
+            "demo.mode": {"type": "enum_filter", "values": {
+                "2": {"requires_state": "equipment.has_evap_temp",
+                      "disabled_hint": "Немає датчика випарника"},
+            }},
+        },
+        "state": {
+            "demo.mode": {"type": "int", "access": "readwrite", "persist": True,
+                          "default": 0,
+                          "options": [
+                              {"value": 0, "label": "Вимк"},
+                              {"value": 1, "label": "Охолодження"},
+                              {"value": 2, "label": "Авто"},
+                          ]},
+            "demo.core_set": {"type": "int", "access": "readwrite", "persist": True,
+                              "min": 0, "max": 5, "step": 1, "default": 0,
+                              "description": "Core setting"},
+            "demo.fan_set": {"type": "int", "access": "readwrite", "persist": True,
+                             "min": 0, "max": 5, "step": 1, "default": 0,
+                             "description": "Fan setting"},
+            "demo.setpoint": {"type": "float", "access": "readwrite", "persist": True,
+                              "min": -30, "max": 30, "step": 0.5, "default": 0.0,
+                              "unit": "°C", "description": "Setpoint"},
+        },
+        "ui": {
+            "page": "Demo", "page_id": "demo",
+            "cards": [{"title": "Demo", "widgets": [
+                {"key": "demo.mode", "widget": "select"},
+                {"key": "demo.core_set", "widget": "number_input"},
+                {"key": "demo.fan_set", "widget": "number_input"},
+                {"key": "demo.setpoint", "widget": "slider"},
+            ]}],
+        },
+    }
+
+
+@pytest.fixture
+def bindings_minimal():
+    """Лише air_temp — fan/fan_temp мають бути inactive."""
+    return {"bindings": [{"role": "air_temp"}]}
+
+
+@pytest.fixture
+def bindings_fan_only():
+    """evap_fan є, evap_temp нема — fan active, fan_temp inactive."""
+    return {"bindings": [{"role": "air_temp"}, {"role": "evap_fan"}]}
+
+
+@pytest.fixture
+def bindings_full():
+    """Усі ролі прив'язані — всі features active."""
+    return {"bindings": [{"role": "air_temp"}, {"role": "evap_fan"},
+                         {"role": "evap_temp"}]}
+
+
+def _synth_project():
+    """Мінімальний project, що рендерить лише demo-сторінку."""
+    return {
+        "project": "demo", "version": "1.0.0", "modules": ["demo"],
+        "system": {"device_name": "Demo",
+                   "pages": {"dashboard": False, "network": False, "system": False}},
+    }
+
+
+def _find_widget(ui, key):
+    for page in ui["pages"]:
+        for card in page.get("cards", []):
+            for w in card.get("widgets", []):
+                if w.get("key") == key:
+                    return w
+    return None
+
+
+def _count_disabled(ui):
+    return sum(
+        1
+        for page in ui["pages"]
+        for card in page.get("cards", [])
+        for w in card.get("widgets", [])
+        if w.get("disabled")
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
-# FeatureResolver
+#  FeatureResolver — конструкція з РЕАЛЬНИХ даних
 # ═══════════════════════════════════════════════════════════════
 
-class TestFeatureResolver:
-    """Тести визначення active features з bindings."""
+class TestFeatureResolverRealData:
+    """Резолвер будується з data/bindings.json + реального equipment manifest."""
 
-    def test_always_active_with_empty_bindings(self, equipment, thermostat):
+    def test_bound_roles_from_real_bindings(self, real_bindings, equipment):
+        """bound_roles == множина ролей з реального data/bindings.json."""
+        resolver = FeatureResolver(real_bindings, equipment)
+        expected = {b["role"] for b in real_bindings["bindings"]}
+        assert resolver.bound_roles == expected
+        # bindings.json плати kc868_a6 містить ці ролі
+        assert "air_temp" in resolver.bound_roles
+        assert "door_contact" in resolver.bound_roles
+
+    def test_equipment_roles_from_real_manifest(self, real_bindings, equipment):
+        """all_equipment_roles == ролі з equipment.requires."""
+        resolver = FeatureResolver(real_bindings, equipment)
+        expected = {r["role"] for r in equipment["requires"]}
+        assert resolver.all_equipment_roles == expected
+        assert "air_temp" in resolver.all_equipment_roles
+
+    def test_real_modules_have_no_features(self, real_bindings, equipment, all_manifests):
+        """Поточні template-модулі не оголошують features → resolve_all порожній.
+        (Підсистема жива; коли модуль додасть `features`, тест нижче його покриє.)"""
+        resolver = FeatureResolver(real_bindings, equipment)
+        all_features = resolver.resolve_all(all_manifests)
+        # Кожен модуль присутній у мапі, але без жодної фічі
+        for m in all_manifests:
+            assert all_features[m["module"]] == {}
+
+    def test_resolver_constructs_with_real_board_bindings(self, real_bindings,
+                                                          real_board, equipment):
+        """board.json + bindings.json реально узгоджені: усі hardware id з bindings
+        існують на платі (sanity — підсистема працює з цією парою файлів)."""
+        hw_ids = set()
+        for grp in ("expander_outputs", "expander_inputs"):
+            hw_ids |= {x["id"] for x in real_board.get(grp, [])}
+        hw_ids |= {x["id"] for x in real_board.get("onewire_buses", [])}
+        for b in real_bindings["bindings"]:
+            assert b["hardware"] in hw_ids, f"{b['hardware']} not on board"
+        # резолвер будується без помилок
+        FeatureResolver(real_bindings, equipment)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  FeatureResolver — алгоритм (синтетичні маніфести)
+# ═══════════════════════════════════════════════════════════════
+
+class TestFeatureResolverAlgorithm:
+    """always_active / requires_roles subset-логіка."""
+
+    def test_always_active_with_empty_bindings(self, equipment, synth_module):
         """always_active=true → active навіть з порожніми bindings."""
-        bindings = {"bindings": []}
-        resolver = FeatureResolver(bindings, equipment)
-        features = resolver.resolve_module(thermostat)
-        assert features["basic_cooling"] is True
+        resolver = FeatureResolver({"bindings": []}, equipment)
+        features = resolver.resolve_module(synth_module)
+        assert features["core"] is True
 
-    def test_feature_active_all_roles_bound(self, equipment, thermostat):
-        """fan_control active коли evap_fan є в bindings."""
-        bindings = load_fixture("bindings_with_fans.json")
-        resolver = FeatureResolver(bindings, equipment)
-        features = resolver.resolve_module(thermostat)
-        assert features["fan_control"] is True
+    def test_feature_active_when_role_bound(self, equipment, synth_module,
+                                            bindings_fan_only):
+        """fan active коли evap_fan є в bindings."""
+        resolver = FeatureResolver(bindings_fan_only, equipment)
+        features = resolver.resolve_module(synth_module)
+        assert features["fan"] is True
 
-    def test_feature_inactive_role_missing(self, equipment, thermostat):
-        """fan_control inactive коли evap_fan відсутній."""
-        bindings = load_fixture("bindings_minimal.json")
-        resolver = FeatureResolver(bindings, equipment)
-        features = resolver.resolve_module(thermostat)
-        assert features["fan_control"] is False
+    def test_feature_inactive_when_role_missing(self, equipment, synth_module,
+                                                bindings_minimal):
+        """fan inactive коли evap_fan відсутній."""
+        resolver = FeatureResolver(bindings_minimal, equipment)
+        features = resolver.resolve_module(synth_module)
+        assert features["fan"] is False
 
-    def test_feature_requires_multiple_roles(self, equipment, thermostat):
-        """fan_temp_control потребує evap_fan AND evap_temp."""
-        bindings = load_fixture("bindings_with_fans.json")
-        resolver = FeatureResolver(bindings, equipment)
-        features = resolver.resolve_module(thermostat)
-        assert features["fan_temp_control"] is True
+    def test_multi_role_requires_all(self, equipment, synth_module, bindings_full):
+        """fan_temp потребує evap_fan AND evap_temp — обидва є → active."""
+        resolver = FeatureResolver(bindings_full, equipment)
+        features = resolver.resolve_module(synth_module)
+        assert features["fan_temp"] is True
 
-    def test_partial_roles_insufficient(self, equipment, thermostat):
-        """fan_temp_control: тільки evap_fan без evap_temp → inactive."""
-        # evap_fan є, evap_temp немає
-        bindings = {"bindings": [
-            {"role": "compressor"}, {"role": "air_temp"}, {"role": "evap_fan"}
-        ]}
-        resolver = FeatureResolver(bindings, equipment)
-        features = resolver.resolve_module(thermostat)
-        assert features["fan_temp_control"] is False
-        assert features["fan_control"] is True
+    def test_partial_roles_insufficient(self, equipment, synth_module,
+                                        bindings_fan_only):
+        """fan_temp: лише evap_fan без evap_temp → inactive (а fan — active)."""
+        resolver = FeatureResolver(bindings_fan_only, equipment)
+        features = resolver.resolve_module(synth_module)
+        assert features["fan_temp"] is False
+        assert features["fan"] is True
 
-    def test_minimal_bindings_scenario(self, equipment, all_manifests):
-        """compressor+air_temp → тільки always_active features."""
-        bindings = load_fixture("bindings_minimal.json")
-        resolver = FeatureResolver(bindings, equipment)
-        all_features = resolver.resolve_all(all_manifests)
-
-        # Thermostat: тільки basic_cooling
-        assert all_features["thermostat"]["basic_cooling"] is True
-        assert all_features["thermostat"]["fan_control"] is False
-        assert all_features["thermostat"]["condenser_fan"] is False
-
-        # Defrost: тільки defrost_timer
-        assert all_features["defrost"]["defrost_timer"] is True
-        assert all_features["defrost"]["defrost_electric"] is False
-        assert all_features["defrost"]["defrost_hot_gas"] is False
-
-        # Protection: тільки basic_protection
-        assert all_features["protection"]["basic_protection"] is True
-        assert all_features["protection"]["door_protection"] is False
-
-    def test_full_bindings_scenario(self, equipment, all_manifests):
-        """Всі roles bound → всі features active."""
-        bindings = load_fixture("bindings_full.json")
-        resolver = FeatureResolver(bindings, equipment)
-        all_features = resolver.resolve_all(all_manifests)
-
-        for mod_name, features in all_features.items():
-            if mod_name == "equipment":
-                continue
-            for feat_name, active in features.items():
-                # night_input не в bindings_full (немає din для night)
-                if feat_name in ("night_di",):
-                    continue
-                assert active is True, f"{mod_name}.{feat_name} should be active"
+    def test_resolve_all_keys_by_module(self, equipment, synth_module,
+                                        bindings_minimal):
+        """resolve_all → {module_name: {feature: bool}}."""
+        resolver = FeatureResolver(bindings_minimal, equipment)
+        all_features = resolver.resolve_all([synth_module])
+        assert all_features["demo"]["core"] is True
+        assert all_features["demo"]["fan"] is False
+        assert all_features["demo"]["fan_temp"] is False
 
 
 # ═══════════════════════════════════════════════════════════════
-# Constraints
+#  Constraints — enum_filter → всі options + requires_state
 # ═══════════════════════════════════════════════════════════════
 
 class TestConstraintsResolver:
-    """Тести фільтрації options за constraints."""
+    """resolve_constraints повертає ВСІ options; gated отримують requires_state."""
 
-    def test_defrost_constraints_with_requires_state(self, equipment, defrost):
-        """Defrost constraints — всі options є, disabled мають requires_state."""
-        bindings = load_fixture("bindings_minimal.json")
-        resolver = FeatureResolver(bindings, equipment)
-        active = resolver.resolve_module(defrost)
-        constraints = resolver.resolve_constraints(defrost, active)
-        # defrost.type має constraints → всі 3 options в результаті
-        assert "defrost.type" in constraints
-        type_opts = constraints["defrost.type"]
-        assert len(type_opts) == 3
-        # Option 0 (за часом) — без requires_state
-        assert "requires_state" not in type_opts[0]
-        # Option 1 (електрична) — requires_state = equipment.has_defrost_relay
-        assert type_opts[1]["requires_state"] == "equipment.has_defrost_relay"
-        assert "disabled_hint" in type_opts[1]
-        # Option 2 (гарячий газ) — requires_state = equipment.has_defrost_relay
-        assert type_opts[2]["requires_state"] == "equipment.has_defrost_relay"
+    def test_all_options_present_with_requires_state(self, equipment, synth_module,
+                                                     bindings_minimal):
+        """Усі 3 options присутні; option value=2 має requires_state+disabled_hint."""
+        resolver = FeatureResolver(bindings_minimal, equipment)
+        active = resolver.resolve_module(synth_module)
+        constraints = resolver.resolve_constraints(synth_module, active)
+        assert "demo.mode" in constraints
+        opts = constraints["demo.mode"]
+        assert [o["value"] for o in opts] == [0, 1, 2]
+        # option 0, 1 — без requires_state
+        assert "requires_state" not in opts[0]
+        assert "requires_state" not in opts[1]
+        # option 2 — gated
+        assert opts[2]["requires_state"] == "equipment.has_evap_temp"
+        assert "disabled_hint" in opts[2]
 
-    def test_defrost_initiation_constraints(self, equipment, defrost):
-        """Defrost initiation constraints — sensor options мають requires_state."""
-        bindings = load_fixture("bindings_minimal.json")
-        resolver = FeatureResolver(bindings, equipment)
-        active = resolver.resolve_module(defrost)
-        constraints = resolver.resolve_constraints(defrost, active)
-        assert "defrost.initiation" in constraints
-        init_opts = constraints["defrost.initiation"]
-        assert len(init_opts) == 4
-        # Option 0 (таймер) та 3 (вимкнено) — без requires_state
-        assert "requires_state" not in init_opts[0]
-        assert "requires_state" not in init_opts[3]
-        # Option 1, 2 — requires_state = equipment.has_evap_temp
-        assert init_opts[1]["requires_state"] == "equipment.has_evap_temp"
-        assert init_opts[2]["requires_state"] == "equipment.has_evap_temp"
-
-    def test_fan_mode_without_evap_temp(self, equipment, thermostat):
-        """evap_fan без evap_temp → всі options є, mode 2 має requires_state."""
-        bindings = {"bindings": [
-            {"role": "compressor"}, {"role": "air_temp"}, {"role": "evap_fan"}
-        ]}
-        resolver = FeatureResolver(bindings, equipment)
-        active = resolver.resolve_module(thermostat)
-        constraints = resolver.resolve_constraints(thermostat, active)
-        values = [o["value"] for o in constraints["thermostat.evap_fan_mode"]]
-        assert 0 in values
-        assert 1 in values
-        assert 2 in values  # Тепер всі присутні
-        # mode 2 має requires_state
-        mode2 = [o for o in constraints["thermostat.evap_fan_mode"] if o["value"] == 2][0]
-        assert mode2["requires_state"] == "equipment.has_evap_temp"
-        assert "disabled_hint" in mode2
-
-    def test_fan_mode_full(self, equipment, thermostat):
-        """evap_fan+evap_temp → всі 3 режими."""
-        bindings = load_fixture("bindings_with_fans.json")
-        resolver = FeatureResolver(bindings, equipment)
-        active = resolver.resolve_module(thermostat)
-        constraints = resolver.resolve_constraints(thermostat, active)
-        values = [o["value"] for o in constraints["thermostat.evap_fan_mode"]]
+    def test_constraints_independent_of_bindings(self, equipment, synth_module,
+                                                 bindings_full):
+        """resolve_constraints віддає всі options незалежно від bindings
+        (рантайм вирішує disabled через requires_state, не build-time)."""
+        resolver = FeatureResolver(bindings_full, equipment)
+        active = resolver.resolve_module(synth_module)
+        constraints = resolver.resolve_constraints(synth_module, active)
+        values = [o["value"] for o in constraints["demo.mode"]]
         assert values == [0, 1, 2]
+        # requires_state присутній навіть коли роль прив'язана —
+        # це декларація рантайм-залежності, а не фільтр
+        gated = [o for o in constraints["demo.mode"] if o["value"] == 2][0]
+        assert gated["requires_state"] == "equipment.has_evap_temp"
+
+    def test_no_constraints_for_real_modules(self, equipment, all_manifests,
+                                             real_bindings):
+        """Поточні template-модулі не мають constraints → порожній результат."""
+        resolver = FeatureResolver(real_bindings, equipment)
+        for m in all_manifests:
+            active = resolver.resolve_module(m)
+            assert resolver.resolve_constraints(m, active) == {}
 
 
 # ═══════════════════════════════════════════════════════════════
-# Select Widgets
+#  Select Widgets — state key з options → widget 'select'
 # ═══════════════════════════════════════════════════════════════
 
 class TestSelectWidgets:
-    """Тести генерації select widgets в ui.json."""
+    """UIJsonGenerator: options у state → select widget з options-масивом."""
 
-    def _generate_ui(self, manifests, project, bindings=None, equipment=None):
-        resolver = None
-        if bindings and equipment:
-            resolver = FeatureResolver(bindings, equipment)
-        gen = UIJsonGenerator()
-        return gen.generate(project, manifests, resolver=resolver)
+    def _ui(self, synth_module, bindings, equipment):
+        resolver = FeatureResolver(bindings, equipment)
+        return UIJsonGenerator().generate(_synth_project(), [synth_module],
+                                          resolver=resolver)
 
-    def test_options_in_state_generates_select(self, all_manifests, project, equipment):
-        """State key з options → widget type 'select' в ui.json."""
-        bindings = load_fixture("bindings_full.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        # Знаходимо defrost.type widget
-        found = False
-        for page in ui["pages"]:
-            for card in page.get("cards", []):
-                for w in card.get("widgets", []):
-                    if w.get("key") == "defrost.type":
-                        assert w["widget"] == "select"
-                        found = True
-        assert found, "defrost.type widget not found"
+    def test_options_state_generates_select(self, synth_module, equipment,
+                                            bindings_full):
+        ui = self._ui(synth_module, bindings_full, equipment)
+        w = _find_widget(ui, "demo.mode")
+        assert w is not None
+        assert w["widget"] == "select"
 
-    def test_select_has_options_array(self, all_manifests, project, equipment):
-        """Select widget має options масив з value+label."""
-        bindings = load_fixture("bindings_full.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        for page in ui["pages"]:
-            for card in page.get("cards", []):
-                for w in card.get("widgets", []):
-                    if w.get("key") == "defrost.type" and w.get("widget") == "select":
-                        assert "options" in w
-                        assert len(w["options"]) > 0
-                        for opt in w["options"]:
-                            assert "value" in opt
-                            assert "label" in opt
-                        return
-        pytest.fail("defrost.type select widget not found")
+    def test_select_has_options_array(self, synth_module, equipment, bindings_full):
+        ui = self._ui(synth_module, bindings_full, equipment)
+        w = _find_widget(ui, "demo.mode")
+        assert "options" in w and len(w["options"]) > 0
+        for opt in w["options"]:
+            assert "value" in opt
+            assert "label" in opt
 
-    def test_defrost_type_all_options_visible(self, all_manifests, project, equipment):
-        """Defrost type shows all 3 options regardless of bindings."""
-        bindings = load_fixture("bindings_minimal.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        for page in ui["pages"]:
-            for card in page.get("cards", []):
-                for w in card.get("widgets", []):
-                    if w.get("key") == "defrost.type" and w.get("widget") == "select":
-                        values = [o["value"] for o in w["options"]]
-                        assert values == [0, 1, 2]
-                        return
-        pytest.fail("defrost.type select widget not found")
+    def test_select_shows_all_options_regardless_of_bindings(self, synth_module,
+                                                            equipment,
+                                                            bindings_minimal):
+        """Усі options видимі навіть з мінімальними bindings (рантайм disabled)."""
+        ui = self._ui(synth_module, bindings_minimal, equipment)
+        w = _find_widget(ui, "demo.mode")
+        assert [o["value"] for o in w["options"]] == [0, 1, 2]
 
-    def test_numeric_settings_still_number_input(self, all_manifests, project, equipment):
-        """Settings без options → widget 'number_input' як раніше."""
-        bindings = load_fixture("bindings_full.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        for page in ui["pages"]:
-            for card in page.get("cards", []):
-                for w in card.get("widgets", []):
-                    if w.get("key") == "thermostat.setpoint":
-                        assert w["widget"] == "slider" or w["widget"] == "number_input"
-                        assert "options" not in w
-                        return
+    def test_gated_option_carries_requires_state(self, synth_module, equipment,
+                                                 bindings_minimal):
+        """Select option під constraint несе requires_state у ui.json."""
+        ui = self._ui(synth_module, bindings_minimal, equipment)
+        w = _find_widget(ui, "demo.mode")
+        gated = [o for o in w["options"] if o["value"] == 2][0]
+        assert gated["requires_state"] == "equipment.has_evap_temp"
+
+    def test_numeric_setting_is_not_select(self, synth_module, equipment,
+                                           bindings_full):
+        """Settings без options → не select, без options-масиву."""
+        ui = self._ui(synth_module, bindings_full, equipment)
+        w = _find_widget(ui, "demo.setpoint")
+        assert w["widget"] != "select"
+        assert "options" not in w
 
 
 # ═══════════════════════════════════════════════════════════════
-# Disabled Widgets
+#  Disabled Widgets — inactive feature → disabled=true
 # ═══════════════════════════════════════════════════════════════
 
 class TestUIDisabledWidgets:
-    """Тести disabled стану widgets для inactive features."""
+    """UIJsonGenerator: controls_settings inactive-фічі → disabled widget."""
 
-    def _generate_ui(self, manifests, project, bindings, equipment):
+    def _ui(self, synth_module, bindings, equipment):
         resolver = FeatureResolver(bindings, equipment)
-        gen = UIJsonGenerator()
-        return gen.generate(project, manifests, resolver=resolver)
+        return UIJsonGenerator().generate(_synth_project(), [synth_module],
+                                          resolver=resolver)
 
-    def _find_widget(self, ui, key):
-        for page in ui["pages"]:
-            for card in page.get("cards", []):
-                for w in card.get("widgets", []):
-                    if w.get("key") == key:
-                        return w
-        return None
-
-    def _count_disabled(self, ui):
-        count = 0
-        for page in ui["pages"]:
-            for card in page.get("cards", []):
-                for w in card.get("widgets", []):
-                    if w.get("disabled"):
-                        count += 1
-        return count
-
-    def test_disabled_widget_has_fields(self, all_manifests, project, equipment):
-        """Disabled widget має disabled=true і disabled_reason."""
-        bindings = load_fixture("bindings_minimal.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        w = self._find_widget(ui, "thermostat.evap_fan_mode")
+    def test_disabled_widget_has_fields(self, synth_module, equipment,
+                                        bindings_minimal):
+        """Widget неактивної fan-фічі → disabled=true + disabled_reason."""
+        ui = self._ui(synth_module, bindings_minimal, equipment)
+        w = _find_widget(ui, "demo.fan_set")
         assert w is not None
         assert w.get("disabled") is True
         assert "disabled_reason" in w
+        # reason називає відсутню роль
+        assert "evap_fan" in w["disabled_reason"]
 
-    def test_active_feature_not_disabled(self, all_manifests, project, equipment):
-        """Widgets активних features НЕ мають disabled."""
-        bindings = load_fixture("bindings_full.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        w = self._find_widget(ui, "thermostat.setpoint")
-        assert w is not None
+    def test_active_feature_not_disabled(self, synth_module, equipment,
+                                         bindings_full):
+        """Widget активної fan-фічі НЕ disabled."""
+        ui = self._ui(synth_module, bindings_full, equipment)
+        w = _find_widget(ui, "demo.fan_set")
         assert w.get("disabled") is not True
 
-    def test_always_active_never_disabled(self, all_manifests, project, equipment):
-        """thermostat.setpoint ніколи disabled."""
-        bindings = load_fixture("bindings_minimal.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        w = self._find_widget(ui, "thermostat.setpoint")
-        assert w is not None
+    def test_always_active_never_disabled(self, synth_module, equipment,
+                                          bindings_minimal):
+        """controls_settings always_active-фічі — ніколи disabled."""
+        ui = self._ui(synth_module, bindings_minimal, equipment)
+        w = _find_widget(ui, "demo.core_set")
         assert w.get("disabled") is not True
 
-    def test_disabled_count_minimal_bindings(self, all_manifests, project, equipment):
-        """Мінімальні bindings → >5 disabled settings."""
-        bindings = load_fixture("bindings_minimal.json")
-        ui = self._generate_ui(all_manifests, project, bindings, equipment)
-        count = self._count_disabled(ui)
-        assert count > 5, f"Expected >5 disabled widgets, got {count}"
+    def test_setting_without_feature_not_disabled(self, synth_module, equipment,
+                                                  bindings_minimal):
+        """Setting, який жодна фіча не контролює — ніколи disabled."""
+        ui = self._ui(synth_module, bindings_minimal, equipment)
+        w = _find_widget(ui, "demo.setpoint")
+        assert w.get("disabled") is not True
+
+    def test_disabled_count_changes_with_bindings(self, synth_module, equipment,
+                                                  bindings_minimal, bindings_full):
+        """Менше bindings → більше disabled widgets, ніж за повних bindings."""
+        ui_min = self._ui(synth_module, bindings_minimal, equipment)
+        ui_full = self._ui(synth_module, bindings_full, equipment)
+        assert _count_disabled(ui_min) >= 1
+        assert _count_disabled(ui_min) > _count_disabled(ui_full)
 
 
 # ═══════════════════════════════════════════════════════════════
-# FeaturesConfigGenerator
+#  FeaturesConfigGenerator — features_config.h
 # ═══════════════════════════════════════════════════════════════
 
 class TestFeaturesConfigGenerator:
-    """Тести генерації features_config.h."""
+    """Генерація generated/features_config.h."""
 
-    def _generate(self, manifests, bindings, equipment):
+    def _gen(self, manifests, bindings, equipment):
         resolver = FeatureResolver(bindings, equipment)
-        gen = FeaturesConfigGenerator()
-        return gen.generate(manifests, resolver)
+        return FeaturesConfigGenerator().generate(manifests, resolver)
 
-    def test_generates_pragma_once(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_minimal.json")
-        result = self._generate(all_manifests, bindings, equipment)
+    def test_generates_pragma_once(self, synth_module, equipment, bindings_minimal):
+        result = self._gen([synth_module], bindings_minimal, equipment)
         assert "#pragma once" in result
 
-    def test_namespace(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_minimal.json")
-        result = self._generate(all_manifests, bindings, equipment)
+    def test_namespace(self, synth_module, equipment, bindings_minimal):
+        result = self._gen([synth_module], bindings_minimal, equipment)
         assert "namespace modesp::gen" in result
 
-    def test_contains_all_features(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_full.json")
-        result = self._generate(all_manifests, bindings, equipment)
-        assert "basic_cooling" in result
-        assert "fan_control" in result
-        assert "defrost_timer" in result
-        assert "basic_protection" in result
-        assert "door_protection" in result
+    def test_contains_all_features(self, synth_module, equipment, bindings_full):
+        result = self._gen([synth_module], bindings_full, equipment)
+        for feat in ("core", "fan", "fan_temp"):
+            assert f'"{feat}"' in result
 
-    def test_active_flags_minimal_bindings(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_minimal.json")
-        result = self._generate(all_manifests, bindings, equipment)
-        # basic_cooling завжди active
-        assert '"basic_cooling", true' in result
-        # fan_control inactive з мінімальними bindings
-        assert '"fan_control", false' in result
+    def test_active_flags_minimal_bindings(self, synth_module, equipment,
+                                           bindings_minimal):
+        result = self._gen([synth_module], bindings_minimal, equipment)
+        # always_active → true; fan (потребує evap_fan) → false
+        assert '"demo", "core", true' in result
+        assert '"demo", "fan", false' in result
 
-    def test_active_flags_full_bindings(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_full.json")
-        result = self._generate(all_manifests, bindings, equipment)
-        assert '"basic_cooling", true' in result
-        assert '"fan_control", true' in result
-        assert '"door_protection", true' in result
+    def test_active_flags_full_bindings(self, synth_module, equipment, bindings_full):
+        result = self._gen([synth_module], bindings_full, equipment)
+        assert '"demo", "core", true' in result
+        assert '"demo", "fan", true' in result
+        assert '"demo", "fan_temp", true' in result
 
-    def test_is_feature_active_function(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_minimal.json")
-        result = self._generate(all_manifests, bindings, equipment)
+    def test_is_feature_active_helper(self, synth_module, equipment, bindings_minimal):
+        result = self._gen([synth_module], bindings_minimal, equipment)
         assert "is_feature_active" in result
 
-    def test_features_count(self, all_manifests, equipment):
-        bindings = load_fixture("bindings_full.json")
-        result = self._generate(all_manifests, bindings, equipment)
+    def test_features_count_matches_entries(self, synth_module, equipment,
+                                            bindings_full):
+        """FEATURES_COUNT == кількість (module,feature) пар (обчислено з маніфесту)."""
+        expected = len(synth_module["features"])
+        result = self._gen([synth_module], bindings_full, equipment)
+        assert f"FEATURES_COUNT = {expected}" in result
+
+    def test_real_modules_produce_placeholder(self, all_manifests, equipment,
+                                              real_bindings):
+        """Template-модулі без features → валідний placeholder-заголовок."""
+        result = self._gen(all_manifests, real_bindings, equipment)
+        assert "#pragma once" in result
         assert "FEATURES_COUNT" in result
+        # жодних реальних фіч → таблиця має placeholder-рядок
+        assert "placeholder" in result
 
 
 # ═══════════════════════════════════════════════════════════════
-# Select widgets in manifests (structure validation)
+#  Manifest structure / validation для options-keys
 # ═══════════════════════════════════════════════════════════════
 
-class TestManifestOptions:
-    """Перевірка що маніфести мають правильну структуру options."""
+class TestOptionsManifestValidation:
+    """state-key з options проходить ManifestValidator без помилок (V18 тощо)."""
 
-    def test_thermostat_evap_fan_mode_has_options(self, thermostat):
-        state = thermostat["state"]["thermostat.evap_fan_mode"]
-        assert "options" in state
-        assert len(state["options"]) == 3
-        labels = [o["label"] for o in state["options"]]
-        assert "Постійно" in labels
-        assert "З компресором" in labels
+    def test_synth_module_validates_ok(self, synth_module):
+        v = ManifestValidator()
+        ok = v.validate_manifest(synth_module, "demo")
+        assert ok, f"Errors: {v.errors}"
+        assert v.errors == []
 
-    def test_defrost_type_has_options(self, defrost):
-        state = defrost["state"]["defrost.type"]
-        assert "options" in state
-        assert len(state["options"]) == 3
-        assert state["options"][0]["label"] == "За часом (зупинка компресора)"
-
-    def test_defrost_counter_mode_has_options(self, defrost):
-        state = defrost["state"]["defrost.counter_mode"]
-        assert "options" in state
-        assert len(state["options"]) == 2
-
-    def test_defrost_initiation_has_options(self, defrost):
-        state = defrost["state"]["defrost.initiation"]
-        assert "options" in state
-        assert len(state["options"]) == 4
-
-    def test_options_keys_no_min_max_step(self, defrost):
-        """Keys з options не повинні мати min/max/step."""
-        state = defrost["state"]["defrost.type"]
+    def test_options_key_has_no_min_max_step(self, synth_module):
+        """Key з options не повинен мати min/max/step."""
+        state = synth_module["state"]["demo.mode"]
         assert "min" not in state
         assert "max" not in state
         assert "step" not in state
 
-    def test_options_keys_have_persist_and_default(self, defrost):
-        """Keys з options мають persist і default."""
-        state = defrost["state"]["defrost.type"]
+    def test_options_key_has_persist_and_default(self, synth_module):
+        state = synth_module["state"]["demo.mode"]
         assert state.get("persist") is True
         assert "default" in state
 
-    def test_manifests_have_features(self):
-        """Всі 3 бізнес-модулі мають секцію features."""
-        for name in ["thermostat", "defrost", "protection"]:
-            m = load_manifest(name)
-            assert "features" in m, f"{name} missing features"
+    def test_select_widget_matches_options_key(self, synth_module):
+        """V18: state key з options → UI widget має бути 'select'."""
+        widgets = synth_module["ui"]["cards"][0]["widgets"]
+        mode_w = [w for w in widgets if w["key"] == "demo.mode"][0]
+        assert mode_w["widget"] == "select"
 
-    def test_manifests_have_constraints(self):
-        """thermostat і defrost мають constraints."""
-        for name in ["thermostat", "defrost"]:
-            m = load_manifest(name)
-            assert "constraints" in m, f"{name} missing constraints"
-
-    def test_equipment_has_labels(self):
-        """equipment.requires має label для кожної ролі."""
-        m = load_manifest("equipment")
-        for req in m["requires"]:
+    def test_equipment_requires_have_labels(self, equipment):
+        """Реальний equipment.requires — кожна роль має label."""
+        for req in equipment["requires"]:
             assert "label" in req, f"Role {req['role']} missing label"
-
-    def test_equipment_has_door_contact(self):
-        """equipment.requires містить door_contact."""
-        m = load_manifest("equipment")
-        roles = [r["role"] for r in m["requires"]]
-        assert "door_contact" in roles
-
-
-# ═══════════════════════════════════════════════════════════════
-# Manifest validation (options keys pass validation)
-# ═══════════════════════════════════════════════════════════════
-
-class TestManifestValidationWithOptions:
-    """Маніфести з options проходять валідацію без помилок."""
-
-    def test_thermostat_validates_ok(self, thermostat):
-        v = ManifestValidator()
-        v.validate_manifest(thermostat, "thermostat")
-        assert len(v.errors) == 0, f"Errors: {v.errors}"
-
-    def test_defrost_validates_ok(self, defrost):
-        v = ManifestValidator()
-        v.validate_manifest(defrost, "defrost")
-        assert len(v.errors) == 0, f"Errors: {v.errors}"
-
-    def test_protection_validates_ok(self, protection):
-        v = ManifestValidator()
-        v.validate_manifest(protection, "protection")
-        assert len(v.errors) == 0, f"Errors: {v.errors}"
 
     def test_equipment_validates_ok(self, equipment):
         v = ManifestValidator()
-        v.validate_manifest(equipment, "equipment")
-        assert len(v.errors) == 0, f"Errors: {v.errors}"
-
-    def test_cross_module_validates_ok(self, all_manifests):
-        v = ManifestValidator()
-        for m in all_manifests:
-            v.validate_manifest(m, m["module"])
-        v.validate_cross_module(all_manifests)
-        assert len(v.errors) == 0, f"Errors: {v.errors}"
+        ok = v.validate_manifest(equipment, "equipment")
+        assert ok, f"Errors: {v.errors}"
+        assert v.errors == []
