@@ -97,6 +97,24 @@ The generator only processes manifests for modules listed here. This lets
 you keep multiple modules у the repo and pick which ones ship у а given
 firmware build.
 
+Then add the same module name to `main/CMakeLists.txt` → `PRIV_REQUIRES`.
+Auto-registration generates the includes/instances/registration, but CMake
+still needs the component listed explicitly so the dependency is linked:
+
+```cmake
+# main/CMakeLists.txt
+idf_component_register(
+    SRCS "main.cpp"
+    INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/generated"
+    PRIV_REQUIRES modesp_core modesp_services modesp_hal modesp_net \
+                  modesp_scenario equipment datalogger simple_thermo \
+                  display my_counter   # ← add your module here
+)
+```
+
+If you skip this, the build fails to link your module's symbols even though
+`project.json` lists it.
+
 ## Step 3 — Write CMakeLists.txt
 
 ```cmake

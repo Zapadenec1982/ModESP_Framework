@@ -26,24 +26,20 @@ tests/host/
 └── test_<feature>.cpp      # one file per concern
 ```
 
-Запуск з кореня компонента:
+Запуск з кореня компонента (бінарники потрапляють у `build/`):
 
 ```
 cd components/modesp_scenario/tests/host
-make
-./test_engine
-./test_actions
-./test_continuous
-./test_arbiter
-./test_nvs_token
-./test_nvs_observer
+make                       # збирає всі тестові бінарники у build/
+build/test_action_registry
+build/test_nvs_token
+build/test_nvs_observer
 ```
 
-Або зібрати все одразу:
+Або зібрати ТА запустити всі тести одразу:
 
 ```
-make all
-make run    # builds + runs every test_* binary
+make test    # збирає все, запускає кожен бінарник, падає на першій ненульовій помилці
 ```
 
 Тести використовують **простий `assert()`** — без Google Test, без

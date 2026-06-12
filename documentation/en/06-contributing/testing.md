@@ -25,24 +25,20 @@ tests/host/
 └── test_<feature>.cpp      # one file per concern
 ```
 
-Run from the component root:
+Run from the component root (binaries land у `build/`):
 
 ```
 cd components/modesp_scenario/tests/host
-make
-./test_engine
-./test_actions
-./test_continuous
-./test_arbiter
-./test_nvs_token
-./test_nvs_observer
+make                       # builds all test binaries into build/
+build/test_action_registry
+build/test_nvs_token
+build/test_nvs_observer
 ```
 
-Or build all із once:
+Or build AND run every test із once:
 
 ```
-make all
-make run    # builds + runs every test_* binary
+make test    # builds all, runs each binary, fails on first non-zero exit
 ```
 
 Tests use **plain `assert()`** — no Google Test, no Catch2. Goal:
