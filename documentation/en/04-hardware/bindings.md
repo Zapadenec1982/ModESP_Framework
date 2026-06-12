@@ -203,15 +203,33 @@ hardware.
 
 ## Validation
 
-`generate_ui.py` cross-validates bindings against `board.json`:
+`generate_ui.py` cross-validates bindings against `board.json` + driver manifests
+at build time — a mis-wired binding fails the build, it never reaches firmware as
+a silent runtime skip. Every check is an ERROR:
 
-1. Every `hardware` reference resolves to some `id` у board.json.
-2. Every `driver` reference resolves to а driver directory under `drivers/`.
-3. `role` names are unique within а module (you can't bind two compressors).
-4. Drivers із `requires_address: true` actually have `address` field.
-5. Roles match driver `provides.type` against module `requires` declarations.
+1. Every `hardware` resolves to an `id` in board.json (and the board has no
+   duplicate ids).
+2. Every `driver` resolves to a `drivers/<name>/manifest.json`.
+3. **The driver's `hardware_type` matches the board section of its `hardware`** —
+   e.g. `ds18b20` (onewire_bus) bound to an `adc_channel` is rejected.
+4. A driver with `requires_address: true` has a non-empty `address`. (`ds18b20`
+   is `requires_address: false` — single-sensor SKIP_ROM with no address is fine.)
+5. A `hardware` id is reused only if the driver is `multiple_per_bus: true`, and
+   then each binding carries a distinct non-empty `address`.
+6. `role` is unique within a module.
 
-Failures abort the build із specific messages.
+Separately, the firmware build **fails** if the active board binds a driver that
+is **disabled in menuconfig** (`CONFIG_MODESP_DRIVER_<NAME>=n`) — checked in
+`components/modesp_hal/CMakeLists.txt`. Reconcile with:
+
+```bash
+python tools/drivers_sync.py --fix          # enable bound-but-disabled drivers
+python tools/drivers_sync.py --prune        # also disable unused drivers (shrinks the binary)
+python tools/drivers_sync.py --dry-run      # show the diff, change nothing
+```
+
+The build also prints an advisory `INFO:` listing drivers enabled but unused by
+the active board (excluding discovery-capable drivers like `ds18b20`).
 
 ## Common mistakes
 

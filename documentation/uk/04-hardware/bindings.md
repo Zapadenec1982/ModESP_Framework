@@ -208,16 +208,33 @@ curl -u admin:modesp http://192.168.1.85/api/drivers/ds18b20/scan
 
 ## Валідація
 
-`generate_ui.py` перехресно валідує прив'язки відносно `board.json`:
+`generate_ui.py` перехресно валідує bindings відносно `board.json` + маніфестів
+драйверів на етапі збірки — неправильна прив'язка ламає білд, а не тихо
+пропускається в рантаймі. Кожна перевірка — ERROR:
 
-1. Кожне посилання `hardware` розв'язується в якийсь `id` у board.json.
-2. Кожне посилання `driver` розв'язується у теку драйвера під `drivers/`.
-3. Імена `role` унікальні в межах модуля (не можна прив'язати два компресори).
-4. Драйвери з `requires_address: true` дійсно мають поле `address`.
-5. Ролі узгоджуються з `provides.type` драйвера відносно декларацій
-   `requires` модуля.
+1. Кожен `hardware` розв'язується в `id` у board.json (і в плати немає
+   дублікатів id).
+2. Кожен `driver` розв'язується в `drivers/<name>/manifest.json`.
+3. **`hardware_type` драйвера збігається з секцією board його `hardware`** —
+   напр. `ds18b20` (onewire_bus), прив'язаний до `adc_channel`, відхиляється.
+4. Драйвер із `requires_address: true` має непорожній `address`. (`ds18b20` —
+   `requires_address: false`: одно-сенсорний SKIP_ROM без адреси валідний.)
+5. `hardware` id повторюється лише якщо драйвер `multiple_per_bus: true`, і тоді
+   кожна прив'язка має окрему непорожню `address`.
+6. `role` унікальна в межах модуля.
 
-Збої перериваюсь складання з конкретними повідомленнями.
+Окремо, білд прошивки **падає**, якщо активна плата прив'язує драйвер,
+**вимкнений у menuconfig** (`CONFIG_MODESP_DRIVER_<NAME>=n`) — перевірка в
+`components/modesp_hal/CMakeLists.txt`. Узгодити:
+
+```bash
+python tools/drivers_sync.py --fix          # увімкнути bound-but-disabled драйвери
+python tools/drivers_sync.py --prune        # також вимкнути невикористані (менший бінарник)
+python tools/drivers_sync.py --dry-run      # показати різницю, нічого не міняти
+```
+
+Білд також друкує `INFO:` зі списком драйверів, увімкнених, але не використаних
+активною платою (виключаючи discovery-драйвери як `ds18b20`).
 
 ## Типові помилки
 

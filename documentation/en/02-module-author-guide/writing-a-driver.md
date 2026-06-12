@@ -75,16 +75,20 @@ Every driver is **optional**. `idf.py menuconfig` → **ModESP Drivers**:
 ...
 ```
 
-A disabled driver is not compiled at all (smaller flash). Any binding that
-references it is skipped at boot with a warning:
+A disabled driver is not compiled at all (smaller flash). If the active board's
+bindings **use** a driver you disabled, the **build fails** with a clear error
+(`components/modesp_hal/CMakeLists.txt`) — it won't silently ship a dead binding.
+Reconcile menuconfig with the board automatically:
 
-```
-W DriverMgr:  Driver type 'ntc' unknown or disabled in menuconfig — binding 'air_temp' skipped
+```bash
+python tools/drivers_sync.py --fix      # enable the drivers this board binds
+python tools/drivers_sync.py --prune    # disable drivers this board doesn't use
+python tools/drivers_sync.py --dry-run  # preview only
 ```
 
-So: disable the drivers your board doesn't use to shrink the image; keep the
-defaults (all enabled) if you don't care. The toggle for every driver is
-generated automatically from `drivers/*/manifest.json` — see below.
+So: disable the drivers your board doesn't use to shrink the image (or run
+`--prune`); keep the defaults (all enabled) if you don't care. The toggle for
+every driver is generated automatically from `drivers/*/manifest.json` — see below.
 
 ---
 
