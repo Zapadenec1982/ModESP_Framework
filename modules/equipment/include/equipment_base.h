@@ -149,9 +149,6 @@ private:
     /// Publish actuator states + has_* flags to SharedState
     void publish_all_states();
 
-    /// NTC/DS18B20 sensor config (offset, NTC parameters)
-    void apply_sensor_config();
-
 #ifdef HOST_BUILD
 public:
     /// Test-only: inject mock drivers

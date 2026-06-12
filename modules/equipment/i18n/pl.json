@@ -4,12 +4,5 @@
   "state.equipment.air_temp_ok.description": "Czujnik OK",
   "state.equipment.has_ntc_driver.description": "Sterownik NTC aktywny",
   "state.equipment.has_ds18b20_driver.description": "Sterownik DS18B20 aktywny",
-  "state.equipment.filter_coeff.description": "Filtr cyfrowy",
-  "state.equipment.ntc_beta.description": "Współczynnik B NTC",
-  "state.equipment.ntc_r_series.description": "Rezystor szeregowy NTC",
-  "state.equipment.ntc_r_series.unit": "Ohm",
-  "state.equipment.ntc_r_nominal.description": "Rezystancja nominalna NTC (25°C)",
-  "state.equipment.ntc_r_nominal.unit": "Ohm",
-  "state.equipment.ds18b20_offset.description": "Offset DS18B20",
-  "state.equipment.ds18b20_offset.unit": "°C"
+  "state.equipment.filter_coeff.description": "Filtr cyfrowy"
 }

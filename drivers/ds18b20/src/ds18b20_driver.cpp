@@ -13,6 +13,7 @@
  */
 
 #include "ds18b20_driver.h"
+#include "modesp/hal/hal_types.h"   // complete modesp::Binding for apply_settings()
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -59,6 +60,13 @@ void DS18B20Driver::configure(const char* role, gpio_num_t gpio,
     } else {
         ESP_LOGE(TAG, "[%s] No ROM address — sensor MUST have address in bindings!", role);
     }
+}
+
+void DS18B20Driver::apply_settings(const modesp::Binding& b) {
+    offset_           = b.setting_or("offset", offset_);
+    read_interval_ms_ = static_cast<uint32_t>(b.setting_or("read_interval_ms", read_interval_ms_));
+    // Note: "resolution" is declared in the manifest but not yet wired (would
+    // require a scratchpad config write); left at the sensor's 12-bit default.
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -191,7 +199,7 @@ void DS18B20Driver::update(uint32_t dt_ms) {
 
 bool DS18B20Driver::read(float& value) {
     if (!has_valid_reading_) return false;
-    value = current_temp_;
+    value = current_temp_ + offset_;
     return true;
 }
 
@@ -792,6 +800,7 @@ modesp::ISensorDriver* ds18b20_factory(const modesp::Binding& b, modesp::HAL& ha
     auto& drv = s_ds18b20_pool[s_ds18b20_n++];
     drv.configure(b.role.c_str(), ow->gpio, 1000,
                   b.address.empty() ? nullptr : b.address.c_str());
+    drv.apply_settings(b);
     return &drv;
 }
 } // namespace

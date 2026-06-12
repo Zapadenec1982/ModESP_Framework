@@ -61,11 +61,12 @@ That's it. Single array. Each object у the array is one binding —
 
 ```json
 {
-  "hardware": "ow_1",        // board.json id (which pin / bus / expander pin)
-  "driver": "ds18b20",       // driver type to instantiate
-  "role": "air_temp",        // logical name — appears as equipment.<role> у SharedState
-  "module": "equipment",     // module that consumes це binding (almost always "equipment")
-  "address": "28:8C:5E:..."  // additional driver-specific config (optional)
+  "hardware": "ow_1",         // board.json id (which pin / bus / expander pin)
+  "driver": "ds18b20",        // driver type to instantiate
+  "role": "air_temp",         // logical name — appears as equipment.<role> у SharedState
+  "module": "equipment",      // module that consumes це binding (almost always "equipment")
+  "address": "28:8C:5E:...",  // optional ROM / extra addressing
+  "settings": {"offset": 0.5} // optional per-binding driver settings (see below)
 }
 ```
 
@@ -76,7 +77,27 @@ That's it. Single array. Each object у the array is one binding —
 | `role` | string | yes | Semantic name. Becomes `equipment.<role>` (sensors) or `equipment.req_<role>` (actuators) у SharedState. |
 | `module` | string | yes | Module що owns the binding (today: always `"equipment"`). |
 | `address` | string | sometimes | Required if driver manifest declares `"requires_address": true` (1-Wire ROM, I²C extra addressing). |
-| any extra | any | optional | Driver-specific params (offset, calibration, etc.) — passed to `driver->configure()`. |
+| `settings` | object | optional | Per-binding driver settings — see below. |
+
+### Per-binding settings
+
+A driver manifest may declare a `settings` array (each entry: `key`, `type`,
+`default`, `min`/`max`). A binding can override any of them with a `settings`
+object; **keys you omit fall back to the driver default**, so `settings` is
+always optional. Values are numeric (ints or floats).
+
+```json
+{"hardware": "adc_1", "driver": "ntc", "role": "air_temp", "module": "equipment",
+ "settings": {"beta": 3435, "r_series": 10000, "r_nominal": 10000, "offset": -0.3}}
+```
+
+The driver's factory reads them via `binding.setting_or("key", default)` and
+applies them in `apply_settings()`. Today: `ntc` honours
+`beta` / `r_series` / `r_nominal` / `offset` / `read_interval_ms`; `ds18b20`
+honours `offset` / `read_interval_ms`. These are **per-binding** — two NTC
+probes on the same board can carry different calibration. (This replaces the
+old global `equipment.ntc_*` / `equipment.ds18b20_offset` state keys, which
+applied one calibration to every sensor and were never actually wired.)
 
 ## Concrete examples
 

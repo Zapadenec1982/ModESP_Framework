@@ -16,21 +16,7 @@
 
     "equipment.filter_coeff":    {"type": "int", "access": "readwrite", "persist": true,
                                   "min": 0, "max": 10, "step": 1, "default": 4,
-                                  "description": "Digital filter coefficient"},
-
-    "equipment.ntc_beta":        {"type": "int",   "access": "readwrite", "persist": true,
-                                  "min": 2000, "max": 5000, "step": 1, "default": 3950,
-                                  "description": "NTC B-coefficient"},
-    "equipment.ntc_r_series":    {"type": "int",   "access": "readwrite", "persist": true,
-                                  "min": 1000, "max": 100000, "step": 100, "default": 10000,
-                                  "unit": "Ω", "description": "NTC series resistor"},
-    "equipment.ntc_r_nominal":   {"type": "int",   "access": "readwrite", "persist": true,
-                                  "min": 1000, "max": 100000, "step": 100, "default": 10000,
-                                  "unit": "Ω", "description": "NTC nominal resistance (25°C)"},
-
-    "equipment.ds18b20_offset":   {"type": "float", "access": "readwrite", "persist": true,
-                                   "min": -5.0, "max": 5.0, "step": 0.1, "default": 0.0,
-                                   "unit": "°C", "description": "DS18B20 offset correction"}
+                                  "description": "Digital filter coefficient"}
   },
 
   "mqtt": {
@@ -39,10 +25,6 @@
       "equipment.air_temp_ok"
     ],
     "subscribe": [
-      "equipment.ntc_beta",
-      "equipment.ntc_r_series",
-      "equipment.ntc_r_nominal",
-      "equipment.ds18b20_offset",
       "equipment.filter_coeff"
     ]
   },

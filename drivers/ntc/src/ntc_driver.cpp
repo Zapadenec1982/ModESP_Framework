@@ -10,6 +10,7 @@
  */
 
 #include "ntc_driver.h"
+#include "modesp/hal/hal_types.h"   // complete modesp::Binding for apply_settings()
 #include "esp_log.h"
 #include <cmath>
 
@@ -25,6 +26,14 @@ void NtcDriver::configure(const char* role, gpio_num_t gpio, uint8_t atten) {
     gpio_ = gpio;
     atten_ = atten;
     configured_ = true;
+}
+
+void NtcDriver::apply_settings(const modesp::Binding& b) {
+    beta_             = static_cast<int>(b.setting_or("beta", beta_));
+    r_series_         = static_cast<int>(b.setting_or("r_series", r_series_));
+    r_nominal_        = static_cast<int>(b.setting_or("r_nominal", r_nominal_));
+    offset_           = b.setting_or("offset", offset_);
+    read_interval_ms_ = static_cast<uint32_t>(b.setting_or("read_interval_ms", read_interval_ms_));
 }
 
 bool NtcDriver::gpio_to_adc1_channel(gpio_num_t gpio, adc_channel_t& out) {
@@ -184,6 +193,7 @@ modesp::ISensorDriver* ntc_factory(const modesp::Binding& b, modesp::HAL& hal) {
     }
     auto& drv = s_ntc_pool[s_ntc_n++];
     drv.configure(b.role.c_str(), adc_res->gpio, adc_res->atten);
+    drv.apply_settings(b);
     return &drv;
 }
 } // namespace

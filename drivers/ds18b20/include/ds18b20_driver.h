@@ -22,6 +22,8 @@
 #include "driver/gpio.h"
 #include "etl/string.h"
 
+namespace modesp { struct Binding; }
+
 class DS18B20Driver : public modesp::ISensorDriver {
 public:
     DS18B20Driver() = default;
@@ -31,6 +33,10 @@ public:
     void configure(const char* role, gpio_num_t gpio,
                    uint32_t read_interval_ms = 1000,
                    const char* address = nullptr);
+
+    /// Apply per-binding settings (offset, read_interval_ms) from bindings.json;
+    /// absent keys keep the defaults.
+    void apply_settings(const modesp::Binding& b);
 
     // ── ISensorDriver interface ──
     bool init() override;
@@ -95,6 +101,7 @@ private:
     etl::string<16> role_;
     gpio_num_t gpio_              = GPIO_NUM_NC;
     uint32_t read_interval_ms_    = 1000;
+    float    offset_              = 0.0f;   // per-binding calibration offset (°C)
     float    current_temp_        = 0.0f;
     float    last_valid_temp_     = 0.0f;
     bool     has_valid_reading_   = false;

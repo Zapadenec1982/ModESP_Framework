@@ -4,12 +4,5 @@
   "state.equipment.air_temp_ok.description": "Fühler OK",
   "state.equipment.has_ntc_driver.description": "NTC-Treiber aktiv",
   "state.equipment.has_ds18b20_driver.description": "DS18B20-Treiber aktiv",
-  "state.equipment.filter_coeff.description": "Digitalfilter",
-  "state.equipment.ntc_beta.description": "NTC B-Koeffizient",
-  "state.equipment.ntc_r_series.description": "NTC Vorwiderstand",
-  "state.equipment.ntc_r_series.unit": "Ohm",
-  "state.equipment.ntc_r_nominal.description": "NTC Nennwiderstand (25°C)",
-  "state.equipment.ntc_r_nominal.unit": "Ohm",
-  "state.equipment.ds18b20_offset.description": "DS18B20 Offset",
-  "state.equipment.ds18b20_offset.unit": "°C"
+  "state.equipment.filter_coeff.description": "Digitalfilter"
 }

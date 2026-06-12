@@ -34,6 +34,7 @@ static constexpr size_t MAX_ACTUATORS      = 8;
 static constexpr size_t MAX_I2C_BUSES      = 2;
 static constexpr size_t MAX_I2C_EXPANDERS  = 4;
 static constexpr size_t MAX_EXPANDER_IOS   = 16;   // Outputs + Inputs через expanders
+static constexpr size_t MAX_BINDING_SETTINGS = 6;  // per-binding driver settings
 
 // ═══════════════════════════════════════════════════════════════
 // String types for IDs and names
@@ -119,12 +120,29 @@ struct BoardConfig {
 // Binding config (parsed from bindings.json)
 // ═══════════════════════════════════════════════════════════════
 
+/// One per-binding driver setting (e.g. "beta" → 3900). Every driver setting
+/// is numeric and fits exactly in a float (ints up to 2^24), so a single float
+/// store covers int and float settings alike.
+struct BindingSetting {
+    etl::string<16> key;
+    float           value = 0.0f;
+};
+
 struct Binding {
     HalId         hardware_id;
     Role          role;
     DriverType    driver_type;
     ModuleName    module_name;
     SensorAddress address;      // Опціональна ROM адреса (multi-sensor)
+    etl::vector<BindingSetting, MAX_BINDING_SETTINGS> settings;  // per-binding driver config
+
+    /// Look up a per-binding setting by key; returns `def` when not present.
+    float setting_or(const char* key, float def) const {
+        for (const auto& s : settings) {
+            if (s.key == key) return s.value;
+        }
+        return def;
+    }
 };
 
 struct BindingTable {

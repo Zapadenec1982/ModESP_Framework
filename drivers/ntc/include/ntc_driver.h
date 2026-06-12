@@ -24,12 +24,18 @@
 #include "esp_adc/adc_oneshot.h"
 #include "etl/string.h"
 
+namespace modesp { struct Binding; }
+
 class NtcDriver : public modesp::ISensorDriver {
 public:
     NtcDriver() = default;
 
     /// Configure before init
     void configure(const char* role, gpio_num_t gpio, uint8_t atten);
+
+    /// Apply per-binding settings (beta, r_series, r_nominal, offset,
+    /// read_interval_ms) from bindings.json; absent keys keep the defaults.
+    void apply_settings(const modesp::Binding& b);
 
     // ── ISensorDriver interface ──
     bool init() override;

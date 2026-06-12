@@ -608,6 +608,30 @@ bool ConfigService::parse_bindings_json() {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         binding.address = tmp;
                         j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "settings")) {
+                        // Per-binding driver settings: {"beta": 3900, "offset": 0.5}.
+                        // Object value, so the scalar "j += 2" fallback below would
+                        // mis-walk the tokens — must consume the nested object here.
+                        if (tokens[j + 1].type == JSMN_OBJECT) {
+                            int nset = tokens[j + 1].size;
+                            int sj = j + 2;
+                            for (int s = 0; s < nset; s++) {
+                                char skey[24];   // longest key "read_interval_ms" = 16 + NUL
+                                char sval[24];
+                                tok_to_str(buf, &tokens[sj],     skey, sizeof(skey));
+                                tok_to_str(buf, &tokens[sj + 1], sval, sizeof(sval));
+                                if (!binding.settings.full()) {
+                                    BindingSetting bs;
+                                    bs.key   = skey;
+                                    bs.value = static_cast<float>(atof(sval));
+                                    binding.settings.push_back(bs);
+                                }
+                                sj += 2;
+                            }
+                            j = sj;
+                        } else {
+                            j += 2;
+                        }
                     } else {
                         j += 2;
                     }

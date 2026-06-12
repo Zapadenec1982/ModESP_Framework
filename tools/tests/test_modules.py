@@ -219,9 +219,11 @@ class TestMqttTopicsFullProject:
         assert "sensor1_ok" not in result
 
     def test_subscribe_keys_are_present(self, all_manifests):
-        """Equipment calibration settings are MQTT-subscribable."""
+        """Equipment's writable filter coefficient is MQTT-subscribable.
+        (Per-sensor NTC/ds18b20 calibration now lives in per-binding settings,
+        not in global equipment.* state keys — see drivers/*/manifest settings.)"""
         result = MqttTopicsGenerator().generate(all_manifests)
-        assert '"equipment.ntc_beta"' in result
+        assert '"equipment.filter_coeff"' in result
 
 
 # ═══════════════════════════════════════════════════════════════
