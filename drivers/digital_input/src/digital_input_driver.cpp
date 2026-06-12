@@ -67,3 +67,34 @@ bool DigitalInputDriver::read(float& value) {
     value = debounced_state_ ? 1.0f : 0.0f;
     return true;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Driver factory + registration (optional via CONFIG_MODESP_DRIVER_DIGITAL_INPUT)
+// ═══════════════════════════════════════════════════════════════
+
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
+
+namespace {
+DigitalInputDriver s_di_pool[modesp::MAX_SENSORS];
+size_t             s_di_n = 0;
+
+modesp::ISensorDriver* digital_input_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_di_n >= modesp::MAX_SENSORS) {
+        ESP_LOGE(TAG, "DigitalInput pool exhausted");
+        return nullptr;
+    }
+    auto* gpio_res = hal.find_gpio_input(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!gpio_res) {
+        ESP_LOGE(TAG, "GPIO input '%s' not found in HAL", b.hardware_id.c_str());
+        return nullptr;
+    }
+    auto& drv = s_di_pool[s_di_n++];
+    drv.configure(b.role.c_str(), gpio_res->gpio, gpio_res->pull_up);
+    return &drv;
+}
+} // namespace
+
+MODESP_REGISTER_SENSOR(digital_input, &digital_input_factory)

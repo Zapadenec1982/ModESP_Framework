@@ -46,3 +46,40 @@ bool PCF8574InputDriver::read(float& value) {
     value = state_ ? 1.0f : 0.0f;
     return true;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Driver factory + registration (optional via CONFIG_MODESP_DRIVER_PCF8574_INPUT)
+// ═══════════════════════════════════════════════════════════════
+
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
+
+namespace {
+PCF8574InputDriver s_pcf_input_pool[modesp::MAX_SENSORS];
+size_t             s_pcf_input_n = 0;
+
+modesp::ISensorDriver* pcf8574_input_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_pcf_input_n >= modesp::MAX_SENSORS) {
+        ESP_LOGE(TAG, "PCF input pool exhausted");
+        return nullptr;
+    }
+    auto* in_cfg = hal.find_expander_input(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!in_cfg) {
+        ESP_LOGE(TAG, "Expander input '%s' not found", b.hardware_id.c_str());
+        return nullptr;
+    }
+    auto* expander = hal.find_i2c_expander(
+        etl::string_view(in_cfg->expander_id.c_str(), in_cfg->expander_id.size()));
+    if (!expander) {
+        ESP_LOGE(TAG, "Expander '%s' not found", in_cfg->expander_id.c_str());
+        return nullptr;
+    }
+    auto& drv = s_pcf_input_pool[s_pcf_input_n++];
+    drv.configure(b.role.c_str(), expander, in_cfg->pin, in_cfg->invert);
+    return &drv;
+}
+} // namespace
+
+MODESP_REGISTER_SENSOR(pcf8574_input, &pcf8574_input_factory)

@@ -1,26 +1,16 @@
 /**
  * @file driver_manager.cpp
- * @brief DriverManager implementation — driver creation from bindings
+ * @brief DriverManager — creates drivers from bindings via the driver registry.
  *
- * Includes concrete driver headers and manages static driver pools.
- * Each binding maps a hardware resource to a driver type and role.
- *
- * Driver types:
- *   "ds18b20"       → DS18B20Driver       (sensor, OneWire)
- *   "digital_input" → DigitalInputDriver   (sensor, GPIO)
- *   "ntc"           → NtcDriver            (sensor, ADC)
- *   "relay"         → RelayDriver          (actuator, GPIO)
- *   "pcf8574_relay" → PCF8574RelayDriver   (actuator, I2C expander)
- *   "pcf8574_input" → PCF8574InputDriver   (sensor, I2C expander)
+ * Driver-AGNOSTIC: this file knows no concrete driver type. Each binding's
+ * driver_type string is looked up in DriverRegistry (populated by the generated
+ * modesp_register_all_drivers()), and the matching factory builds the instance.
+ * Adding/removing a driver requires no change here — see tools/cmake/modesp_driver.cmake.
  */
 
 #include "modesp/hal/driver_manager.h"
-#include "ds18b20_driver.h"
-#include "relay_driver.h"
-#include "digital_input_driver.h"
-#include "ntc_driver.h"
-#include "pcf8574_relay_driver.h"
-#include "pcf8574_input_driver.h"
+#include "modesp/hal/driver_registry.h"
+#include "driver_register_all.h"   // generated — modesp_register_all_drivers()
 #include "esp_log.h"
 
 static const char* TAG = "DriverMgr";
@@ -28,42 +18,18 @@ static const char* TAG = "DriverMgr";
 namespace modesp {
 
 // ═══════════════════════════════════════════════════════════════
-// Static driver pools — zero heap allocation
-// ═══════════════════════════════════════════════════════════════
-
-static DS18B20Driver ds18b20_pool[MAX_SENSORS];
-static size_t ds18b20_count = 0;
-
-static DigitalInputDriver di_pool[MAX_SENSORS];
-static size_t di_count = 0;
-
-static NtcDriver ntc_pool[MAX_SENSORS];
-static size_t ntc_count = 0;
-
-static RelayDriver relay_pool[MAX_ACTUATORS];
-static size_t relay_count = 0;
-
-static PCF8574RelayDriver pcf_relay_pool[MAX_ACTUATORS];
-static size_t pcf_relay_count = 0;
-
-static PCF8574InputDriver pcf_input_pool[MAX_SENSORS];
-static size_t pcf_input_count = 0;
-
-// ═══════════════════════════════════════════════════════════════
-// Init — create all drivers from bindings
+// Init — create all drivers from bindings via the driver registry.
+// Driver factories + static pools now live inside each driver component
+// (registered through modesp_register_all_drivers); no hardcoded dispatch.
 // ═══════════════════════════════════════════════════════════════
 
 bool DriverManager::init(const BindingTable& bindings, HAL& hal) {
     ESP_LOGI(TAG, "Creating drivers for %d bindings...",
              (int)bindings.bindings.size());
 
-    // Reset pools
-    ds18b20_count = 0;
-    di_count = 0;
-    ntc_count = 0;
-    relay_count = 0;
-    pcf_relay_count = 0;
-    pcf_input_count = 0;
+    // Populate the registry with every driver enabled in menuconfig (idempotent).
+    modesp_register_all_drivers();
+
     sensors_.clear();
     actuators_.clear();
     sensor_count_ = 0;
@@ -72,6 +38,11 @@ bool DriverManager::init(const BindingTable& bindings, HAL& hal) {
     // Лямбда для реєстрації сенсора
     auto add_sensor = [this](ISensorDriver* drv, const Binding& b) -> bool {
         if (!drv) return false;
+        if (sensors_.full()) {
+            ESP_LOGE(TAG, "  Sensor '%s' DROPPED — pool full (max %d)",
+                     b.role.c_str(), (int)MAX_SENSORS);
+            return false;
+        }
         SensorEntry entry;
         entry.driver = drv;
         entry.role = b.role;
@@ -86,6 +57,11 @@ bool DriverManager::init(const BindingTable& bindings, HAL& hal) {
     // Лямбда для реєстрації актуатора
     auto add_actuator = [this](IActuatorDriver* drv, const Binding& b) -> bool {
         if (!drv) return false;
+        if (actuators_.full()) {
+            ESP_LOGE(TAG, "  Actuator '%s' DROPPED — pool full (max %d)",
+                     b.role.c_str(), (int)MAX_ACTUATORS);
+            return false;
+        }
         ActuatorEntry entry;
         entry.driver = drv;
         entry.role = b.role;
@@ -97,30 +73,25 @@ bool DriverManager::init(const BindingTable& bindings, HAL& hal) {
         return true;
     };
 
-    // Phase 1: Create drivers from bindings (пропускає невдалі)
+    // Phase 1: Create drivers from bindings via the registry.
     for (const auto& binding : bindings.bindings) {
-        bool ok = false;
-        if (binding.driver_type == "ds18b20") {
-            ok = add_sensor(create_sensor(binding, hal), binding);
-        } else if (binding.driver_type == "digital_input") {
-            ok = add_sensor(create_di_sensor(binding, hal), binding);
-        } else if (binding.driver_type == "ntc") {
-            ok = add_sensor(create_ntc_sensor(binding, hal), binding);
-        } else if (binding.driver_type == "relay") {
-            ok = add_actuator(create_actuator(binding, hal), binding);
-        } else if (binding.driver_type == "pcf8574_relay") {
-            ok = add_actuator(create_pcf_actuator(binding, hal), binding);
-        } else if (binding.driver_type == "pcf8574_input") {
-            ok = add_sensor(create_pcf_sensor(binding, hal), binding);
-        } else {
-            ESP_LOGW(TAG, "  Unknown driver type '%s' for binding '%s'",
-                     binding.driver_type.c_str(),
-                     binding.hardware_id.c_str());
+        const char* type = binding.driver_type.c_str();
+
+        if (!DriverRegistry::is_known(type)) {
+            ESP_LOGW(TAG, "  Driver type '%s' unknown or disabled in menuconfig "
+                     "— binding '%s' skipped", type, binding.role.c_str());
             continue;
         }
-        if (!ok) {
+
+        if (ISensorDriver* s = DriverRegistry::create_sensor(type, binding, hal)) {
+            add_sensor(s, binding);
+        } else if (IActuatorDriver* a = DriverRegistry::create_actuator(type, binding, hal)) {
+            add_actuator(a, binding);
+        } else {
+            // Known type but factory failed (pool exhausted / HAL resource
+            // missing) — the factory already logged the specific reason.
             ESP_LOGW(TAG, "  Skipping '%s' [%s] — create failed",
-                     binding.role.c_str(), binding.driver_type.c_str());
+                     binding.role.c_str(), type);
         }
     }
 
@@ -158,150 +129,6 @@ bool DriverManager::init(const BindingTable& bindings, HAL& hal) {
                  (int)sensor_count_, (int)actuator_count_);
     }
     return true;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Driver creation
-// ═══════════════════════════════════════════════════════════════
-
-ISensorDriver* DriverManager::create_sensor(const Binding& binding, HAL& hal) {
-    if (binding.driver_type == "ds18b20") {
-        if (ds18b20_count >= MAX_SENSORS) {
-            ESP_LOGE(TAG, "DS18B20 pool exhausted");
-            return nullptr;
-        }
-
-        auto* ow_res = hal.find_onewire_bus(
-            etl::string_view(binding.hardware_id.c_str(), binding.hardware_id.size()));
-        if (!ow_res) {
-            ESP_LOGE(TAG, "OneWire bus '%s' not found in HAL",
-                     binding.hardware_id.c_str());
-            return nullptr;
-        }
-
-        auto& drv = ds18b20_pool[ds18b20_count++];
-        drv.configure(binding.role.c_str(), ow_res->gpio, 1000,
-                      binding.address.empty() ? nullptr : binding.address.c_str());
-        return &drv;
-    }
-
-    return nullptr;
-}
-
-ISensorDriver* DriverManager::create_di_sensor(const Binding& binding, HAL& hal) {
-    if (di_count >= MAX_SENSORS) {
-        ESP_LOGE(TAG, "DigitalInput pool exhausted");
-        return nullptr;
-    }
-
-    auto* gpio_res = hal.find_gpio_input(
-        etl::string_view(binding.hardware_id.c_str(), binding.hardware_id.size()));
-    if (!gpio_res) {
-        ESP_LOGE(TAG, "GPIO input '%s' not found in HAL", binding.hardware_id.c_str());
-        return nullptr;
-    }
-
-    auto& drv = di_pool[di_count++];
-    drv.configure(binding.role.c_str(), gpio_res->gpio, gpio_res->pull_up);
-    return &drv;
-}
-
-ISensorDriver* DriverManager::create_ntc_sensor(const Binding& binding, HAL& hal) {
-    if (ntc_count >= MAX_SENSORS) {
-        ESP_LOGE(TAG, "NTC pool exhausted");
-        return nullptr;
-    }
-
-    auto* adc_res = hal.find_adc_channel(
-        etl::string_view(binding.hardware_id.c_str(), binding.hardware_id.size()));
-    if (!adc_res) {
-        ESP_LOGE(TAG, "ADC channel '%s' not found in HAL", binding.hardware_id.c_str());
-        return nullptr;
-    }
-
-    auto& drv = ntc_pool[ntc_count++];
-    drv.configure(binding.role.c_str(), adc_res->gpio, adc_res->atten);
-    return &drv;
-}
-
-IActuatorDriver* DriverManager::create_actuator(const Binding& binding, HAL& hal) {
-    if (binding.driver_type == "relay") {
-        if (relay_count >= MAX_ACTUATORS) {
-            ESP_LOGE(TAG, "Relay pool exhausted");
-            return nullptr;
-        }
-
-        auto* gpio_res = hal.find_gpio_output(
-            etl::string_view(binding.hardware_id.c_str(), binding.hardware_id.size()));
-        if (!gpio_res) {
-            ESP_LOGE(TAG, "GPIO output '%s' not found in HAL",
-                     binding.hardware_id.c_str());
-            return nullptr;
-        }
-
-        auto& drv = relay_pool[relay_count++];
-        // min_switch_ms = 0 для всіх реле. Захист компресора від коротких циклів
-        // реалізовано на рівні EquipmentModule (COMP_MIN_OFF_MS / COMP_MIN_ON_MS)
-        // з асиметричними таймерами (180с OFF, 120с ON).
-        drv.configure(binding.role.c_str(), gpio_res->gpio, gpio_res->active_high, 0);
-        return &drv;
-    }
-
-    return nullptr;
-}
-
-IActuatorDriver* DriverManager::create_pcf_actuator(const Binding& binding, HAL& hal) {
-    if (pcf_relay_count >= MAX_ACTUATORS) {
-        ESP_LOGE(TAG, "PCF relay pool exhausted");
-        return nullptr;
-    }
-
-    // Знайти expander output config по hardware_id ("relay_1")
-    auto* out_cfg = hal.find_expander_output(
-        etl::string_view(binding.hardware_id.c_str(), binding.hardware_id.size()));
-    if (!out_cfg) {
-        ESP_LOGE(TAG, "Expander output '%s' not found", binding.hardware_id.c_str());
-        return nullptr;
-    }
-
-    // Знайти expander resource по expander_id ("relay_exp")
-    auto* expander = hal.find_i2c_expander(
-        etl::string_view(out_cfg->expander_id.c_str(), out_cfg->expander_id.size()));
-    if (!expander) {
-        ESP_LOGE(TAG, "Expander '%s' not found", out_cfg->expander_id.c_str());
-        return nullptr;
-    }
-
-    auto& drv = pcf_relay_pool[pcf_relay_count++];
-    drv.configure(binding.role.c_str(), expander, out_cfg->pin, out_cfg->active_high);
-    return &drv;
-}
-
-ISensorDriver* DriverManager::create_pcf_sensor(const Binding& binding, HAL& hal) {
-    if (pcf_input_count >= MAX_SENSORS) {
-        ESP_LOGE(TAG, "PCF input pool exhausted");
-        return nullptr;
-    }
-
-    // Знайти expander input config по hardware_id ("din_1")
-    auto* in_cfg = hal.find_expander_input(
-        etl::string_view(binding.hardware_id.c_str(), binding.hardware_id.size()));
-    if (!in_cfg) {
-        ESP_LOGE(TAG, "Expander input '%s' not found", binding.hardware_id.c_str());
-        return nullptr;
-    }
-
-    // Знайти expander resource
-    auto* expander = hal.find_i2c_expander(
-        etl::string_view(in_cfg->expander_id.c_str(), in_cfg->expander_id.size()));
-    if (!expander) {
-        ESP_LOGE(TAG, "Expander '%s' not found", in_cfg->expander_id.c_str());
-        return nullptr;
-    }
-
-    auto& drv = pcf_input_pool[pcf_input_count++];
-    drv.configure(binding.role.c_str(), expander, in_cfg->pin, in_cfg->invert);
-    return &drv;
 }
 
 // ═══════════════════════════════════════════════════════════════

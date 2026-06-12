@@ -96,3 +96,35 @@ void RelayDriver::apply_gpio(bool on) {
     int level = on ? (active_high_ ? 1 : 0) : (active_high_ ? 0 : 1);
     gpio_set_level(gpio_, level);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Driver factory + registration (optional via CONFIG_MODESP_DRIVER_RELAY)
+// ═══════════════════════════════════════════════════════════════
+
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
+
+namespace {
+RelayDriver s_relay_pool[modesp::MAX_ACTUATORS];
+size_t      s_relay_n = 0;
+
+modesp::IActuatorDriver* relay_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_relay_n >= modesp::MAX_ACTUATORS) {
+        ESP_LOGE(TAG, "Relay pool exhausted");
+        return nullptr;
+    }
+    auto* gpio_res = hal.find_gpio_output(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!gpio_res) {
+        ESP_LOGE(TAG, "GPIO output '%s' not found in HAL", b.hardware_id.c_str());
+        return nullptr;
+    }
+    auto& drv = s_relay_pool[s_relay_n++];
+    // min_switch_ms = 0; compressor anti-short-cycle is enforced in EquipmentBase.
+    drv.configure(b.role.c_str(), gpio_res->gpio, gpio_res->active_high, 0);
+    return &drv;
+}
+} // namespace
+
+MODESP_REGISTER_ACTUATOR(relay, &relay_factory)

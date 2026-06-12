@@ -9,6 +9,8 @@ tests/host/build/
 data/ui.json
 data/board.json
 data/bindings.json
+# Per-driver menuconfig toggles, generated from drivers/*/manifest.json
+components/modesp_hal/Kconfig
 
 # === ESP-IDF managed dependencies ===
 /managed_components/

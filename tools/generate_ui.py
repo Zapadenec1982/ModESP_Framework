@@ -648,15 +648,6 @@ class FeatureResolver:
             result[m.get("module", "?")] = self.resolve_module(m)
         return result
 
-    # Маппінг feature → equipment.has_* state key (для runtime disabled options)
-    FEATURE_TO_STATE = {
-        "defrost_electric":  "equipment.has_defrost_relay",
-        "defrost_hot_gas":   "equipment.has_defrost_relay",
-        "defrost_by_sensor": "equipment.has_evap_temp",
-        "fan_temp_control":  "equipment.has_evap_temp",
-        "night_di":          "equipment.has_night_input",
-    }
-
     def resolve_constraints(self, module_manifest, active_features):
         """Повертає ВСІ options + requires_state/disabled_hint для runtime перевірки.
         Повертає dict {setting_key: [options_with_requires_state]}."""
@@ -676,9 +667,12 @@ class FeatureResolver:
                 val_str = str(opt["value"])
                 rule = constraint.get("values", {}).get(val_str, {})
                 new_opt = dict(opt)
-                feat = rule.get("requires_feature")
-                if feat and feat in self.FEATURE_TO_STATE:
-                    new_opt["requires_state"] = self.FEATURE_TO_STATE[feat]
+                # Domain-neutral: the constraint rule itself declares which state
+                # key gates this option (e.g. "requires_state": "equipment.has_x").
+                # The generator no longer hardcodes product-specific feature maps.
+                req_state = rule.get("requires_state")
+                if req_state:
+                    new_opt["requires_state"] = req_state
                     new_opt["disabled_hint"] = rule.get("disabled_hint", "Недоступно")
                 filtered.append(new_opt)
             result[key] = filtered
@@ -2010,6 +2004,98 @@ def main():
     with open(cmake_path, "w", encoding="utf-8") as f:
         f.write('\n'.join(cmake_lines) + '\n')
     print(f"  + {cmake_path}")
+    files_written += 1
+
+    # ── 6e. Driver glue — optional-driver support ──────────
+    # Scan ALL drivers/ (not only those referenced by modules) so every driver
+    # gets a menuconfig toggle + auto-wiring with ZERO manual edits:
+    #   generated/Kconfig.drivers      → config MODESP_DRIVER_<NAME> per driver
+    #   generated/drivers.cmake        → REQUIRES list for modesp_hal
+    #   generated/driver_register_all.h→ guarded register-all (skips disabled)
+    driver_dirs = sorted(p.parent for p in args.drivers_dir.glob("*/manifest.json"))
+    drivers_meta = []  # (name, category, description)
+    for ddir in driver_dirs:
+        try:
+            dm = json.loads((ddir / "manifest.json").read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"  WARNING: skipping driver dir '{ddir.name}': {e}")
+            continue
+        name = dm.get("driver", ddir.name)
+        if not re.match(r"^[a-z][a-z0-9_]*$", name):
+            print(f"  WARNING: driver '{name}' has invalid name — skipped")
+            continue
+        drivers_meta.append((name, dm.get("category", "sensor"),
+                             dm.get("description", name)))
+
+    # Driver Kconfig — one toggle per driver (default y → existing behaviour).
+    # Written to components/modesp_hal/Kconfig so ESP-IDF auto-discovers it as a
+    # component Kconfig (reliable; no fragile orsource path resolution).
+    kcfg = [
+        "# Auto-generated from drivers/*/manifest.json by tools/generate_ui.py",
+        "# DO NOT EDIT — regenerated on every build.",
+        'menu "ModESP Drivers"',
+        "",
+    ]
+    for name, category, desc in drivers_meta:
+        kcfg += [
+            f"    config MODESP_DRIVER_{name.upper()}",
+            f'        bool "{name} driver"',
+            "        default y",
+            "        help",
+            f"            Compile and register the '{name}' {category} driver.",
+            "            Disable to exclude it from the firmware (smaller binary).",
+            "",
+        ]
+    kcfg.append("endmenu")
+    kcfg_path = args.drivers_dir.parent / "components" / "modesp_hal" / "Kconfig"
+    with open(kcfg_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(kcfg) + '\n')
+    print(f"  + {kcfg_path}")
+    files_written += 1
+
+    # drivers.cmake — full driver list for modesp_hal PRIV_REQUIRES
+    dcmake_path = gen_dir / "drivers.cmake"
+    with open(dcmake_path, "w", encoding="utf-8") as f:
+        f.write("# Auto-generated from drivers/*/manifest.json — DO NOT EDIT\n")
+        f.write(f"set(MODESP_ALL_DRIVERS {' '.join(n for n, _, _ in drivers_meta)})\n")
+    print(f"  + {dcmake_path}")
+    files_written += 1
+
+    # driver_register_all.h — guarded extern decls + register-all body.
+    # Uses extern "C" symbol modesp_register_driver_<name>() defined by each
+    # driver via MODESP_REGISTER_SENSOR/ACTUATOR — no class names needed here.
+    reg = [
+        "#pragma once",
+        "// Auto-generated from drivers/*/manifest.json — DO NOT EDIT",
+        "",
+        '#include "sdkconfig.h"',
+        '#include "modesp/hal/driver_registry.h"',
+        "",
+        "// Compile-time guard: turn a silent registry overflow (the 17th driver",
+        "// type) into a build error instead of a runtime 'unknown driver' warning.",
+        f"static_assert({len(drivers_meta)} <= modesp::DriverRegistry::MAX_DRIVER_TYPES,",
+        '              "Too many driver types — raise MAX_DRIVER_TYPES in driver_registry.h");',
+        "",
+        'extern "C" {',
+    ]
+    for name, _, _ in drivers_meta:
+        reg += [
+            f"#ifdef CONFIG_MODESP_DRIVER_{name.upper()}",
+            f"void modesp_register_driver_{name}(void);",
+            "#endif",
+        ]
+    reg += ["}", "", "inline void modesp_register_all_drivers(void) {"]
+    for name, _, _ in drivers_meta:
+        reg += [
+            f"#ifdef CONFIG_MODESP_DRIVER_{name.upper()}",
+            f"    modesp_register_driver_{name}();",
+            "#endif",
+        ]
+    reg.append("}")
+    reg_drv_path = gen_dir / "driver_register_all.h"
+    with open(reg_drv_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(reg) + '\n')
+    print(f"  + {reg_drv_path}")
     files_written += 1
 
     # ── 7. DataLogger channels (manifest-driven) ───────────

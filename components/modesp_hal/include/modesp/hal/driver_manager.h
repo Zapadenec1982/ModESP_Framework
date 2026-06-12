@@ -15,14 +15,6 @@
 #include "modesp/hal/driver_interfaces.h"
 #include "etl/string_view.h"
 
-// Forward declarations — concrete drivers included only in .cpp
-class DS18B20Driver;
-class RelayDriver;
-class DigitalInputDriver;
-class NtcDriver;
-class PCF8574RelayDriver;
-class PCF8574InputDriver;
-
 namespace modesp {
 
 class DriverManager {
@@ -64,13 +56,6 @@ private:
     etl::vector<ActuatorEntry, MAX_ACTUATORS> actuators_;
     size_t sensor_count_   = 0;
     size_t actuator_count_ = 0;
-
-    ISensorDriver*   create_sensor(const Binding& binding, HAL& hal);
-    ISensorDriver*   create_di_sensor(const Binding& binding, HAL& hal);
-    ISensorDriver*   create_ntc_sensor(const Binding& binding, HAL& hal);
-    IActuatorDriver* create_actuator(const Binding& binding, HAL& hal);
-    IActuatorDriver* create_pcf_actuator(const Binding& binding, HAL& hal);
-    ISensorDriver*   create_pcf_sensor(const Binding& binding, HAL& hal);
 };
 
 } // namespace modesp

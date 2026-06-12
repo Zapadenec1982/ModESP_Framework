@@ -68,7 +68,7 @@ private:
     bool     start_conversion();
     bool     read_scratchpad(uint8_t* buf, size_t len);
     bool     read_temperature(float& temp_out);
-    void     send_rom_command();    // Завжди MATCH_ROM — адреса обов'язкова
+    void     send_rom_command();    // SKIP_ROM (no addr) або MATCH_ROM (addr)
     bool     parse_address(const char* addr_str);  // "28:FF:..." → rom_address_[]
 
     // ── Static OneWire helpers (для scan — без instance) ──
@@ -87,6 +87,9 @@ private:
 
     // ── Validation ──
     bool validate_reading(float value);
+
+    // ── Saturating error counter (uint8_t — must not wrap to 0) ──
+    void note_error();
 
     // ── State ──
     etl::string<16> role_;

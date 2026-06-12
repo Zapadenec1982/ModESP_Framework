@@ -11,7 +11,10 @@
 #include "modesp/net/wifi_service.h"
 #include "modesp/hal/hal.h"
 #include "modesp/types.h"
-#include "ds18b20_driver.h"
+#include "sdkconfig.h"
+#ifdef CONFIG_MODESP_DRIVER_DS18B20
+#include "ds18b20_driver.h"   // OneWire scan endpoint — only when driver enabled
+#endif
 #include "datalogger_module.h"
 #include "modesp/scenario/engine.h"  // Phase 3: restored з modesp::scenario types
 
@@ -1273,6 +1276,13 @@ esp_err_t HttpService::handle_post_time(httpd_req_t* req) {
 // ── OneWire Scan Handler ────────────────────────────────────────
 
 esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
+#ifndef CONFIG_MODESP_DRIVER_DS18B20
+    // DS18B20 driver disabled in menuconfig — OneWire scan unavailable.
+    set_cors_headers(req);
+    httpd_resp_send_err(req, HTTPD_501_METHOD_NOT_IMPLEMENTED,
+                        "DS18B20 driver disabled in menuconfig");
+    return ESP_OK;
+#else
     auto* self = static_cast<HttpService*>(req->user_ctx);
     set_cors_headers(req);
 
@@ -1379,6 +1389,7 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, json, pos);
+#endif // CONFIG_MODESP_DRIVER_DS18B20
 }
 
 // ── DataLogger API ──────────────────────────────────────────────

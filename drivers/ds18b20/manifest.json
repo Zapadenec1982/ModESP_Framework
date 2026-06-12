@@ -4,7 +4,7 @@
   "description": "Dallas DS18B20 цифровий датчик температури",
   "category": "sensor",
   "hardware_type": "onewire_bus",
-  "requires_address": true,
+  "requires_address": false,
   "multiple_per_bus": true,
   "provides": {"type": "float", "unit": "°C", "range": [-55, 125]},
   "settings": [

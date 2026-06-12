@@ -24,7 +24,9 @@ public:
     bool get_state() const override { return relay_on_; }
     const char* role() const override { return role_.c_str(); }
     const char* type() const override { return "pcf8574_relay"; }
-    bool is_healthy() const override { return initialized_ && expander_ != nullptr; }
+    bool is_healthy() const override {
+        return initialized_ && expander_ != nullptr && consecutive_errors_ < 5;
+    }
     void emergency_stop() override;
     uint32_t switch_count() const override { return cycles_; }
 
@@ -36,5 +38,6 @@ private:
     bool relay_on_     = false;
     bool initialized_  = false;
     bool configured_   = false;
+    uint8_t consecutive_errors_ = 0;  ///< I2C write fails (saturating); >=5 → unhealthy
     uint32_t cycles_   = 0;
 };

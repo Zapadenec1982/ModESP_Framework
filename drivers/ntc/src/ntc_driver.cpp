@@ -69,10 +69,26 @@ bool NtcDriver::init() {
     }
     adc_handle_ = s_adc1_handle;
 
-    // Конфігуруємо канал
+    // Конфігуруємо канал.
+    // atten_ у board.json задається в ДЕЦИБЕЛАХ (0/2.5/6/11), а adc_atten_t —
+    // це enum 0..3. Прямий каст (adc_atten_t)11 давав невалідний enum і
+    // adc_oneshot_config_channel() відхиляв конфіг. Мапимо dB → enum.
+    adc_atten_t atten_enum;
+    switch (atten_) {
+        case 0:           atten_enum = ADC_ATTEN_DB_0;   break;
+        case 2: case 3:   atten_enum = ADC_ATTEN_DB_2_5; break;  // 2.5 dB (3 = legacy enum)
+        case 6:           atten_enum = ADC_ATTEN_DB_6;   break;
+        case 11: case 12: atten_enum = ADC_ATTEN_DB_12;  break;  // DB_11 застарів → DB_12
+        default:
+            ESP_LOGW(TAG, "[%s] Невідома атенюація %d dB — fallback на 12 dB",
+                     role_.c_str(), atten_);
+            atten_enum = ADC_ATTEN_DB_12;
+            break;
+    }
+
     adc_oneshot_chan_cfg_t chan_cfg = {};
     chan_cfg.bitwidth = ADC_BITWIDTH_12;
-    chan_cfg.atten = (adc_atten_t)atten_;
+    chan_cfg.atten = atten_enum;
 
     err = adc_oneshot_config_channel(adc_handle_, adc_channel_, &chan_cfg);
     if (err != ESP_OK) {
@@ -95,14 +111,14 @@ void NtcDriver::update(uint32_t dt_ms) {
     int raw = 0;
     esp_err_t err = adc_oneshot_read(adc_handle_, adc_channel_, &raw);
     if (err != ESP_OK) {
-        consecutive_errors_++;
+        if (consecutive_errors_ < 255) consecutive_errors_++;  // saturate, no wrap
         ESP_LOGW(TAG, "[%s] ADC read failed: %s", role_.c_str(), esp_err_to_name(err));
         return;
     }
 
     // Перевірка на обрив/короткозамкнення NTC
     if (raw < ADC_MIN_VALID || raw > ADC_MAX_VALID) {
-        consecutive_errors_++;
+        if (consecutive_errors_ < 255) consecutive_errors_++;  // saturate, no wrap
         if (consecutive_errors_ == MAX_CONSECUTIVE_ERRORS) {
             ESP_LOGE(TAG, "[%s] Sensor fault (ADC=%d)", role_.c_str(), raw);
         }
@@ -117,7 +133,7 @@ void NtcDriver::update(uint32_t dt_ms) {
         consecutive_errors_ = 0;
         ESP_LOGD(TAG, "[%s] %.1f°C (ADC=%d)", role_.c_str(), temp, raw);
     } else {
-        consecutive_errors_++;
+        if (consecutive_errors_ < 255) consecutive_errors_++;  // saturate, no wrap
         ESP_LOGW(TAG, "[%s] Out of range: %.1f°C (ADC=%d)", role_.c_str(), temp, raw);
     }
 }
@@ -142,3 +158,34 @@ float NtcDriver::adc_to_temperature(int raw) {
 
     return temp_c;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Driver factory + registration (optional via CONFIG_MODESP_DRIVER_NTC)
+// ═══════════════════════════════════════════════════════════════
+
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
+
+namespace {
+NtcDriver s_ntc_pool[modesp::MAX_SENSORS];
+size_t    s_ntc_n = 0;
+
+modesp::ISensorDriver* ntc_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_ntc_n >= modesp::MAX_SENSORS) {
+        ESP_LOGE(TAG, "NTC pool exhausted");
+        return nullptr;
+    }
+    auto* adc_res = hal.find_adc_channel(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!adc_res) {
+        ESP_LOGE(TAG, "ADC channel '%s' not found in HAL", b.hardware_id.c_str());
+        return nullptr;
+    }
+    auto& drv = s_ntc_pool[s_ntc_n++];
+    drv.configure(b.role.c_str(), adc_res->gpio, adc_res->atten);
+    return &drv;
+}
+} // namespace
+
+MODESP_REGISTER_SENSOR(ntc, &ntc_factory)

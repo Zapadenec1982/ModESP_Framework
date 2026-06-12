@@ -33,6 +33,7 @@ static SemaphoreHandle_t s_bus_mutex = nullptr;
 // ═══════════════════════════════════════════════════════════════
 // DS18B20 ROM commands
 // ═══════════════════════════════════════════════════════════════
+static constexpr uint8_t CMD_SKIP_ROM      = 0xCC;  // single-sensor bus (no addressing)
 static constexpr uint8_t CMD_MATCH_ROM     = 0x55;
 static constexpr uint8_t CMD_CONVERT_T     = 0x44;
 static constexpr uint8_t CMD_READ_SCRATCH  = 0xBE;
@@ -95,21 +96,24 @@ bool DS18B20Driver::init() {
     }
     gpio_set_level(gpio_, 1);  // Idle HIGH
 
-    // Без адреси — помилка ініціалізації. Жодного auto-assign!
+    // Без адреси → SKIP_ROM режим: один сенсор на виділеній шині (типовий
+    // випадок dev-плати). Адреса задана → MATCH_ROM (кілька сенсорів зі
+    // стабільним role→sensor мапінгом). Помилкова конфігурація «два сенсори
+    // без адрес» безпечно ловиться CRC при читанні (контенція → CRC fail).
     if (!has_address_) {
-        ESP_LOGE(TAG, "[%s] No ROM address configured — init FAILED", role_.c_str());
-        ESP_LOGE(TAG, "[%s] Assign address via WebUI → Bindings → OneWire Discovery", role_.c_str());
-        return false;
+        ESP_LOGW(TAG, "[%s] No ROM address — SKIP_ROM mode (single-sensor bus). "
+                 "Для кількох сенсорів задай address у bindings.", role_.c_str());
     }
 
-    // Адреса задана — перевіряємо наявність датчика на шині
+    // Перевіряємо наявність датчика на шині (не критично — retry у runtime)
     if (!onewire_reset()) {
         ESP_LOGW(TAG, "[%s] No response on GPIO %d — will retry in runtime",
                  role_.c_str(), gpio_);
     }
 
-    ESP_LOGI(TAG, "[%s] Initialized (GPIO=%d, interval=%lu ms, MATCH_ROM)",
-             role_.c_str(), gpio_, read_interval_ms_);
+    ESP_LOGI(TAG, "[%s] Initialized (GPIO=%d, interval=%lu ms, %s)",
+             role_.c_str(), gpio_, read_interval_ms_,
+             has_address_ ? "MATCH_ROM" : "SKIP_ROM");
     return true;
 }
 
@@ -128,13 +132,16 @@ void DS18B20Driver::update(uint32_t dt_ms) {
         if (converted) {
             conversion_started_ = true;
         } else {
-            // Reset failed — sensor absent або bus busy
+            // Reset failed — sensor absent або bus busy.
+            // Saturate at MAX (uint8_t інакше wrap-ається на 255→0 і помилково
+            // повертає is_healthy=true кожні ~4 хв). Лог рівно один раз.
             ms_since_read_ = 0;
-            consecutive_errors_++;
-            if (consecutive_errors_ >= MAX_CONSECUTIVE_ERRORS &&
-                consecutive_errors_ % MAX_CONSECUTIVE_ERRORS == 0) {
-                ESP_LOGE(TAG, "[%s] Sensor offline after %d errors",
-                         role_.c_str(), consecutive_errors_);
+            if (consecutive_errors_ < MAX_CONSECUTIVE_ERRORS) {
+                consecutive_errors_++;
+                if (consecutive_errors_ == MAX_CONSECUTIVE_ERRORS) {
+                    ESP_LOGE(TAG, "[%s] Sensor offline after %d errors",
+                             role_.c_str(), consecutive_errors_);
+                }
             }
         }
         return;
@@ -148,8 +155,17 @@ void DS18B20Driver::update(uint32_t dt_ms) {
         float temp = 0.0f;
         bool read_ok = false;
 
+        // Single attempt per tick — NO blocking retry here. The old
+        // retry(read_temperature) ran up to 3 attempts with vTaskDelay(50) each,
+        // stalling the 100 Hz main loop for ~135 ms while holding s_bus_mutex.
+        // A transient failure is simply retried on the next read interval; the
+        // last valid temperature is retained meanwhile (has_valid_reading_).
         if (xSemaphoreTake(s_bus_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-            read_ok = retry([&]() { return read_temperature(temp); });
+            read_ok = read_temperature(temp);
+            if (!read_ok) {
+                onewire_reset();      // lightweight bus recovery (<1 ms, no delay)
+                ets_delay_us(100);
+            }
             xSemaphoreGive(s_bus_mutex);
         }
 
@@ -164,15 +180,11 @@ void DS18B20Driver::update(uint32_t dt_ms) {
                 ESP_LOGD(TAG, "[%s] %.2f°C", role_.c_str(), temp);
             } else {
                 ESP_LOGW(TAG, "[%s] Validation failed: %.2f°C", role_.c_str(), temp);
-                consecutive_errors_++;
+                note_error();
             }
         } else {
-            consecutive_errors_++;
+            note_error();
             ESP_LOGW(TAG, "[%s] Read failed (errors=%d)", role_.c_str(), consecutive_errors_);
-        }
-
-        if (consecutive_errors_ == MAX_CONSECUTIVE_ERRORS) {
-            ESP_LOGE(TAG, "[%s] %d consecutive errors", role_.c_str(), consecutive_errors_);
         }
     }
 }
@@ -265,7 +277,12 @@ uint8_t DS18B20Driver::onewire_read_byte() {
 // ═══════════════════════════════════════════════════════════════
 
 void DS18B20Driver::send_rom_command() {
-    // Завжди MATCH_ROM — адреса обов'язкова
+    if (!has_address_) {
+        // SKIP_ROM — звертаємось до єдиного сенсора без адресації
+        onewire_write_byte(CMD_SKIP_ROM);
+        return;
+    }
+    // MATCH_ROM — адресуємо конкретний сенсор за 8-байтним ROM
     onewire_write_byte(CMD_MATCH_ROM);
     for (uint8_t i = 0; i < 8; i++) {
         onewire_write_byte(rom_address_[i]);
@@ -709,6 +726,21 @@ bool DS18B20Driver::retry(F operation, uint8_t max_attempts, uint32_t delay_ms) 
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Saturating error counter — caps at MAX, logs offline exactly once.
+// uint8_t would otherwise wrap 255→0 and falsely report is_healthy.
+// ═══════════════════════════════════════════════════════════════
+
+void DS18B20Driver::note_error() {
+    if (consecutive_errors_ < MAX_CONSECUTIVE_ERRORS) {
+        consecutive_errors_++;
+        if (consecutive_errors_ == MAX_CONSECUTIVE_ERRORS) {
+            ESP_LOGE(TAG, "[%s] %d consecutive errors — sensor unhealthy",
+                     role_.c_str(), consecutive_errors_);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Validation
 // ═══════════════════════════════════════════════════════════════
 
@@ -733,3 +765,35 @@ bool DS18B20Driver::validate_reading(float value) {
 
     return true;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Driver factory + registration (optional via CONFIG_MODESP_DRIVER_DS18B20)
+// ═══════════════════════════════════════════════════════════════
+
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
+
+namespace {
+DS18B20Driver s_ds18b20_pool[modesp::MAX_SENSORS];
+size_t        s_ds18b20_n = 0;
+
+modesp::ISensorDriver* ds18b20_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_ds18b20_n >= modesp::MAX_SENSORS) {
+        ESP_LOGE(TAG, "DS18B20 pool exhausted");
+        return nullptr;
+    }
+    auto* ow = hal.find_onewire_bus(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!ow) {
+        ESP_LOGE(TAG, "OneWire bus '%s' not found in HAL", b.hardware_id.c_str());
+        return nullptr;
+    }
+    auto& drv = s_ds18b20_pool[s_ds18b20_n++];
+    drv.configure(b.role.c_str(), ow->gpio, 1000,
+                  b.address.empty() ? nullptr : b.address.c_str());
+    return &drv;
+}
+} // namespace
+
+MODESP_REGISTER_SENSOR(ds18b20, &ds18b20_factory)

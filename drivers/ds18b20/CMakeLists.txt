@@ -1,7 +1,6 @@
-# DS18B20 OneWire temperature sensor driver
-idf_component_register(
+# DS18B20 OneWire temperature sensor driver (optional via menuconfig)
+include("${CMAKE_CURRENT_LIST_DIR}/../../tools/cmake/modesp_driver.cmake")
+modesp_driver_component(
     SRCS "src/ds18b20_driver.cpp"
-    INCLUDE_DIRS "include"
-    REQUIRES modesp_hal
     PRIV_REQUIRES driver esp_timer
 )
