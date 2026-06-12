@@ -22,11 +22,11 @@ const mockState = {
 
   // Equipment (framework — generic sensor + actuator)
   'equipment.air_temp': 21.5,
-  'equipment.compressor': false,
-  'equipment.sensor1_ok': true,
+  'equipment.actuator_1': false,
+  'equipment.air_temp_ok': true,
   'equipment.filter_coeff': 4,
   'equipment.has_air_temp': true,
-  'equipment.has_compressor': true,
+  'equipment.has_actuator_1': true,
 
   // Simple Thermostat (demo module)
   'simple_thermo.temperature': 21.5,

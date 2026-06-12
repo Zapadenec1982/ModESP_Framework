@@ -1,7 +1,7 @@
 {
   "state.equipment.air_temp.description": "Temperature",
   "state.equipment.air_temp.unit": "°C",
-  "state.equipment.sensor1_ok.description": "Sensor OK",
+  "state.equipment.air_temp_ok.description": "Sensor OK",
   "state.equipment.has_ntc_driver.description": "Using NTC driver",
   "state.equipment.has_ds18b20_driver.description": "Using DS18B20 driver",
   "state.equipment.filter_coeff.description": "Digital filter",

@@ -272,7 +272,7 @@ void EquipmentBase::read_all_sensors() {
             snprintf(key, sizeof(key), "equipment.%s", r.role);
             state_set(key, val);
 
-            // Health key: equipment.sensor{N}_ok or equipment.{role}_ok
+            // Health key is role-derived: role "air_temp" → equipment.air_temp_ok
             snprintf(key, sizeof(key), "equipment.%s_ok", r.role);
             state_set(key, r.as_sensor->is_healthy());
         } else {

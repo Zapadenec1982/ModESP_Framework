@@ -10,7 +10,7 @@
 
   "state": {
     "equipment.air_temp":    {"type": "float", "access": "read", "unit": "°C", "description": "Температура"},
-    "equipment.sensor1_ok":  {"type": "bool",  "access": "read", "description": "Датчик справний"},
+    "equipment.air_temp_ok": {"type": "bool",  "access": "read", "description": "Датчик справний"},
     "equipment.has_ntc_driver":    {"type": "bool", "access": "read", "description": "NTC driver active"},
     "equipment.has_ds18b20_driver": {"type": "bool", "access": "read", "description": "DS18B20 driver active"},
 
@@ -36,7 +36,7 @@
   "mqtt": {
     "publish": [
       "equipment.air_temp",
-      "equipment.sensor1_ok"
+      "equipment.air_temp_ok"
     ],
     "subscribe": [
       "equipment.ntc_beta",

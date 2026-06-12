@@ -19,7 +19,7 @@ Equipment(0) → Protection(1) → Thermostat(2) + Defrost(2)
 ## Equipment Layer (priority=CRITICAL)
 
 - Only module with HAL driver access
-- Reads sensors → publishes `equipment.air_temp`, `equipment.sensor1_ok`, etc.
+- Reads sensors → publishes `equipment.air_temp`, `equipment.air_temp_ok`, etc.
 - Reads requests from business modules: `thermostat.req.compressor`, `defrost.req.*`, `protection.lockout`
 - **Arbitration:** Protection LOCKOUT > compressor_blocked > Defrost active > Thermostat
 - **Interlocks:** defrost_relay and compressor NEVER active simultaneously

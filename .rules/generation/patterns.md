@@ -13,7 +13,7 @@ if (val) {
 ### Variant B: Read with default
 ```cpp
 float temp = state_->get_or("equipment.air_temp", 0.0f);
-bool ok = state_->get_or("equipment.sensor1_ok", false);
+bool ok = state_->get_or("equipment.air_temp_ok", false);
 ```
 
 ### Write state
@@ -45,7 +45,7 @@ state_->set(key, value);
 void ThermostatModule::on_update() {
     // 1. Read inputs from SharedState
     float air_temp = state_->get_or("equipment.air_temp", 0.0f);
-    bool sensor_ok = state_->get_or("equipment.sensor1_ok", false);
+    bool sensor_ok = state_->get_or("equipment.air_temp_ok", false);
 
     // 2. Business logic (state machine)
     update_state_machine(air_temp, sensor_ok);

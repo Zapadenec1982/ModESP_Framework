@@ -1,7 +1,7 @@
 {
   "state.equipment.air_temp.description": "Temperatura",
   "state.equipment.air_temp.unit": "°C",
-  "state.equipment.sensor1_ok.description": "Czujnik OK",
+  "state.equipment.air_temp_ok.description": "Czujnik OK",
   "state.equipment.has_ntc_driver.description": "Sterownik NTC aktywny",
   "state.equipment.has_ds18b20_driver.description": "Sterownik DS18B20 aktywny",
   "state.equipment.filter_coeff.description": "Filtr cyfrowy",
