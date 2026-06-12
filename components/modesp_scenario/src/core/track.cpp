@@ -233,6 +233,23 @@ void track_tick(SequenceRuntime& sr, TrackIdx track_idx, uint32_t dt_ms,
         tr.phase_elapsed_ms += dt_ms;
     }
 
+    // ── Phase timeout (SAFETY) — evaluated FIRST so it dominates. Previously the
+    // timeout lived at the bottom of the RUNNING path and was unreachable while an
+    // entry/exit action returned PENDING (the action handler returns before the
+    // transition/timeout logic), so a wedged action defeated the phase's timeout.
+    // For an industrial controller the safety cap must win. (WAITING_FOR_RESOURCE
+    // keeps its own check below.) ──
+    if (tr.state == TS::RUNNING || tr.state == TS::ABORTING) {
+        uint32_t timeout = (phase.timeout_ms != 0)
+            ? phase.timeout_ms
+            : sr.scenario.header()->default_phase_timeout_ms;
+        if (timeout != 0 && tr.phase_elapsed_ms >= timeout) {
+            tr.state = TS::FAILED;
+            if (arbiter) arbiter->release_phase(sr.handle, track_idx);
+            return;
+        }
+    }
+
     // ── WAITING_FOR_RESOURCE: retry phase claim ──
     if (tr.state == TS::WAITING_FOR_RESOURCE) {
         if (phase.phase_resource_n > 0 && arbiter) {
@@ -332,14 +349,8 @@ void track_tick(SequenceRuntime& sr, TrackIdx track_idx, uint32_t dt_ms,
         }
     }
 
-    // Phase timeout (if no transition fired)
-    uint32_t timeout = (phase.timeout_ms != 0)
-        ? phase.timeout_ms
-        : sr.scenario.header()->default_phase_timeout_ms;
-    if (timeout != 0 && tr.phase_elapsed_ms >= timeout) {
-        tr.state = TS::FAILED;
-        if (arbiter) arbiter->release_phase(sr.handle, track_idx);
-    }
+    // Phase timeout is evaluated at the top of the tick (see above) so it fires
+    // even while an action is stuck PENDING — nothing to do here.
 }
 
 }  // namespace modesp::scenario

@@ -150,6 +150,14 @@ void instance_tick(SequenceRuntime& sr, uint32_t dt_ms,
     }
     auto* hdr = sr.scenario.header();
 
+    // 0. Hard scenario cap (SAFETY backstop) — the documented scenario_timeout_max_ms
+    // was never enforced. If a scenario wedges (e.g. a stuck PENDING action holding
+    // exclusive resources), this guarantees it eventually aborts and releases them.
+    if (sr.state == SS::RUNNING && hdr->scenario_timeout_max_ms != 0 &&
+        sr.scenario_elapsed_ms >= hdr->scenario_timeout_max_ms) {
+        instance_abort(sr, arbiter);
+    }
+
     // 1. Global transitions
     if (sr.state == SS::RUNNING) {
         bool main_only = false;
@@ -179,6 +187,20 @@ void instance_tick(SequenceRuntime& sr, uint32_t dt_ms,
             sr.state = SS::FAILED;
             if (arbiter) arbiter->release_scenario(sr.handle);
             return;
+        }
+
+        // ALL_TRACKS: a FAILED non-main track can never become COMPLETED, so
+        // completion_satisfied() would never fire and the scenario would hang
+        // RUNNING forever, leaking its scenario-scope resources. Treat any FAILED
+        // track as scenario failure under ALL_TRACKS.
+        if (hdr->completion_rule == MODR_COMPLETION_ALL_TRACKS) {
+            for (uint8_t i = 0; i < hdr->track_count; ++i) {
+                if (sr.tracks[i].state == TS::FAILED) {
+                    sr.state = SS::FAILED;
+                    if (arbiter) arbiter->release_scenario(sr.handle);
+                    return;
+                }
+            }
         }
 
         if (completion_satisfied(sr)) {
