@@ -2,6 +2,11 @@
 # Board selection (idf.py menuconfig → ModESP Configuration)
 CONFIG_MODESP_BOARD_DEV=y
 
+# Optimize for size (-Os). The app is dual-OTA on 4MB flash, so a smaller
+# binary buys OTA headroom; the 100Hz control loop is not CPU-bound.
+# (IDF default is -Og/DEBUG.) Override via menuconfig → Compiler options.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
 # OTA rollback support
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_APP_ROLLBACK_ENABLE=y

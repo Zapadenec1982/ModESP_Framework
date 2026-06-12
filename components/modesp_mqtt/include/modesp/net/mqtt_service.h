@@ -58,8 +58,14 @@ private:
     char device_id_[8] = {};      // MAC-based device ID (e.g., "A4CF12")
     bool enabled_ = false;        // default-off
 
+    // Optional pinned broker CA (NVS "mqtt"/"broker_ca", PEM). Empty → fall back
+    // to the built-in public CA bundle. Lets a private broker with a self-signed
+    // cert be verified instead of failing against the public roots.
+    char broker_ca_[2048] = {};
+
     // State tracking
     bool connected_ = false;
+    bool secure_ = false;         // current link is TLS (mqtts://) vs plaintext
     bool reconnect_requested_ = false;  // Deferred reconnect (set by httpd, executed by on_update)
     bool params_publish_requested_ = false;  // One-shot publish of writable params
     uint32_t last_version_ = 0;

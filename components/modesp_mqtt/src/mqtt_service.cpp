@@ -39,6 +39,7 @@ void MqttService::load_config() {
     nvs_helper::read_str("mqtt", "pass", pass_, sizeof(pass_));
     nvs_helper::read_str("mqtt", "prefix", prefix_, sizeof(prefix_));
     nvs_helper::read_str("mqtt", "tenant", tenant_, sizeof(tenant_));
+    nvs_helper::read_str("mqtt", "broker_ca", broker_ca_, sizeof(broker_ca_));
     nvs_helper::read_bool("mqtt", "enabled", enabled_);
 
     int32_t p = 1883;
@@ -244,10 +245,20 @@ bool MqttService::start_client() {
     mqtt_cfg.credentials.username = user_[0] ? user_ : nullptr;
     mqtt_cfg.credentials.authentication.password = pass_[0] ? pass_ : nullptr;
 
-    // TLS: підключити вбудований CA bundle для mqtts://
-    if (strncmp(uri, "mqtts://", 8) == 0) {
-        mqtt_cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
-        ESP_LOGI(TAG, "TLS enabled (built-in CA bundle)");
+    // TLS for mqtts://: prefer a pinned broker CA (NVS) when set, else the
+    // built-in public CA bundle. Plaintext mqtt:// is still allowed but flagged.
+    secure_ = (strncmp(uri, "mqtts://", 8) == 0);
+    if (secure_) {
+        if (broker_ca_[0] != '\0') {
+            mqtt_cfg.broker.verification.certificate = broker_ca_;
+            ESP_LOGI(TAG, "TLS enabled (pinned broker CA)");
+        } else {
+            mqtt_cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
+            ESP_LOGI(TAG, "TLS enabled (built-in CA bundle)");
+        }
+    } else {
+        ESP_LOGW(TAG, "MQTT over plaintext (mqtt://) — credentials and telemetry "
+                      "are UNENCRYPTED on the wire. Use port 8883 / mqtts:// for TLS.");
     }
 
     // LWT (Last Will and Testament) — "offline" при розриві
@@ -321,8 +332,11 @@ void MqttService::mqtt_event_handler(void* args, esp_event_base_t base,
             self->reconnect_delay_ms_ = MQTT_INITIAL_RECONNECT_MS;
             self->last_version_ = 0;  // Форсуємо повну публікацію
             self->state_set("mqtt.connected", true);
-            self->state_set("mqtt.status", "connected");
-            ESP_LOGI(TAG, "Connected to broker (heap=%lu)",
+            // "insecure" signals a working but UNENCRYPTED (plaintext) link so
+            // the operator can see it; a TLS link reports "connected".
+            self->state_set("mqtt.status", self->secure_ ? "connected" : "insecure");
+            ESP_LOGI(TAG, "Connected to broker (%s, heap=%lu)",
+                     self->secure_ ? "TLS" : "PLAINTEXT",
                      esp_get_free_heap_size());
 
             // Publish "online" status (retain)
@@ -814,7 +828,7 @@ esp_err_t MqttService::handle_get_mqtt(httpd_req_t* req) {
     // Визначаємо status рядок
     const char* status = "disabled";
     if (self->enabled_) {
-        if (self->connected_) status = "connected";
+        if (self->connected_) status = self->secure_ ? "connected" : "insecure";
         else if (self->client_) status = "connecting";
         else if (self->broker_[0] == '\0') status = "no_broker";
         else status = "disconnected";
