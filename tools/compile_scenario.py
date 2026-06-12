@@ -1155,7 +1155,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("data/scenarios"))
     parser.add_argument("--project", type=Path,
                         help="project.json — only compile recipes whose module is "
-                             "listed in 'modules' (skips test recipes like abs_test)")
+                             "listed in 'modules' (skips recipe modules not in the active project)")
     parser.add_argument("--recipe", type=Path, help="compile single recipe manifest path (overrides --modules-dir)")
     parser.add_argument("--output", type=Path, help="explicit output path для --recipe mode")
     parser.add_argument("--known-actions", type=Path, default=Path("tools/known_actions.json"))
@@ -1186,8 +1186,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         manifests = sorted(args.modules_dir.glob("*/manifest.json"))
 
-        # Filter to modules enabled in project.json — otherwise test recipes
-        # (e.g. abs_test) leak their .modr into the flashed LittleFS image.
+        # Filter to modules enabled in project.json — otherwise recipe modules
+        # that aren't part of the active project leak their .modr into the
+        # flashed LittleFS image.
         if args.project:
             try:
                 proj = json.loads(args.project.read_text(encoding="utf-8"))

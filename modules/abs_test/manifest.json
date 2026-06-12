@@ -28,7 +28,7 @@
     "cards": [{
       "title": "Abstract test scenario",
       "layout": "single",
-      "visible_when": {"abs_test.scenario_state": ["running", "paused", "completed", "failed"]},
+      "visible_when": {"key": "abs_test.scenario_state", "in": ["running", "paused", "completed", "failed"]},
       "widgets": [
         {"key": "abs_test.scenario_state",     "widget": "value"},
         {"key": "abs_test.scenario_elapsed_s", "widget": "value"},
