@@ -1,57 +1,118 @@
-# Writing а driver
+# Drivers — using and writing
 
 > 📖 **Українською:** [documentation/uk/02-module-author-guide/writing-a-driver.md](../../uk/02-module-author-guide/writing-a-driver.md)
 
-This page is а complete walkthrough of building а hardware driver — а C++
-class implementing `ISensorDriver` or `IActuatorDriver` that bridges а
-specific peripheral (DS18B20, NTC thermistor, GPIO relay, I2C IO expander)
-to the framework's HAL abstraction. After reading this you'll be able to
-add support for а new sensor or actuator, register it через bindings, і
-have it appear automatically у `equipment.<role>` SharedState keys.
+A driver is a narrow adapter that bridges one peripheral (DS18B20, NTC
+thermistor, GPIO relay, I2C IO expander) to the framework's HAL. It implements
+`ISensorDriver` (read-only input) or `IActuatorDriver` (controllable output),
+nothing more. Business logic never touches GPIO — it reads sensor values and
+writes actuator requests through SharedState; drivers convert between
+SharedState and real I/O.
 
-Drivers are NOT business modules. Business logic reads sensor values і
-writes actuator requests through SharedState. Drivers convert between
-SharedState і real I/O.
+This page has two halves:
 
-## What а driver is
+1. **[Using existing drivers](#using-existing-drivers)** — bind a shipped driver
+   to your hardware and enable/disable it in menuconfig.
+2. **[Writing a new driver](#writing-a-new-driver)** — add support for a new
+   sensor or actuator. The framework wires it in automatically (registry +
+   generated menuconfig toggle); you never edit `driver_manager.cpp`.
 
-A driver is а narrow adapter that:
+Shipped drivers: `ds18b20`, `ntc`, `digital_input`, `relay`, `pcf8574_relay`,
+`pcf8574_input` (`drivers/*/`).
 
-- Implements one of two interfaces: `ISensorDriver` (read-only inputs) or
-  `IActuatorDriver` (controllable outputs).
-- Owns hardware-specific configuration: GPIO pin, bus address, calibration
-  constants.
-- Has а manifest declaring `category` (`sensor`/`actuator`), `hardware_type`
-  (`gpio`/`onewire_bus`/`adc`/`i2c`/...), `provides` (output type), і
-  per-instance `settings`.
-- Is **instantiated by `DriverManager`** from `bindings.json` entries — not
-  registered manually у `main.cpp`.
-- Lives у `drivers/<name>/`, not `modules/`.
+---
 
-A binding ties а driver type + а physical address (GPIO pin, OneWire ROM,
-I2C address) to а logical role (`air_temp`, `compressor`, etc.). Equipment
-Manager reads sensor drivers і writes the values до `equipment.<role>`
-state keys; reads request keys `equipment.req_<role>` and forwards them to
-actuator drivers.
+## Using existing drivers
 
-## Folder layout
+### 1. Declare the hardware in `board.json`
+
+`boards/<board>/board.json` lists the physical resources of the board — GPIO
+outputs, OneWire buses, ADC channels, I2C expanders — each with an `id`. This is
+the board author's job; drivers reference these ids, never raw pins. See
+[04-hardware/board-config.md](../04-hardware/board-config.md).
+
+### 2. Bind driver → role in `bindings.json`
+
+`boards/<board>/bindings.json` maps a hardware `id` to a driver type and a
+logical `role`:
+
+```json
+{
+  "manifest_version": 1,
+  "bindings": [
+    {"hardware": "ow_1",  "driver": "ds18b20",       "role": "air_temp",  "module": "equipment",
+     "address": "28:8C:5E:45:D4:08:44:09"},
+    {"hardware": "din_1", "driver": "pcf8574_input",  "role": "door_contact", "module": "equipment"},
+    {"hardware": "relay_1","driver": "pcf8574_relay", "role": "compressor", "module": "equipment"}
+  ]
+}
+```
+
+| Field      | Meaning |
+|------------|---------|
+| `hardware` | An `id` from `board.json` (the physical resource). |
+| `driver`   | The driver's manifest `driver` field (its type string). |
+| `role`     | Logical name. Becomes the `equipment.<role>` SharedState key. |
+| `module`   | Owning module (usually `equipment`). |
+| `address`  | Optional. ROM address for multi-device buses (e.g. several DS18B20 on one OneWire pin). Omit for single-device buses. |
+
+`DriverManager::init()` walks the bindings, asks the registry for a factory
+matching each `driver` string, and the factory builds the instance from the HAL
+resource named by `hardware`. Resulting state keys appear automatically:
+
+- `equipment.air_temp` (float) — sensor value, updated each read interval.
+- `equipment.compressor` (bool) — actuator's actual state.
+- `equipment.air_temp_ok` (bool) — sensor health.
+
+### 3. Enable/disable in menuconfig
+
+Every driver is **optional**. `idf.py menuconfig` → **ModESP Drivers**:
 
 ```
-drivers/your_sensor/
-├── manifest.json                   ← REQUIRED — driver contract
-├── CMakeLists.txt                  ← REQUIRED
+[*] ds18b20 driver
+[*] ntc driver
+[ ] pcf8574_input driver     ← disabled: not compiled, smaller binary
+...
+```
+
+A disabled driver is not compiled at all (smaller flash). Any binding that
+references it is skipped at boot with a warning:
+
+```
+W DriverMgr:  Driver type 'ntc' unknown or disabled in menuconfig — binding 'air_temp' skipped
+```
+
+So: disable the drivers your board doesn't use to shrink the image; keep the
+defaults (all enabled) if you don't care. The toggle for every driver is
+generated automatically from `drivers/*/manifest.json` — see below.
+
+---
+
+## Writing a new driver
+
+Adding a driver requires **no change to `driver_manager.cpp`**. You write the
+driver, register its factory with a one-line macro, and use the CMake helper;
+the build generates the menuconfig toggle, the dependency list, and the
+registration call for you.
+
+### Folder layout
+
+```
+drivers/my_sensor/
+├── manifest.json                  ← REQUIRED — driver contract
+├── CMakeLists.txt                 ← REQUIRED — uses modesp_driver_component()
 ├── include/
-│   └── your_sensor_driver.h        ← Driver class declaration
+│   └── my_sensor_driver.h         ← class : ISensorDriver / IActuatorDriver
 └── src/
-    └── your_sensor_driver.cpp      ← Implementation
+    └── my_sensor_driver.cpp       ← implementation + factory + registration
 ```
 
-## Step 1 — Write the manifest
+The folder name, the manifest `driver` field, and the registration macro name
+**must all match** (`my_sensor`), lower-snake-case (`^[a-z][a-z0-9_]*$`).
 
-Driver manifest differs from module manifest. Top-level fields are
-driver-specific. Full reference у [manifest.md](manifest.md#driver-only-sections).
+### Step 1 — manifest
 
-Minimal sensor example (`drivers/my_sensor/manifest.json`):
+`drivers/my_sensor/manifest.json` (sensor example):
 
 ```json
 {
@@ -60,61 +121,21 @@ Minimal sensor example (`drivers/my_sensor/manifest.json`):
   "description": "Demo analog sensor",
   "category": "sensor",
   "hardware_type": "adc",
-  "requires_address": true,
+  "requires_address": false,
   "multiple_per_bus": false,
   "provides": {"type": "float", "unit": "°C", "range": [-40, 150]},
-
   "settings": [
-    {
-      "key": "read_interval_ms",
-      "type": "int",
-      "default": 1000,
-      "min": 100, "max": 60000,
-      "unit": "мс",
-      "persist": true
-    },
-    {
-      "key": "offset",
-      "type": "float",
-      "default": 0.0,
-      "min": -10.0, "max": 10.0, "step": 0.1,
-      "unit": "°C",
-      "persist": true
-    }
+    {"key": "read_interval_ms", "type": "int",   "default": 1000, "min": 100, "max": 60000, "unit": "ms", "persist": true},
+    {"key": "offset",           "type": "float", "default": 0.0,  "min": -10.0, "max": 10.0, "step": 0.1, "unit": "°C", "persist": true}
   ]
 }
 ```
 
-Minimal actuator example:
+`category` (`sensor`/`actuator`) and the `driver` name are all the **generator**
+needs — it does not need your C++ class name. Full field reference:
+[manifest.md](manifest.md#driver-only-sections).
 
-```json
-{
-  "manifest_version": 1,
-  "driver": "my_relay",
-  "description": "Demo GPIO relay",
-  "category": "actuator",
-  "hardware_type": "gpio",
-  "requires_address": true,
-  "multiple_per_bus": false,
-  "provides": {"type": "bool", "description": "Relay state"},
-
-  "settings": [
-    {
-      "key": "min_switch_ms",
-      "type": "int",
-      "default": 0,
-      "min": 0, "max": 600000,
-      "unit": "мс",
-      "description": "Minimum interval between switches (compressor safety)",
-      "persist": true
-    }
-  ]
-}
-```
-
-## Step 2 — Implement the interface
-
-### Sensor driver — `ISensorDriver`
+### Step 2 — implement the interface
 
 ```cpp
 // drivers/my_sensor/include/my_sensor_driver.h
@@ -125,12 +146,8 @@ Minimal actuator example:
 
 class MySensorDriver : public modesp::ISensorDriver {
 public:
-    MySensorDriver() = default;
-
-    /// Called by DriverManager before init().
     void configure(const char* role, gpio_num_t adc_pin, float offset);
 
-    // ── ISensorDriver interface ──
     bool init() override;
     void update(uint32_t dt_ms) override;
     bool read(float& value) override;
@@ -142,230 +159,131 @@ public:
 private:
     etl::string<16> role_;
     gpio_num_t adc_pin_ = GPIO_NUM_NC;
-    float offset_ = 0.0f;
-    float last_value_ = 0.0f;
-    bool has_reading_ = false;
-    bool healthy_ = false;
-    uint32_t errors_ = 0;
+    float offset_ = 0.0f, last_value_ = 0.0f;
+    bool has_reading_ = false, healthy_ = false;
+    uint32_t errors_ = 0, elapsed_ms_ = 0;
 };
 ```
 
-Source:
+The interface itself (`modesp::ISensorDriver` / `IActuatorDriver`) is in
+[`driver_interfaces.h`](../../../components/modesp_hal/include/modesp/hal/driver_interfaces.h):
+
+| `ISensorDriver` | `IActuatorDriver` |
+|-----------------|-------------------|
+| `init()`, `update(dt_ms)` | `init()`, `update(dt_ms)` |
+| `read(float&) → bool` | `set(bool) → bool`, `get_state() → bool` |
+| `is_healthy()`, `role()`, `type()`, `error_count()` | `set_value(0..1)`, `supports_analog()` (analog, optional) |
+| | `role()`, `type()`, `is_healthy()`, `emergency_stop()`, `switch_count()` |
+
+`configure()` is your own method — its signature is whatever your factory needs
+(Step 3). Implementation patterns (periodic sampling, health, offset, switch
+lockout, analog) are in [Patterns](#patterns) below.
+
+### Step 3 — factory + registration (the one wiring point)
+
+At the bottom of the `.cpp`, add a **factory** that turns a `Binding` + the HAL
+into a configured instance, and register it with one macro. This is the only
+place a driver plugs into the framework — `driver_manager.cpp` stays untouched.
 
 ```cpp
-// drivers/my_sensor/src/my_sensor_driver.cpp
-#include "my_sensor_driver.h"
-#include "esp_log.h"
-#include "esp_adc/adc_oneshot.h"
+// drivers/my_sensor/src/my_sensor_driver.cpp  (bottom of file)
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
 
-static const char* TAG = "MySensor";
+namespace {
+// Zero-heap static pool — one slot per possible instance on this board.
+MySensorDriver s_pool[modesp::MAX_SENSORS];
+size_t         s_n = 0;
 
-void MySensorDriver::configure(const char* role, gpio_num_t adc_pin, float offset) {
-    role_ = role;
-    adc_pin_ = adc_pin;
-    offset_ = offset;
+modesp::ISensorDriver* my_sensor_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_n >= modesp::MAX_SENSORS) { ESP_LOGE(TAG, "pool exhausted"); return nullptr; }
+
+    // Resolve the physical resource named by binding.hardware_id via the HAL.
+    auto* adc = hal.find_adc_channel(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!adc) { ESP_LOGE(TAG, "ADC '%s' not found", b.hardware_id.c_str()); return nullptr; }
+
+    auto& drv = s_pool[s_n++];
+    drv.configure(b.role.c_str(), adc->gpio, /*offset=*/0.0f);
+    return &drv;
 }
+} // namespace
 
-bool MySensorDriver::init() {
-    // Set up ADC, allocate channel, etc.
-    healthy_ = true;
-    ESP_LOGI(TAG, "Initialized %s on ADC GPIO%d", role_.c_str(), (int)adc_pin_);
-    return true;
-}
-
-void MySensorDriver::update(uint32_t dt_ms) {
-    // Sample the ADC periodically. Use accumulator + interval pattern.
-    static uint32_t elapsed = 0;
-    elapsed += dt_ms;
-    if (elapsed < 1000) return;  // settings.read_interval_ms would gate це
-    elapsed = 0;
-
-    int raw = 0;
-    // ... ADC read ...
-    float celsius = (raw * 0.01f) + offset_;
-    last_value_ = celsius;
-    has_reading_ = true;
-}
-
-bool MySensorDriver::read(float& value) {
-    if (!has_reading_) return false;
-    value = last_value_;
-    return true;
-}
+MODESP_REGISTER_SENSOR(my_sensor, &my_sensor_factory)   // name == manifest "driver"
 ```
 
-### Actuator driver — `IActuatorDriver`
+For an actuator: return `modesp::IActuatorDriver*` and use
+`MODESP_REGISTER_ACTUATOR(my_relay, &my_relay_factory)`.
 
-```cpp
-// drivers/my_relay/include/my_relay_driver.h
-#pragma once
-#include "modesp/hal/driver_interfaces.h"
-#include "etl/string.h"
-#include "driver/gpio.h"
+**HAL resource finders** (pick the one matching your `hardware_type`):
 
-class MyRelayDriver : public modesp::IActuatorDriver {
-public:
-    MyRelayDriver() = default;
+| Finder | Returns (fields you use) |
+|--------|--------------------------|
+| `find_onewire_bus(id)`     | `->gpio` |
+| `find_gpio_output(id)`     | `->gpio`, `->active_high` |
+| `find_gpio_input(id)`      | `->gpio`, `->pull_up` |
+| `find_adc_channel(id)`     | `->gpio`, `->atten` |
+| `find_expander_output(id)` | `->expander_id`, `->pin`, `->active_high` |
+| `find_expander_input(id)`  | `->expander_id`, `->invert`, `->pin` |
+| `find_i2c_expander(id)`    | the shared `I2CExpanderResource` (for read/write) |
 
-    void configure(const char* role, gpio_num_t gpio, uint32_t min_switch_ms = 0);
+The factory returns `nullptr` on any failure (pool full, resource missing) — the
+binding is then skipped with a warning, the rest keep going. The
+`MAX_SENSORS` / `MAX_ACTUATORS` pool caps are in
+[`hal_types.h`](../../../components/modesp_hal/include/modesp/hal/hal_types.h).
 
-    bool init() override;
-    void update(uint32_t dt_ms) override;
-    bool set(bool state) override;
-    bool get_state() const override { return on_; }
-    const char* role() const override { return role_.c_str(); }
-    const char* type() const override { return "my_relay"; }
-    bool is_healthy() const override { return initialized_; }
-    void emergency_stop() override { set(false); }
-    uint32_t switch_count() const override { return cycles_; }
+> Why a factory and not just a class, like modules? Modules are
+> default-constructed singletons; drivers are **multi-instance and bound to a
+> HAL resource** (8 DS18B20 sensors, each on a different ROM address). The
+> factory is the small amount of per-type wiring the generator cannot infer from
+> the manifest.
 
-private:
-    etl::string<16> role_;
-    gpio_num_t gpio_ = GPIO_NUM_NC;
-    uint32_t min_switch_ms_ = 0;
-    bool on_ = false;
-    bool initialized_ = false;
-    uint32_t cycles_ = 0;
-    uint32_t since_switch_ms_ = UINT32_MAX;  // start unlocked
-};
-```
+### Step 4 — CMakeLists.txt
 
-Source (key methods):
-
-```cpp
-bool MyRelayDriver::init() {
-    gpio_config_t cfg = {
-        .pin_bit_mask = 1ULL << gpio_,
-        .mode = GPIO_MODE_OUTPUT,
-        // ... etc.
-    };
-    gpio_config(&cfg);
-    gpio_set_level(gpio_, 0);  // start OFF
-    initialized_ = true;
-    return true;
-}
-
-void MyRelayDriver::update(uint32_t dt_ms) {
-    // Saturating accumulator for min_switch_ms lockout.
-    if (UINT32_MAX - dt_ms < since_switch_ms_) {
-        since_switch_ms_ = UINT32_MAX;
-    } else {
-        since_switch_ms_ += dt_ms;
-    }
-}
-
-bool MyRelayDriver::set(bool state) {
-    if (state == on_) return true;  // no-op
-    if (min_switch_ms_ > 0 && since_switch_ms_ < min_switch_ms_) {
-        return false;  // locked out (compressor safety)
-    }
-    gpio_set_level(gpio_, state ? 1 : 0);
-    on_ = state;
-    since_switch_ms_ = 0;
-    cycles_++;
-    return true;
-}
-```
-
-## Step 3 — Register у DriverManager
-
-`components/modesp_hal/src/driver_manager.cpp` has а factory dispatch
-based on `type` string у `bindings.json`. Add а case for your driver:
-
-```cpp
-// driver_manager.cpp
-#include "my_sensor_driver.h"  // ← add include
-
-// Inside create_sensor() switch...
-if (strcmp(type, "my_sensor") == 0) {
-    auto* drv = new MySensorDriver();
-    drv->configure(role, parse_gpio(binding["pin"]), parse_float(binding["offset"]));
-    return drv;
-}
-```
-
-For actuators, the analogous `create_actuator()` factory.
-
-> ⚠️ **Note:** this hand-edit step is the one piece of driver authoring що
-> isn't manifest-driven yet. Stage 1.5 plans а driver auto-registration
-> mechanism. Track [tools/generate_ui.md](../05-tools/generate_ui.md)
-> *(planned)* for status.
-
-## Step 4 — CMakeLists.txt
+Use the helper — it makes the driver optional automatically:
 
 ```cmake
 # drivers/my_sensor/CMakeLists.txt
-idf_component_register(
+include("${CMAKE_CURRENT_LIST_DIR}/../../tools/cmake/modesp_driver.cmake")
+modesp_driver_component(
     SRCS "src/my_sensor_driver.cpp"
-    INCLUDE_DIRS "include"
-    REQUIRES modesp_hal modesp_core
+    PRIV_REQUIRES esp_adc          # extra deps; "driver" for GPIO, "esp_adc" for ADC, etc.
 )
 ```
 
-Drivers depend on `modesp_hal` (interface header) і `modesp_core` (logging,
-types). Sensor drivers що use ADC also need `esp_adc`; I2C drivers need
-`driver`; etc.
+`modesp_driver_component()` adds `REQUIRES modesp_hal` for you and compiles
+`SRCS` only when `CONFIG_MODESP_DRIVER_MY_SENSOR` is set. Do **not** call
+`idf_component_register` directly and do **not** hardcode `${CMAKE_SOURCE_DIR}`
+(it points at `build/` during requirements expansion — the helper uses the
+right path).
 
-## Step 5 — Bind у `bindings.json`
-
-The user (deployer) wires the driver to physical hardware у the board's
-`bindings.json`:
-
-```json
-{
-  "sensors": [
-    {
-      "role": "air_temp",
-      "type": "my_sensor",
-      "pin": "GPIO34",
-      "offset": -1.2
-    }
-  ],
-  "actuators": [
-    {
-      "role": "compressor",
-      "type": "my_relay",
-      "pin": "GPIO13",
-      "min_switch_ms": 60000
-    }
-  ]
-}
-```
-
-`DriverManager::init()` iterates bindings, instantiates the driver class for
-each `type` string, calls its `configure()` із the binding values, then
-`init()`.
-
-Resulting state keys що appear automatically:
-- `equipment.air_temp` (float) — read by business modules.
-- `equipment.compressor` (bool) — actuator's current state.
-- `equipment.req_compressor` (bool) — request key business modules write.
-
-## Step 6 — Build, flash, verify
+### Step 5 — build
 
 ```bash
 idf.py build
-idf.py -p COM15 flash monitor
 ```
 
-Expected log:
+The generator (`tools/generate_ui.py`) scans `drivers/*/manifest.json` and emits,
+into `generated/` and `components/modesp_hal/Kconfig` (all DO-NOT-EDIT):
 
-```
-I (12345) DriverManager: Created sensor 'air_temp' (type=my_sensor, gpio=34)
-I (12346) DriverManager: Created actuator 'compressor' (type=my_relay, gpio=13)
-I (12350) MySensor: Initialized air_temp on ADC GPIO34
-I (12352) MyRelay: Initialized compressor on GPIO13
-```
+- `MODESP_DRIVER_MY_SENSOR` menuconfig toggle (default `y`) under **ModESP Drivers**;
+- the `modesp_hal` dependency list;
+- the guarded `modesp_register_all_drivers()` call.
 
-In WebUI / via `/api/state`:
-- `equipment.air_temp` updates із sensor readings every `read_interval_ms`.
-- `equipment.req_compressor` can be toggled (by your business module or HTTP
-  `POST /api/settings`).
-- `equipment.compressor` mirrors actuator's actual state.
+Your driver is now optional in `idf.py menuconfig` with zero extra work. Then
+bind it ([Using existing drivers](#using-existing-drivers)) and flash.
 
-## Sensor patterns
+> **First-build note:** a brand-new driver adds a *new* component Kconfig file.
+> If its toggle doesn't appear in menuconfig, run `idf.py fullclean` once —
+> ESP-IDF caches the component-Kconfig list and only rescans on a clean
+> configure.
 
-**Periodic sampling:**
+---
+
+## Patterns
+
+**Periodic sampling** (drivers tick at 100 Hz — gate slow work):
 
 ```cpp
 void update(uint32_t dt_ms) override {
@@ -376,110 +294,87 @@ void update(uint32_t dt_ms) override {
 }
 ```
 
-**Error counting / health:**
+**Saturating error counter / health** (an unhealthy sensor must *stay*
+unhealthy — `uint8_t` wraps 255→0 and would falsely recover):
 
 ```cpp
 if (read_failed) {
-    errors_++;
-    if (errors_ > MAX_CONSECUTIVE_ERRORS) {
-        healthy_ = false;
-    }
+    if (errors_ < MAX_CONSECUTIVE_ERRORS) errors_++;   // saturate, don't wrap
 } else {
-    if (errors_ > 0) errors_ = 0;  // recovered
-    healthy_ = true;
+    errors_ = 0;                                        // recovered
 }
+// is_healthy() => errors_ < MAX_CONSECUTIVE_ERRORS
 ```
 
-**Calibration / offset:**
-
-Apply at read time, not store time — so changing `offset` setting reflects
-у the next read without restart:
+**Calibration / offset at read time** (so changing the setting takes effect
+without a restart):
 
 ```cpp
 bool read(float& value) override {
     if (!has_reading_) return false;
-    value = raw_value_ + offset_;  // offset applied here
+    value = raw_value_ + offset_;   // applied here, not at store time
     return true;
 }
 ```
 
-## Actuator patterns
-
-**Minimum switch interval (compressor safety):**
-
-Reject `set()` calls що come too quickly. Compressors і large pumps need
-~60s between switches to avoid mechanical damage / refrigerant migration.
-
-**Emergency stop:**
-
-Default implementation calls `set(false)`. Override якщо your hardware needs
-а different safe state (e.g., valve to "fully open" rather than "closed").
+**Minimum switch interval (compressor safety)** — reject `set()` calls that come
+too fast; compressors/pumps need ~60–180 s between switches:
 
 ```cpp
-void emergency_stop() override {
-    set_value(1.0f);  // open valve fully on е-stop
-}
-```
-
-**Analog support:**
-
-If your actuator supports PWM / variable output, override `set_value` /
-`get_value` / `supports_analog`:
-
-```cpp
-bool set_value(float value_0_1) override {
-    uint8_t duty = static_cast<uint8_t>(value_0_1 * 255.0f);
-    pwm_set_duty(channel_, duty);
+bool set(bool state) override {
+    if (state == on_) return true;
+    if (min_switch_ms_ > 0 && since_switch_ms_ < min_switch_ms_) return false;
+    apply_gpio(state); on_ = state; since_switch_ms_ = 0; if (state) cycles_++;
     return true;
 }
-bool supports_analog() const override { return true; }
 ```
+
+**Shared bus state (I2C expander)** — when several relays share one PCF8574
+output byte, snapshot it before the write and **revert on failure**, or a stale
+bit leaks into the next relay's write:
+
+```cpp
+uint8_t saved = expander_->output_state;
+expander_->output_state |= (1 << pin_);
+if (!expander_->write_state()) { expander_->output_state = saved; return false; }
+```
+
+**Analog actuator** — override `set_value`/`supports_analog` for PWM/variable
+output; the default maps `set_value(>0.5)` to `set(true)`.
+
+---
 
 ## Common mistakes
 
-**Forgetting `configure()` call:** if you skip `DriverManager` factory wiring,
-your driver compiles but `bindings.json` references never produce an instance.
-Symptom: `equipment.<role>` key never appears у SharedState.
+- **Heap in `update()`** — drivers tick at 100 Hz; `new`/`std::string`/`std::vector`
+  in the hot path leak per tick. Use static pools and ETL types only.
+- **Blocking I/O in `update()`** — an I2C transaction can stall ~10 ms; a DS18B20
+  conversion is 750 ms. Split slow protocols across multiple `update()` calls
+  (start → poll-ready → read); never `vTaskDelay` in a retry loop on the shared
+  100 Hz task — it stalls every other driver and module.
+- **Name mismatch** — folder, manifest `driver`, and the `MODESP_REGISTER_*`
+  macro name must be identical. A mismatch means the generated
+  `modesp_register_driver_<name>()` symbol won't link.
+- **Forgetting the safe state on init** — return `false` from `init()` (and keep
+  `healthy_ = false`) if the hardware probe fails; drivers must power up OFF.
+- **Calling `idf_component_register` directly** — breaks optionality; use
+  `modesp_driver_component()`.
 
-**Heap allocation у update():** drivers tick at 100 Hz. `new` / `std::string`
-у the hot path leaks bytes per tick. Use stack arrays і ETL types only.
+---
 
-**Blocking I/O у update():** I2C bus transactions can stall ~10 ms; OneWire
-can take 750 ms (DS18B20 conversion). If your protocol is slow, either:
-- Implement state machine across multiple `update()` calls (start sample,
-  poll for ready, read result).
-- Use ESP-IDF async APIs (I2C ISR-based driver, OneWire bus that polls
-  separately).
+## Existing drivers to study, simplest first
 
-**Forgetting healthy state on init failure:** business modules check
-`is_healthy()` to decide whether to fall back to safe defaults. Return
-`false` from `init()` AND keep `healthy_ = false` if hardware probe fails.
+- [`drivers/relay/`](../../../drivers/relay/) — simplest actuator (GPIO + switch lockout).
+- [`drivers/digital_input/`](../../../drivers/digital_input/) — simplest sensor (GPIO contact + debounce).
+- [`drivers/ntc/`](../../../drivers/ntc/) — ADC sensor with B-parameter math + attenuation mapping.
+- [`drivers/ds18b20/`](../../../drivers/ds18b20/) — OneWire sensor, MATCH_ROM/SKIP_ROM, async conversion, scan API.
+- [`drivers/pcf8574_relay/`](../../../drivers/pcf8574_relay/) — I2C-expander actuator sharing a bus with siblings.
 
-**Not respecting `min_switch_ms`:** compressors і pumps fail mechanically if
-switched too fast. Always implement the lockout у actuator drivers, even
-if not all bindings configure it.
+Each ends with the `factory + MODESP_REGISTER_*` block — copy that shape.
 
 ## Next steps
 
-- **[components/modesp_hal.md](../03-framework-reference/components/modesp_hal.md)**
-  *(planned)* — full HAL і DriverManager reference.
-- **[hardware/bindings.md](../04-hardware/bindings.md)** *(planned)* —
-  `bindings.json` schema і examples.
-- **[hardware/board-config.md](../04-hardware/board-config.md)** *(planned)*
-  — `board.json` (hardware capabilities) і how drivers map onto it.
-- **[modules/equipment.md](../03-framework-reference/modules/equipment.md)**
-  *(planned)* — Equipment Manager — the module що owns drivers і exposes
-  `equipment.*` state keys.
-
-## Existing drivers to study source-first
-
-- [`drivers/relay/`](../../../drivers/relay/) — simplest actuator (GPIO + min
-  switch interval). Best first read.
-- [`drivers/digital_input/`](../../../drivers/digital_input/) — simplest
-  sensor (GPIO contact, debounce).
-- [`drivers/ntc/`](../../../drivers/ntc/) — ADC-based sensor із calibration
-  table.
-- [`drivers/ds18b20/`](../../../drivers/ds18b20/) — OneWire sensor із async
-  conversion, discovery API.
-- [`drivers/pcf8574_relay/`](../../../drivers/pcf8574_relay/) — I2C-expanded
-  actuator (shares а bus із siblings).
+- [manifest.md](manifest.md#driver-only-sections) — driver manifest field reference.
+- [04-hardware/bindings.md](../04-hardware/bindings.md) — `bindings.json` schema.
+- [04-hardware/board-config.md](../04-hardware/board-config.md) — `board.json` hardware resources.
+- [03-framework-reference/modules/equipment.md](../03-framework-reference/modules/equipment.md) — Equipment Manager, which owns drivers and exposes `equipment.*`.

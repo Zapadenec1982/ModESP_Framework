@@ -1,59 +1,118 @@
-# Написання драйвера
+# Драйвери — використання та створення
 
 > 📖 **In English:** [documentation/en/02-module-author-guide/writing-a-driver.md](../../en/02-module-author-guide/writing-a-driver.md)
 
-Ця сторінка — повне покрокове проходження побудови апаратного драйвера —
-C++-класу, що реалізує `ISensorDriver` або `IActuatorDriver` і
-з'єднує конкретну периферію (DS18B20, NTC-термістор, GPIO-реле, I2C
-розширювач) з HAL-абстракцією фреймворку. Прочитавши, ви зможете додати
-підтримку нового сенсора або актуатора, зареєструвати його через
-прив'язки, і він автоматично з'явиться у ключах SharedState
-`equipment.<role>`.
+Драйвер — це вузький адаптер між одним периферійним пристроєм (DS18B20, NTC,
+GPIO-реле, I2C-розширювач) і HAL фреймворку. Він реалізує `ISensorDriver`
+(вхід тільки на читання) або `IActuatorDriver` (керований вихід) — і нічого
+більше. Бізнес-логіка ніколи не торкається GPIO: вона читає значення сенсорів
+і пише запити на актуатори через SharedState, а драйвер конвертує між
+SharedState і реальним I/O.
 
-Драйвери — НЕ бізнес-модулі. Бізнес-логіка читає значення сенсорів і
-пише запити до актуаторів через SharedState. Драйвери перетворюють між
-SharedState та реальним I/O.
+Сторінка має дві частини:
 
-## Що таке драйвер
+1. **[Використання існуючих драйверів](#використання-існуючих-драйверів)** —
+   прив'язати готовий драйвер до заліза й вмикати/вимикати його в menuconfig.
+2. **[Створення нового драйвера](#створення-нового-драйвера)** — додати
+   підтримку нового сенсора чи актуатора. Фреймворк підключає його
+   автоматично (registry + згенерований menuconfig-toggle); `driver_manager.cpp`
+   редагувати НЕ потрібно.
 
-Драйвер — це вузький адаптер, який:
+Готові драйвери: `ds18b20`, `ntc`, `digital_input`, `relay`, `pcf8574_relay`,
+`pcf8574_input` (`drivers/*/`).
 
-- Реалізує один з двох інтерфейсів: `ISensorDriver` (лише читання входів)
-  або `IActuatorDriver` (керовані виходи).
-- Володіє апаратно-залежною конфігурацією: вивід GPIO, адреса на шині,
-  калібрувальні константи.
-- Має маніфест, що декларує `category` (`sensor`/`actuator`),
-  `hardware_type` (`gpio`/`onewire_bus`/`adc`/`i2c`/...), `provides`
-  (тип виходу), а також `settings` на кожен екземпляр.
-- **Створюється `DriverManager`-ом** із записів `bindings.json` — не
-  реєструється вручну в `main.cpp`.
-- Живе у `drivers/<name>/`, а не в `modules/`.
+---
 
-Прив'язка з'єднує тип драйвера + фізичну адресу (вивід GPIO, OneWire ROM,
-I2C-адреса) з логічною роллю (`air_temp`, `compressor` тощо). Equipment
-Manager читає драйвери сенсорів і пише значення у ключі стану
-`equipment.<role>`; читає ключі запитів `equipment.req_<role>` і
-пересилає їх до драйверів актуаторів.
+## Використання існуючих драйверів
 
-## Структура папки
+### 1. Опиши залізо в `board.json`
+
+`boards/<board>/board.json` перелічує фізичні ресурси плати — GPIO-виходи,
+OneWire-шини, ADC-канали, I2C-розширювачі — кожен зі своїм `id`. Це задача
+автора плати; драйвери посилаються на ці `id`, а не на сирі піни. Див.
+[04-hardware/board-config.md](../04-hardware/board-config.md).
+
+### 2. Прив'яжи драйвер → роль у `bindings.json`
+
+`boards/<board>/bindings.json` мапить апаратний `id` на тип драйвера і логічну
+`role`:
+
+```json
+{
+  "manifest_version": 1,
+  "bindings": [
+    {"hardware": "ow_1",  "driver": "ds18b20",       "role": "air_temp",  "module": "equipment",
+     "address": "28:8C:5E:45:D4:08:44:09"},
+    {"hardware": "din_1", "driver": "pcf8574_input",  "role": "door_contact", "module": "equipment"},
+    {"hardware": "relay_1","driver": "pcf8574_relay", "role": "compressor", "module": "equipment"}
+  ]
+}
+```
+
+| Поле       | Значення |
+|------------|----------|
+| `hardware` | `id` із `board.json` (фізичний ресурс). |
+| `driver`   | Поле `driver` з маніфесту драйвера (його тип-рядок). |
+| `role`     | Логічна назва. Стає ключем SharedState `equipment.<role>`. |
+| `module`   | Модуль-власник (зазвичай `equipment`). |
+| `address`  | Опційно. ROM-адреса для мультипристроєвих шин (кілька DS18B20 на одному OneWire-піні). Пропусти для одно-пристроєвих шин. |
+
+`DriverManager::init()` проходить bindings, питає в реєстру фабрику за рядком
+`driver`, і фабрика будує інстанс із HAL-ресурсу, названого в `hardware`.
+Ключі стану з'являються автоматично:
+
+- `equipment.air_temp` (float) — значення сенсора, оновлюється щоінтервал.
+- `equipment.compressor` (bool) — фактичний стан актуатора.
+- `equipment.air_temp_ok` (bool) — здоров'я сенсора.
+
+### 3. Вмикання/вимикання в menuconfig
+
+Кожен драйвер **опційний**. `idf.py menuconfig` → **ModESP Drivers**:
 
 ```
-drivers/your_sensor/
-├── manifest.json                   ← ОБОВ'ЯЗКОВО — контракт драйвера
-├── CMakeLists.txt                  ← ОБОВ'ЯЗКОВО
+[*] ds18b20 driver
+[*] ntc driver
+[ ] pcf8574_input driver     ← вимкнено: не компілюється, менший бінарник
+...
+```
+
+Вимкнений драйвер не компілюється взагалі (менший flash). Будь-який binding,
+що на нього посилається, пропускається на старті з попередженням:
+
+```
+W DriverMgr:  Driver type 'ntc' unknown or disabled in menuconfig — binding 'air_temp' skipped
+```
+
+Тобто: вимкни драйвери, яких твоя плата не використовує, щоб зменшити образ;
+або лиши дефолти (всі увімкнені), якщо це неважливо. Toggle для кожного
+драйвера генерується автоматично з `drivers/*/manifest.json` — див. нижче.
+
+---
+
+## Створення нового драйвера
+
+Додавання драйвера **не потребує змін у `driver_manager.cpp`**. Ти пишеш
+драйвер, реєструєш його фабрику одним макросом і використовуєш CMake-хелпер;
+збірка генерує menuconfig-toggle, список залежностей і виклик реєстрації за тебе.
+
+### Структура теки
+
+```
+drivers/my_sensor/
+├── manifest.json                  ← ОБОВ'ЯЗКОВО — контракт драйвера
+├── CMakeLists.txt                 ← ОБОВ'ЯЗКОВО — через modesp_driver_component()
 ├── include/
-│   └── your_sensor_driver.h        ← Декларація класу драйвера
+│   └── my_sensor_driver.h         ← клас : ISensorDriver / IActuatorDriver
 └── src/
-    └── your_sensor_driver.cpp      ← Реалізація
+    └── my_sensor_driver.cpp       ← реалізація + фабрика + реєстрація
 ```
 
-## Крок 1 — Написати маніфест
+Назва теки, поле `driver` в маніфесті та ім'я в макросі реєстрації **мусять
+збігатися** (`my_sensor`), нижній_снейк-кейс (`^[a-z][a-z0-9_]*$`).
 
-Маніфест драйвера відрізняється від маніфесту модуля. Поля верхнього
-рівня специфічні для драйвера. Повний довідник у
-[manifest.md](manifest.md#driver-only-sections).
+### Крок 1 — маніфест
 
-Мінімальний приклад сенсора (`drivers/my_sensor/manifest.json`):
+`drivers/my_sensor/manifest.json` (приклад сенсора):
 
 ```json
 {
@@ -62,61 +121,21 @@ drivers/your_sensor/
   "description": "Demo analog sensor",
   "category": "sensor",
   "hardware_type": "adc",
-  "requires_address": true,
+  "requires_address": false,
   "multiple_per_bus": false,
   "provides": {"type": "float", "unit": "°C", "range": [-40, 150]},
-
   "settings": [
-    {
-      "key": "read_interval_ms",
-      "type": "int",
-      "default": 1000,
-      "min": 100, "max": 60000,
-      "unit": "мс",
-      "persist": true
-    },
-    {
-      "key": "offset",
-      "type": "float",
-      "default": 0.0,
-      "min": -10.0, "max": 10.0, "step": 0.1,
-      "unit": "°C",
-      "persist": true
-    }
+    {"key": "read_interval_ms", "type": "int",   "default": 1000, "min": 100, "max": 60000, "unit": "мс", "persist": true},
+    {"key": "offset",           "type": "float", "default": 0.0,  "min": -10.0, "max": 10.0, "step": 0.1, "unit": "°C", "persist": true}
   ]
 }
 ```
 
-Мінімальний приклад актуатора:
+`category` (`sensor`/`actuator`) і назва `driver` — усе, що потрібно
+**генератору** (ім'я C++-класу йому не потрібне). Повний опис полів:
+[manifest.md](manifest.md#driver-only-sections).
 
-```json
-{
-  "manifest_version": 1,
-  "driver": "my_relay",
-  "description": "Demo GPIO relay",
-  "category": "actuator",
-  "hardware_type": "gpio",
-  "requires_address": true,
-  "multiple_per_bus": false,
-  "provides": {"type": "bool", "description": "Стан реле"},
-
-  "settings": [
-    {
-      "key": "min_switch_ms",
-      "type": "int",
-      "default": 0,
-      "min": 0, "max": 600000,
-      "unit": "мс",
-      "description": "Мінімальний інтервал між перемиканнями (захист компресора)",
-      "persist": true
-    }
-  ]
-}
-```
-
-## Крок 2 — Реалізувати інтерфейс
-
-### Драйвер сенсора — `ISensorDriver`
+### Крок 2 — реалізуй інтерфейс
 
 ```cpp
 // drivers/my_sensor/include/my_sensor_driver.h
@@ -127,12 +146,8 @@ drivers/your_sensor/
 
 class MySensorDriver : public modesp::ISensorDriver {
 public:
-    MySensorDriver() = default;
-
-    /// Викликається DriverManager-ом перед init().
     void configure(const char* role, gpio_num_t adc_pin, float offset);
 
-    // ── Інтерфейс ISensorDriver ──
     bool init() override;
     void update(uint32_t dt_ms) override;
     bool read(float& value) override;
@@ -144,358 +159,220 @@ public:
 private:
     etl::string<16> role_;
     gpio_num_t adc_pin_ = GPIO_NUM_NC;
-    float offset_ = 0.0f;
-    float last_value_ = 0.0f;
-    bool has_reading_ = false;
-    bool healthy_ = false;
-    uint32_t errors_ = 0;
+    float offset_ = 0.0f, last_value_ = 0.0f;
+    bool has_reading_ = false, healthy_ = false;
+    uint32_t errors_ = 0, elapsed_ms_ = 0;
 };
 ```
 
-Джерело:
+Самі інтерфейси (`modesp::ISensorDriver` / `IActuatorDriver`) — у
+[`driver_interfaces.h`](../../../components/modesp_hal/include/modesp/hal/driver_interfaces.h):
+
+| `ISensorDriver` | `IActuatorDriver` |
+|-----------------|-------------------|
+| `init()`, `update(dt_ms)` | `init()`, `update(dt_ms)` |
+| `read(float&) → bool` | `set(bool) → bool`, `get_state() → bool` |
+| `is_healthy()`, `role()`, `type()`, `error_count()` | `set_value(0..1)`, `supports_analog()` (аналог, опційно) |
+| | `role()`, `type()`, `is_healthy()`, `emergency_stop()`, `switch_count()` |
+
+`configure()` — твій власний метод; сигнатура — яка треба твоїй фабриці
+(Крок 3). Патерни реалізації (періодичне семплювання, здоров'я, offset,
+блокування перемикань, аналог) — у [Патерни](#патерни) нижче.
+
+### Крок 3 — фабрика + реєстрація (єдина точка підключення)
+
+У кінці `.cpp` додай **фабрику**, що перетворює `Binding` + HAL на
+сконфігурований інстанс, і зареєструй її одним макросом. Це єдине місце, де
+драйвер вмикається у фреймворк — `driver_manager.cpp` лишається недоторканим.
 
 ```cpp
-// drivers/my_sensor/src/my_sensor_driver.cpp
-#include "my_sensor_driver.h"
-#include "esp_log.h"
-#include "esp_adc/adc_oneshot.h"
+// drivers/my_sensor/src/my_sensor_driver.cpp  (кінець файлу)
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/hal.h"
+#include "etl/string_view.h"
 
-static const char* TAG = "MySensor";
+namespace {
+// Статичний пул (zero-heap) — по слоту на кожен можливий інстанс на цій платі.
+MySensorDriver s_pool[modesp::MAX_SENSORS];
+size_t         s_n = 0;
 
-void MySensorDriver::configure(const char* role, gpio_num_t adc_pin, float offset) {
-    role_ = role;
-    adc_pin_ = adc_pin;
-    offset_ = offset;
+modesp::ISensorDriver* my_sensor_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    if (s_n >= modesp::MAX_SENSORS) { ESP_LOGE(TAG, "pool exhausted"); return nullptr; }
+
+    // Знайти фізичний ресурс за binding.hardware_id через HAL.
+    auto* adc = hal.find_adc_channel(
+        etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
+    if (!adc) { ESP_LOGE(TAG, "ADC '%s' not found", b.hardware_id.c_str()); return nullptr; }
+
+    auto& drv = s_pool[s_n++];
+    drv.configure(b.role.c_str(), adc->gpio, /*offset=*/0.0f);
+    return &drv;
 }
+} // namespace
 
-bool MySensorDriver::init() {
-    // Налаштувати ADC, виділити канал тощо.
-    healthy_ = true;
-    ESP_LOGI(TAG, "Initialized %s on ADC GPIO%d", role_.c_str(), (int)adc_pin_);
-    return true;
-}
-
-void MySensorDriver::update(uint32_t dt_ms) {
-    // Періодично семпл-овуємо ADC. Патерн з акумулятором і інтервалом.
-    static uint32_t elapsed = 0;
-    elapsed += dt_ms;
-    if (elapsed < 1000) return;  // settings.read_interval_ms обмежував би це
-    elapsed = 0;
-
-    int raw = 0;
-    // ... читання ADC ...
-    float celsius = (raw * 0.01f) + offset_;
-    last_value_ = celsius;
-    has_reading_ = true;
-}
-
-bool MySensorDriver::read(float& value) {
-    if (!has_reading_) return false;
-    value = last_value_;
-    return true;
-}
+MODESP_REGISTER_SENSOR(my_sensor, &my_sensor_factory)   // ім'я == поле "driver" з маніфесту
 ```
 
-### Драйвер актуатора — `IActuatorDriver`
+Для актуатора: повертай `modesp::IActuatorDriver*` і використай
+`MODESP_REGISTER_ACTUATOR(my_relay, &my_relay_factory)`.
 
-```cpp
-// drivers/my_relay/include/my_relay_driver.h
-#pragma once
-#include "modesp/hal/driver_interfaces.h"
-#include "etl/string.h"
-#include "driver/gpio.h"
+**Фіндери HAL-ресурсів** (обери за своїм `hardware_type`):
 
-class MyRelayDriver : public modesp::IActuatorDriver {
-public:
-    MyRelayDriver() = default;
+| Фіндер | Повертає (поля, які ти використовуєш) |
+|--------|---------------------------------------|
+| `find_onewire_bus(id)`     | `->gpio` |
+| `find_gpio_output(id)`     | `->gpio`, `->active_high` |
+| `find_gpio_input(id)`      | `->gpio`, `->pull_up` |
+| `find_adc_channel(id)`     | `->gpio`, `->atten` |
+| `find_expander_output(id)` | `->expander_id`, `->pin`, `->active_high` |
+| `find_expander_input(id)`  | `->expander_id`, `->invert`, `->pin` |
+| `find_i2c_expander(id)`    | спільний `I2CExpanderResource` (для read/write) |
 
-    void configure(const char* role, gpio_num_t gpio, uint32_t min_switch_ms = 0);
+Фабрика повертає `nullptr` при будь-якій невдачі (пул повний, ресурс відсутній) —
+тоді binding пропускається з попередженням, решта продовжують. Ліміти пулів
+`MAX_SENSORS` / `MAX_ACTUATORS` — у
+[`hal_types.h`](../../../components/modesp_hal/include/modesp/hal/hal_types.h).
 
-    bool init() override;
-    void update(uint32_t dt_ms) override;
-    bool set(bool state) override;
-    bool get_state() const override { return on_; }
-    const char* role() const override { return role_.c_str(); }
-    const char* type() const override { return "my_relay"; }
-    bool is_healthy() const override { return initialized_; }
-    void emergency_stop() override { set(false); }
-    uint32_t switch_count() const override { return cycles_; }
+> Чому фабрика, а не просто клас, як у модулів? Модулі — це
+> default-сконструйовані синглтони; драйвери **мультиінстансні й прив'язані до
+> HAL-ресурсу** (8 сенсорів DS18B20, кожен на своїй ROM-адресі). Фабрика — це та
+> невелика частина типозалежного wiring, яку генератор не може вивести з маніфесту.
 
-private:
-    etl::string<16> role_;
-    gpio_num_t gpio_ = GPIO_NUM_NC;
-    uint32_t min_switch_ms_ = 0;
-    bool on_ = false;
-    bool initialized_ = false;
-    uint32_t cycles_ = 0;
-    uint32_t since_switch_ms_ = UINT32_MAX;  // start unlocked
-};
-```
+### Крок 4 — CMakeLists.txt
 
-Джерело (ключові методи):
-
-```cpp
-bool MyRelayDriver::init() {
-    gpio_config_t cfg = {
-        .pin_bit_mask = 1ULL << gpio_,
-        .mode = GPIO_MODE_OUTPUT,
-        // ... тощо.
-    };
-    gpio_config(&cfg);
-    gpio_set_level(gpio_, 0);  // start OFF
-    initialized_ = true;
-    return true;
-}
-
-void MyRelayDriver::update(uint32_t dt_ms) {
-    // Насичувальний акумулятор для блокування min_switch_ms.
-    if (UINT32_MAX - dt_ms < since_switch_ms_) {
-        since_switch_ms_ = UINT32_MAX;
-    } else {
-        since_switch_ms_ += dt_ms;
-    }
-}
-
-bool MyRelayDriver::set(bool state) {
-    if (state == on_) return true;  // no-op
-    if (min_switch_ms_ > 0 && since_switch_ms_ < min_switch_ms_) {
-        return false;  // заблоковано (захист компресора)
-    }
-    gpio_set_level(gpio_, state ? 1 : 0);
-    on_ = state;
-    since_switch_ms_ = 0;
-    cycles_++;
-    return true;
-}
-```
-
-## Крок 3 — Зареєструвати у DriverManager
-
-`components/modesp_hal/src/driver_manager.cpp` має фабричний диспетч на
-основі рядка `type` з `bindings.json`. Додайте випадок для вашого
-драйвера:
-
-```cpp
-// driver_manager.cpp
-#include "my_sensor_driver.h"  // ← додати include
-
-// Всередині switch у create_sensor()...
-if (strcmp(type, "my_sensor") == 0) {
-    auto* drv = new MySensorDriver();
-    drv->configure(role, parse_gpio(binding["pin"]), parse_float(binding["offset"]));
-    return drv;
-}
-```
-
-Для актуаторів — аналогічна фабрика `create_actuator()`.
-
-> ⚠️ **Примітка:** цей крок ручного редагування — єдина частина
-> написання драйвера, що поки що не керується маніфестом. Stage 1.5
-> планує механізм авто-реєстрації драйверів. Слідкуйте за
-> [tools/generate_ui.md](../05-tools/generate_ui.md) *(заплановано)*
-> для статусу.
-
-## Крок 4 — CMakeLists.txt
+Через хелпер — він робить драйвер опційним автоматично:
 
 ```cmake
 # drivers/my_sensor/CMakeLists.txt
-idf_component_register(
+include("${CMAKE_CURRENT_LIST_DIR}/../../tools/cmake/modesp_driver.cmake")
+modesp_driver_component(
     SRCS "src/my_sensor_driver.cpp"
-    INCLUDE_DIRS "include"
-    REQUIRES modesp_hal modesp_core
+    PRIV_REQUIRES esp_adc          # додаткові залежності: "driver" для GPIO, "esp_adc" для ADC, тощо
 )
 ```
 
-Драйвери залежать від `modesp_hal` (заголовок інтерфейсу) і
-`modesp_core` (логування, типи). Драйвери сенсорів, що використовують
-ADC, також потребують `esp_adc`; драйвери I2C потребують `driver`;
-тощо.
+`modesp_driver_component()` сам додає `REQUIRES modesp_hal` і компілює `SRCS`
+лише коли встановлено `CONFIG_MODESP_DRIVER_MY_SENSOR`. **Не** викликай
+`idf_component_register` напряму і **не** хардкодь `${CMAKE_SOURCE_DIR}` (під
+час requirements-expansion він вказує на `build/` — хелпер бере правильний шлях).
 
-## Крок 5 — Прив'язати у `bindings.json`
-
-Користувач (той, хто розгортає) з'єднує драйвер з фізичним обладнанням
-у `bindings.json` плати:
-
-```json
-{
-  "sensors": [
-    {
-      "role": "air_temp",
-      "type": "my_sensor",
-      "pin": "GPIO34",
-      "offset": -1.2
-    }
-  ],
-  "actuators": [
-    {
-      "role": "compressor",
-      "type": "my_relay",
-      "pin": "GPIO13",
-      "min_switch_ms": 60000
-    }
-  ]
-}
-```
-
-`DriverManager::init()` ітерує прив'язки, інстанціює клас драйвера для
-кожного рядка `type`, викликає його `configure()` зі значеннями
-прив'язки, потім `init()`.
-
-Ключі стану, що з'являються автоматично:
-- `equipment.air_temp` (float) — читається бізнес-модулями.
-- `equipment.compressor` (bool) — поточний стан актуатора.
-- `equipment.req_compressor` (bool) — ключ запиту, який пишуть
-  бізнес-модулі.
-
-## Крок 6 — Збірка, прошивка, перевірка
+### Крок 5 — збірка
 
 ```bash
 idf.py build
-idf.py -p COM15 flash monitor
 ```
 
-Очікуваний журнал:
+Генератор (`tools/generate_ui.py`) сканує `drivers/*/manifest.json` і пише в
+`generated/` та `components/modesp_hal/Kconfig` (усе DO-NOT-EDIT):
 
-```
-I (12345) DriverManager: Created sensor 'air_temp' (type=my_sensor, gpio=34)
-I (12346) DriverManager: Created actuator 'compressor' (type=my_relay, gpio=13)
-I (12350) MySensor: Initialized air_temp on ADC GPIO34
-I (12352) MyRelay: Initialized compressor on GPIO13
-```
+- toggle `MODESP_DRIVER_MY_SENSOR` (default `y`) під **ModESP Drivers**;
+- список залежностей `modesp_hal`;
+- guarded-виклик `modesp_register_all_drivers()`.
 
-У WebUI / через `/api/state`:
-- `equipment.air_temp` оновлюється показаннями сенсора кожні
-  `read_interval_ms`.
-- `equipment.req_compressor` можна перемикати (вашим бізнес-модулем або
-  через HTTP `POST /api/settings`).
-- `equipment.compressor` віддзеркалює фактичний стан актуатора.
+Драйвер тепер опційний у `idf.py menuconfig` без жодної додаткової роботи. Далі
+прив'яжи його ([Використання існуючих драйверів](#використання-існуючих-драйверів))
+і прошивай.
 
-## Патерни сенсорів
+> **Перша збірка:** новий драйвер додає *новий* component-Kconfig файл. Якщо
+> його toggle не з'явився в menuconfig — раз виконай `idf.py fullclean`: ESP-IDF
+> кешує список component-Kconfig'ів і пересканує лише при чистій реконфігурації.
 
-**Періодичне семплування:**
+---
+
+## Патерни
+
+**Періодичне семплювання** (драйвери тікають на 100 Гц — гейтуй повільну роботу):
 
 ```cpp
 void update(uint32_t dt_ms) override {
     elapsed_ms_ += dt_ms;
     if (elapsed_ms_ < read_interval_ms_) return;
     elapsed_ms_ = 0;
-    // ... виконати читання ...
+    // ... читання ...
 }
 ```
 
-**Підрахунок помилок / здоров'я:**
+**Насичувальний лічильник помилок / здоров'я** (нездоровий сенсор має
+*лишатися* нездоровим — `uint8_t` обертається 255→0 і хибно «одужає»):
 
 ```cpp
 if (read_failed) {
-    errors_++;
-    if (errors_ > MAX_CONSECUTIVE_ERRORS) {
-        healthy_ = false;
-    }
+    if (errors_ < MAX_CONSECUTIVE_ERRORS) errors_++;   // насичення, без обертання
 } else {
-    if (errors_ > 0) errors_ = 0;  // recovered
-    healthy_ = true;
+    errors_ = 0;                                        // одужав
 }
+// is_healthy() => errors_ < MAX_CONSECUTIVE_ERRORS
 ```
 
-**Калібрування / зсув:**
-
-Застосовуйте під час читання, а не під час збереження — тоді зміна
-налаштування `offset` відображається в наступному читанні без
-перезавантаження:
+**Калібрування / offset при читанні** (щоб зміна налаштування діяла без
+перезавантаження):
 
 ```cpp
 bool read(float& value) override {
     if (!has_reading_) return false;
-    value = raw_value_ + offset_;  // зсув застосовується тут
+    value = raw_value_ + offset_;   // застосовується тут, не при збереженні
     return true;
 }
 ```
 
-## Патерни актуаторів
-
-**Мінімальний інтервал перемикання (захист компресора):**
-
-Відхиляйте виклики `set()`, що приходять занадто швидко. Компресори та
-великі насоси потребують ~60 с між перемиканнями, щоб уникнути
-механічних пошкоджень / міграції холодоагенту.
-
-**Аварійна зупинка:**
-
-Стандартна реалізація викликає `set(false)`. Перевизначте, якщо ваше
-обладнання потребує іншого безпечного стану (наприклад, клапан у
-положення «повністю відкритий» замість «закритий»).
+**Мінімальний інтервал перемикання (захист компресора)** — відхиляй надто
+часті `set()`; компресорам/насосам треба ~60–180 с між перемиканнями:
 
 ```cpp
-void emergency_stop() override {
-    set_value(1.0f);  // повністю відкрити клапан при аварійній зупинці
-}
-```
-
-**Підтримка аналогу:**
-
-Якщо ваш актуатор підтримує PWM / змінний вихід, перевизначте
-`set_value` / `get_value` / `supports_analog`:
-
-```cpp
-bool set_value(float value_0_1) override {
-    uint8_t duty = static_cast<uint8_t>(value_0_1 * 255.0f);
-    pwm_set_duty(channel_, duty);
+bool set(bool state) override {
+    if (state == on_) return true;
+    if (min_switch_ms_ > 0 && since_switch_ms_ < min_switch_ms_) return false;
+    apply_gpio(state); on_ = state; since_switch_ms_ = 0; if (state) cycles_++;
     return true;
 }
-bool supports_analog() const override { return true; }
 ```
+
+**Спільний стан шини (I2C-розширювач)** — коли кілька реле ділять один
+вихідний байт PCF8574, зроби snapshot перед записом і **відкоти при невдачі**,
+інакше залиплий біт протече в запис наступного реле:
+
+```cpp
+uint8_t saved = expander_->output_state;
+expander_->output_state |= (1 << pin_);
+if (!expander_->write_state()) { expander_->output_state = saved; return false; }
+```
+
+**Аналоговий актуатор** — перевизнач `set_value`/`supports_analog` для PWM /
+змінного виходу; дефолт мапить `set_value(>0.5)` на `set(true)`.
+
+---
 
 ## Типові помилки
 
-**Забутий виклик `configure()`:** якщо ви пропустите фабричне зв'язування
-у DriverManager, ваш драйвер компілюється, але посилання з
-`bindings.json` ніколи не створюють екземпляр. Симптом: ключ
-`equipment.<role>` ніколи не з'являється у SharedState.
+- **Heap в `update()`** — драйвери тікають на 100 Гц; `new`/`std::string`/`std::vector`
+  у hot-path течуть на кожному тіку. Тільки статичні пули та ETL-типи.
+- **Блокуючий I/O в `update()`** — I2C-транзакція може стояти ~10 мс; конверсія
+  DS18B20 — 750 мс. Розбивай повільні протоколи на кілька викликів `update()`
+  (start → poll-ready → read); ніколи не роби `vTaskDelay` у retry-циклі на
+  спільній 100 Гц-задачі — це стопить усі інші драйвери й модулі.
+- **Розбіжність назв** — тека, поле `driver` в маніфесті та ім'я в макросі
+  `MODESP_REGISTER_*` мусять бути ідентичні. Інакше згенерований символ
+  `modesp_register_driver_<name>()` не злінкується.
+- **Забути безпечний стан при init** — повертай `false` з `init()` (і лиши
+  `healthy_ = false`), якщо проба заліза провалилась; драйвери стартують у OFF.
+- **Прямий виклик `idf_component_register`** — ламає опційність; використовуй
+  `modesp_driver_component()`.
 
-**Heap-алокація в update():** драйвери тікають з частотою 100 Hz. `new`
-/ `std::string` на гарячому шляху втрачає байти на такт. Використовуйте
-лише стекові масиви та типи ETL.
+---
 
-**Блокувальний I/O у update():** транзакції I2C-шини можуть зависати
-~10 мс; OneWire може займати 750 мс (перетворення DS18B20). Якщо ваш
-протокол повільний, або:
-- Реалізуйте машину станів через кілька викликів `update()` (почати
-  семплування, опитати готовність, прочитати результат).
-- Використайте асинхронні API ESP-IDF (I2C-драйвер на ISR, шина OneWire,
-  що опитується окремо).
+## Існуючі драйвери для вивчення, від найпростішого
 
-**Забутий стан healthy при невдачі ініціалізації:** бізнес-модулі
-перевіряють `is_healthy()`, щоб вирішити, чи переходити до безпечних
-значень за замовчуванням. Поверніть `false` з `init()` І тримайте
-`healthy_ = false`, якщо проба обладнання не вдалася.
+- [`drivers/relay/`](../../../drivers/relay/) — найпростіший актуатор (GPIO + блокування перемикань).
+- [`drivers/digital_input/`](../../../drivers/digital_input/) — найпростіший сенсор (GPIO-контакт + дебаунс).
+- [`drivers/ntc/`](../../../drivers/ntc/) — ADC-сенсор з B-параметром і мапінгом атенюації.
+- [`drivers/ds18b20/`](../../../drivers/ds18b20/) — OneWire-сенсор, MATCH_ROM/SKIP_ROM, асинхронна конверсія, scan API.
+- [`drivers/pcf8574_relay/`](../../../drivers/pcf8574_relay/) — актуатор на I2C-розширювачі, що ділить шину із сусідами.
 
-**Нехтування `min_switch_ms`:** компресори та насоси механічно
-ламаються, якщо їх перемикати занадто швидко. Завжди реалізуйте
-блокування у драйверах актуаторів, навіть якщо не всі прив'язки
-налаштовують це.
+Кожен закінчується блоком `factory + MODESP_REGISTER_*` — скопіюй цю форму.
 
-## Що далі
+## Наступні кроки
 
-- **[components/modesp_hal.md](../03-framework-reference/components/modesp_hal.md)**
-  *(заплановано)* — повний довідник HAL і DriverManager.
-- **[hardware/bindings.md](../04-hardware/bindings.md)** *(заплановано)* —
-  схема та приклади `bindings.json`.
-- **[hardware/board-config.md](../04-hardware/board-config.md)**
-  *(заплановано)* — `board.json` (можливості обладнання) і як драйвери
-  на нього накладаються.
-- **[modules/equipment.md](../03-framework-reference/modules/equipment.md)**
-  *(заплановано)* — Equipment Manager — модуль, що володіє драйверами
-  і експонує ключі стану `equipment.*`.
-
-## Наявні драйвери для вивчення з джерельного коду
-
-- [`drivers/relay/`](../../../drivers/relay/) — найпростіший актуатор
-  (GPIO + мінімальний інтервал перемикання). Найкраще перше читання.
-- [`drivers/digital_input/`](../../../drivers/digital_input/) —
-  найпростіший сенсор (GPIO-контакт, антидребезг).
-- [`drivers/ntc/`](../../../drivers/ntc/) — сенсор на основі ADC з
-  калібрувальною таблицею.
-- [`drivers/ds18b20/`](../../../drivers/ds18b20/) — OneWire-сенсор з
-  асинхронним перетворенням, API виявлення.
-- [`drivers/pcf8574_relay/`](../../../drivers/pcf8574_relay/) — актуатор
-  на I2C-розширювачі (ділить шину з сусідами).
+- [manifest.md](manifest.md#driver-only-sections) — опис полів маніфесту драйвера.
+- [04-hardware/bindings.md](../04-hardware/bindings.md) — схема `bindings.json`.
+- [04-hardware/board-config.md](../04-hardware/board-config.md) — апаратні ресурси `board.json`.
+- [03-framework-reference/modules/equipment.md](../03-framework-reference/modules/equipment.md) — Equipment Manager, який володіє драйверами і виставляє `equipment.*`.
