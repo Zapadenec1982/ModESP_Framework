@@ -67,6 +67,15 @@ static bool in_bounds(uint32_t off, uint32_t nbytes, uint32_t limit) noexcept {
     return off <= limit && end <= limit && end >= off;  // last clause guards overflow
 }
 
+/// In-bounds AND 4-byte aligned. Every struct pool/table is read via an aligned
+/// reinterpret_cast<const T*>(buf + off); on Xtensa an unaligned uint32 load
+/// raises a LoadStoreAlignment exception (reboot loop). A malformed/hostile .modr
+/// with an odd offset passes CRC (computed over the same bytes), so the offset
+/// itself must be validated. String pools are byte-addressed and use in_bounds.
+static bool in_bounds_aligned(uint32_t off, uint32_t nbytes, uint32_t limit) noexcept {
+    return ((off & 3u) == 0) && in_bounds(off, nbytes, limit);
+}
+
 /// True якщо length-prefixed string at `offset` у string_pool fits within pool.
 static bool string_fits(const uint8_t* pool, uint16_t pool_size, uint16_t offset) noexcept {
     if (offset >= pool_size) return false;
@@ -102,7 +111,12 @@ struct ValidatorCtx {
     uint32_t       limit;     // = header.total_size - 4 (everything before CRC trailer)
     const modr_header* hdr;
     const ActionRegistry* reg;  // resolve action/condition hashes (singleton-killed)
+    uint8_t*       cond_state = nullptr;  // [cond_pool_count] DFS color: 0 white, 1 on-stack, 2 done
 };
+
+/// Max conditions in one .modr we will validate. Bounds the DFS visited array
+/// (stack) and rejects pathological files. Real recipes have far fewer.
+static constexpr uint16_t MAX_COND_POOL = 256;
 
 EngineError validate_header_preamble(const uint8_t* buf, size_t size,
                                      const modr_header*& out_hdr) {
@@ -138,7 +152,7 @@ EngineError validate_crc(const uint8_t* buf, uint32_t total_size) {
 EngineError validate_action_pool(const ValidatorCtx& ctx) {
     const modr_header* h = ctx.hdr;
     uint32_t pool_bytes = uint32_t{h->action_pool_count} * sizeof(modr_action);
-    if (!in_bounds(h->action_pool_off, pool_bytes, ctx.limit)) {
+    if (!in_bounds_aligned(h->action_pool_off, pool_bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
     auto* actions = reinterpret_cast<const modr_action*>(ctx.buf + h->action_pool_off);
@@ -205,36 +219,52 @@ EngineError validate_composite(const ValidatorCtx& ctx, const modr_action& cond,
 EngineError validate_cond_at(const ValidatorCtx& ctx, uint16_t cond_idx, uint8_t depth) {
     const modr_header* h = ctx.hdr;
     if (cond_idx >= h->cond_pool_count) return EngineError::BUFFER_OVERFLOW;
+
+    // DFS 3-colour memoization: validate each cond node ONCE and detect cycles.
+    // Without it, a crafted graph where composites share children re-validates
+    // O(branching^depth) times — a CPU-DoS — and a cyclic graph recurses forever.
+    if (ctx.cond_state) {
+        uint8_t s = ctx.cond_state[cond_idx];
+        if (s == 2) return EngineError::OK;             // already validated
+        if (s == 1) return EngineError::INVALID_FILE;   // back-edge → cycle
+        ctx.cond_state[cond_idx] = 1;                   // on the recursion stack
+    }
+
     auto* conds = reinterpret_cast<const modr_action*>(ctx.buf + h->cond_pool_off);
     const auto& cond = conds[cond_idx];
+
+    EngineError err;
     if (is_composite_cond(cond.action_hash)) {
-        return validate_composite(ctx, cond, depth);
-    }
-    // Leaf: must be registered у ActionRegistry conditions
-    const auto& reg = *ctx.reg;
-    if (reg.find_condition(cond.action_hash) == nullptr) {
-        return EngineError::UNKNOWN_CONDITION;
-    }
-    if (cond.param_n > 0) {
-        if (cond.param_idx == MODR_NO_OFFSET) return EngineError::INVALID_FILE;
+        err = validate_composite(ctx, cond, depth);
+    } else if (ctx.reg->find_condition(cond.action_hash) == nullptr) {
+        err = EngineError::UNKNOWN_CONDITION;            // leaf not registered
+    } else if (cond.param_n > 0) {
         uint32_t end = uint32_t{cond.param_idx} + cond.param_n;
-        if (cond.param_idx >= h->param_pool_count || end > h->param_pool_count) {
-            return EngineError::BUFFER_OVERFLOW;
-        }
+        err = (cond.param_idx == MODR_NO_OFFSET)            ? EngineError::INVALID_FILE
+            : (cond.param_idx >= h->param_pool_count ||
+               end > h->param_pool_count)                  ? EngineError::BUFFER_OVERFLOW
+            :                                                 EngineError::OK;
+    } else {
+        err = EngineError::OK;
     }
-    return EngineError::OK;
+
+    if (ctx.cond_state && err == EngineError::OK) ctx.cond_state[cond_idx] = 2;  // done
+    return err;
 }
 
 EngineError validate_cond_pool(const ValidatorCtx& ctx) {
     const modr_header* h = ctx.hdr;
+    if (h->cond_pool_count > MAX_COND_POOL) return EngineError::INVALID_FILE;
     uint32_t pool_bytes = uint32_t{h->cond_pool_count} * sizeof(modr_action);
-    if (!in_bounds(h->cond_pool_off, pool_bytes, ctx.limit)) {
+    if (!in_bounds_aligned(h->cond_pool_off, pool_bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
-    // Validate every cond entry. Composites recurse via validate_cond_at.
-    // Each entry independently bounded, so traversal terminates у all cases.
+    // Each cond node is validated once (memoized) → O(n) total, cycles rejected.
+    uint8_t state[MAX_COND_POOL] = {};
+    ValidatorCtx cctx = ctx;
+    cctx.cond_state = state;
     for (uint16_t i = 0; i < h->cond_pool_count; ++i) {
-        EngineError err = validate_cond_at(ctx, i, /*depth=*/0);
+        EngineError err = validate_cond_at(cctx, i, /*depth=*/0);
         if (err != EngineError::OK) return err;
     }
     return EngineError::OK;
@@ -243,7 +273,7 @@ EngineError validate_cond_pool(const ValidatorCtx& ctx) {
 EngineError validate_param_pool(const ValidatorCtx& ctx) {
     const modr_header* h = ctx.hdr;
     uint32_t pool_bytes = uint32_t{h->param_pool_count} * sizeof(modr_param_entry);
-    if (!in_bounds(h->param_pool_off, pool_bytes, ctx.limit)) {
+    if (!in_bounds_aligned(h->param_pool_off, pool_bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
     auto* params = reinterpret_cast<const modr_param_entry*>(
@@ -316,7 +346,7 @@ EngineError validate_phase(const ValidatorCtx& ctx, const modr_phase& ph,
     // Transitions
     if (ph.transition_n > 0) {
         uint32_t bytes = uint32_t{ph.transition_n} * sizeof(modr_transition);
-        if (!in_bounds(ph.transitions_off, bytes, ctx.limit)) {
+        if (!in_bounds_aligned(ph.transitions_off, bytes, ctx.limit)) {
             return EngineError::BUFFER_OVERFLOW;
         }
         auto* trans = reinterpret_cast<const modr_transition*>(ctx.buf + ph.transitions_off);
@@ -331,7 +361,7 @@ EngineError validate_phase(const ValidatorCtx& ctx, const modr_phase& ph,
         // by claim index — same OOB hazard as scenario-scope resources.
         if (ph.phase_resource_n > MAX_RESOURCES) return EngineError::INVALID_FILE;
         uint32_t bytes = uint32_t{ph.phase_resource_n} * sizeof(modr_phase_resource_claim);
-        if (!in_bounds(ph.phase_resources_off, bytes, ctx.limit)) {
+        if (!in_bounds_aligned(ph.phase_resources_off, bytes, ctx.limit)) {
             return EngineError::BUFFER_OVERFLOW;
         }
         auto* claims = reinterpret_cast<const modr_phase_resource_claim*>(
@@ -352,7 +382,7 @@ EngineError validate_track(const ValidatorCtx& ctx, const modr_track& tr) {
     if (tr.phase_count == 0) return EngineError::INVALID_FILE;
     if (tr.initial_phase >= tr.phase_count) return EngineError::INVALID_FILE;
     uint32_t phases_bytes = uint32_t{tr.phase_count} * sizeof(modr_phase);
-    if (!in_bounds(tr.phases_off, phases_bytes, ctx.limit)) {
+    if (!in_bounds_aligned(tr.phases_off, phases_bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
     auto* phases = reinterpret_cast<const modr_phase*>(ctx.buf + tr.phases_off);
@@ -367,7 +397,7 @@ EngineError validate_global_transitions(const ValidatorCtx& ctx) {
     const modr_header* h = ctx.hdr;
     if (h->global_trans_count == 0) return EngineError::OK;
     uint32_t bytes = uint32_t{h->global_trans_count} * sizeof(modr_global_transition);
-    if (!in_bounds(h->global_trans_off, bytes, ctx.limit)) {
+    if (!in_bounds_aligned(h->global_trans_off, bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
     auto* gts = reinterpret_cast<const modr_global_transition*>(
@@ -395,7 +425,7 @@ EngineError validate_resources(const ValidatorCtx& ctx) {
     // by declaration index, so a larger count would write past the stack array.
     if (h->resource_count > MAX_RESOURCES) return EngineError::INVALID_FILE;
     uint32_t bytes = uint32_t{h->resource_count} * sizeof(modr_resource_decl);
-    if (!in_bounds(h->resource_off, bytes, ctx.limit)) {
+    if (!in_bounds_aligned(h->resource_off, bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
     auto* res = reinterpret_cast<const modr_resource_decl*>(ctx.buf + h->resource_off);
@@ -450,7 +480,7 @@ EngineError modr_validate(const uint8_t* buffer, size_t size,
 
     // 4. Track table extent
     uint32_t tt_bytes = uint32_t{hdr->track_count} * sizeof(modr_track);
-    if (!in_bounds(hdr->track_table_off, tt_bytes, ctx.limit)) {
+    if (!in_bounds_aligned(hdr->track_table_off, tt_bytes, ctx.limit)) {
         return EngineError::BUFFER_OVERFLOW;
     }
 
