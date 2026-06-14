@@ -290,7 +290,7 @@ def test_datalogger_suite(built_binary):
 
 def test_osd_charmap_suite(built_binary):
     """Run all osd_charmap (UTF-8 → glyph) test cases."""
-    out, rc = _run_suite(built_binary, '*utf8*,*glyph*,*osd_map*')
+    out, rc = _run_suite(built_binary, '*utf8*,*glyph*,*osd_map*,*osd_font*')
     assert rc == 0, f"osd_charmap tests failed:\n{out}"
 
 

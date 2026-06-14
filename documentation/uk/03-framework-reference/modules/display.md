@@ -73,7 +73,16 @@ public:
 
 Драйвер переносний — компонент `components/modesp_osd/` (спільний для цього фреймворку і проектів-сиблінгів). Вмикається в `idf.py menuconfig` → **ModESP Display → AT7456E OSD renderer**; там же піни (CS/DATA/CLK/MISO), відеостандарт і sync. Коли опція увімкнена, `DisplayModule` за замовчуванням бере `AT7456ERenderer` замість `LogRenderer`.
 
-**Шрифт і кирилиця.** AT7456E зберігає шрифт у character-NVM (256 гліфів 12×18px). Стандартний шрифт **не має кирилиці**, тож для українського UI заливаємо власний шрифт у NVM. Розкладку визначає [osd_charmap.h](../../../../components/modesp_osd/include/modesp/osd/osd_charmap.h) (ASCII тотожно, кирилиця U+0410-044F → 0x80+, українські спецлітери Є/І/Ї/Ґ — фіксовані індекси), а драйвер уміє залити шрифт (`upload_font`, sentinel-перевірка щоб не перепрошувати NVM). Сам `.mcm`-шрифт генерується `tools/gen_osd_font.py` *(у розробці)*; доки шрифт не залито, кирилиця рендериться як `?`.
+**Шрифт і кирилиця.** AT7456E зберігає шрифт у character-NVM (256 гліфів 12×18px). Стандартний шрифт **не має кирилиці**, тож для українського UI заливаємо власний. Розкладку визначає [osd_charmap.h](../../../../components/modesp_osd/include/modesp/osd/osd_charmap.h) (ASCII тотожно, кирилиця U+0410-044F → 0x80+, українські спецлітери Є/І/Ї/Ґ — фіксовані індекси).
+
+Шрифт генерує `tools/gen_osd_font.py` (TTF → `.mcm` у форматі MAX7456 + C-масив `osd_font_data.h`):
+
+```
+python tools/gen_osd_font.py --ttf C:/Windows/Fonts/consola.ttf --size 16 \
+                             --preview atlas.png
+```
+
+`AT7456ERenderer` вбудовує цей масив і заливає його в NVM при `init()` (sentinel-байт `OSD_FONT_SENTINEL_*` запобігає повторному прошиву — NVM має обмежений ресурс запису). Бампни sentinel у генераторі, щоб форсувати перезаливку після зміни шрифту. Параметри рендера (`--size`, `--x-off`, `--y-off`, `--threshold`, `--no-outline`) підкручуються за `--preview`-атласом.
 
 ## Додавання модуля у меню
 

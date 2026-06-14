@@ -9,6 +9,7 @@
 
 #include "display/at7456e_renderer.h"
 #include "modesp/osd/osd_charmap.h"
+#include "modesp/osd/osd_font_data.h"
 #include "esp_log.h"
 
 namespace modesp::display {
@@ -43,7 +44,12 @@ uint8_t kconfig_sync() {
 } // namespace
 
 AT7456ERenderer::AT7456ERenderer()
-    : dev_(kconfig_pins(), kconfig_std()) {}
+    : dev_(kconfig_pins(), kconfig_std()) {
+    // Власний кириличний шрифт (gen_osd_font.py) — заливається в NVM при
+    // init(), якщо sentinel не збігається (інакше пропуск, NVM не зношується).
+    set_font(osd::OSD_FONT, osd::OSD_FONT_CHARS,
+             osd::OSD_FONT_SENTINEL_ADDR, osd::OSD_FONT_SENTINEL_BYTE0);
+}
 
 void AT7456ERenderer::set_font(const uint8_t* data, size_t char_count,
                                int sentinel_addr, uint8_t sentinel_byte0) {

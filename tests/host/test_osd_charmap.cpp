@@ -8,6 +8,7 @@
 
 #include "doctest.h"
 #include "modesp/osd/osd_charmap.h"
+#include "modesp/osd/osd_font_data.h"
 
 using namespace modesp::osd;
 
@@ -116,4 +117,35 @@ TEST_CASE("osd_map_utf8: respects output capacity") {
 TEST_CASE("osd_map_utf8: empty string yields nothing") {
     uint8_t out[8];
     CHECK(osd_map_utf8("", out, sizeof(out)) == 0);
+}
+
+// ── generated font data (gen_osd_font.py) ──
+
+TEST_CASE("osd_font: array sized 256 × 54 bytes") {
+    CHECK(OSD_FONT_CHARS == 256);
+    CHECK(OSD_FONT_CHAR_BYTES == 54);
+    CHECK(sizeof(OSD_FONT) == OSD_FONT_CHARS * OSD_FONT_CHAR_BYTES);
+}
+
+TEST_CASE("osd_font: version sentinel byte is set") {
+    CHECK(OSD_FONT[OSD_FONT_SENTINEL_ADDR * OSD_FONT_CHAR_BYTES] ==
+          OSD_FONT_SENTINEL_BYTE0);
+}
+
+TEST_CASE("osd_font: rendered glyphs are not blank") {
+    // blank slot = all transparent (0x55 = '01010101' ×4)
+    auto non_blank = [](uint8_t idx) {
+        for (size_t i = 0; i < OSD_FONT_CHAR_BYTES; ++i)
+            if (OSD_FONT[idx * OSD_FONT_CHAR_BYTES + i] != 0x55) return true;
+        return false;
+    };
+    CHECK(non_blank('A'));                            // ASCII
+    CHECK(non_blank(osd_codepoint_to_glyph(0x0422))); // Т
+    CHECK(non_blank(osd_codepoint_to_glyph(0x0490))); // Ґ
+}
+
+TEST_CASE("osd_font: unused slot is blank") {
+    // 0x01 не в наборі — має лишитись прозорим
+    for (size_t i = 0; i < OSD_FONT_CHAR_BYTES; ++i)
+        CHECK(OSD_FONT[0x01 * OSD_FONT_CHAR_BYTES + i] == 0x55);
 }

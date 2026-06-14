@@ -73,7 +73,16 @@ The framework ships a built-in renderer for the **AT7456E** (MAX7456-compatible 
 
 The driver is portable — component `components/modesp_osd/` (shared with sibling projects). Enable it in `idf.py menuconfig` → **ModESP Display → AT7456E OSD renderer**, which also sets the pins (CS/DATA/CLK/MISO), video standard, and sync. When enabled, `DisplayModule` defaults to `AT7456ERenderer` instead of `LogRenderer`.
 
-**Font and Cyrillic.** The AT7456E keeps its font in character NVM (256 glyphs, 12×18px). The stock font has **no Cyrillic**, so a custom font is uploaded to NVM for the Ukrainian UI. The layout is defined by [osd_charmap.h](../../../../components/modesp_osd/include/modesp/osd/osd_charmap.h) (ASCII identity, Cyrillic U+0410-044F → 0x80+, Ukrainian specials Є/І/Ї/Ґ at fixed indices), and the driver can flash the font (`upload_font`, with a sentinel check to avoid re-flashing NVM). The `.mcm` font itself is produced by `tools/gen_osd_font.py` *(in progress)*; until the font is flashed, Cyrillic renders as `?`.
+**Font and Cyrillic.** The AT7456E keeps its font in character NVM (256 glyphs, 12×18px). The stock font has **no Cyrillic**, so a custom font is uploaded to NVM for the Ukrainian UI. The layout is defined by [osd_charmap.h](../../../../components/modesp_osd/include/modesp/osd/osd_charmap.h) (ASCII identity, Cyrillic U+0410-044F → 0x80+, Ukrainian specials Є/І/Ї/Ґ at fixed indices).
+
+The font is produced by `tools/gen_osd_font.py` (TTF → `.mcm` in MAX7456 format + a C array `osd_font_data.h`):
+
+```
+python tools/gen_osd_font.py --ttf C:/Windows/Fonts/consola.ttf --size 16 \
+                             --preview atlas.png
+```
+
+`AT7456ERenderer` embeds that array and flashes it to NVM in `init()` (the `OSD_FONT_SENTINEL_*` byte prevents re-flashing — NVM has limited write endurance). Bump the sentinel in the generator to force a re-flash after changing the font. Render parameters (`--size`, `--x-off`, `--y-off`, `--threshold`, `--no-outline`) are tuned against the `--preview` atlas.
 
 ## Adding your module to the menu
 

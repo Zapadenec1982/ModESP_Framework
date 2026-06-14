@@ -12,7 +12,7 @@
   - `osd_charmap.h` — чистий UTF-8-декодер + розкладка гліфів власного NVM-шрифту (ASCII тотожно, кирилиця U+0410-044F → 0x80+, українські спецлітери Є/І/Ї/Ґ фіксовано). 13 host-кейсів (50 assertions).
   - `AT7456ERenderer : IDisplayRenderer` у `modules/display` — кожен рядок `DisplayFrame` UTF-8→гліфи→`write_glyphs`, вертикальне центрування на сітці OSD. Kconfig-тогл `MODESP_DISPLAY_AT7456E` (піни/відеостандарт/sync); `DisplayModule` сам бере його замість LogRenderer.
   - Залежність modesp_osd безумовна в REQUIRES (ESP-IDF резолвить deps до Kconfig); тіло рендерера під `#ifdef`, лінкер відкидає невживане. Збірка з опцією: бінар лінкується, 26% запасу.
-  - Лишилось (заблоковано на джерелі шрифту): `tools/gen_osd_font.py` (TTF/bitmap → osd_font.mcm за розкладкою osd_charmap). Доки шрифт не залито — кирилиця як `?`.
+  - `tools/gen_osd_font.py` — генератор шрифту: рендерить TTF (дефолт Consolas) у гліфи 12×18px → `.mcm` (формат MAX7456, зворотний до bri3d/mcm2img) + C-масив `osd_font_data.h`. 168 гліфів (ASCII + кирилиця + укр. спецлітери), чорний ореол для читабельності над відео, `--preview`-атлас для підкрутки. Рендерер вбудовує масив і заливає в NVM при init() (sentinel проти зайвого прошиву). Збірка з шрифтом: +13.8KB, 25% запасу. 4 host-кейси на дані шрифту.
   - Docs: секція AT7456E у `modules/display.md` (EN + UK).
 
 ## 2026-06-11

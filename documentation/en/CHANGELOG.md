@@ -12,7 +12,7 @@
   - `osd_charmap.h` — pure UTF-8 decoder + glyph layout for our own NVM font (ASCII identity, Cyrillic U+0410-044F → 0x80+, Ukrainian specials Є/І/Ї/Ґ fixed). 13 host cases (50 assertions).
   - `AT7456ERenderer : IDisplayRenderer` in `modules/display` — each `DisplayFrame` row UTF-8→glyphs→`write_glyphs`, vertically centered on the OSD grid. Kconfig toggle `MODESP_DISPLAY_AT7456E` (pins/video standard/sync); `DisplayModule` picks it over LogRenderer automatically.
   - modesp_osd is an unconditional REQUIRES (ESP-IDF resolves deps before Kconfig); the renderer body is `#ifdef`-guarded and the linker drops it when disabled. Build with the option enabled links, 26% partition headroom.
-  - Remaining (blocked on font source): `tools/gen_osd_font.py` (TTF/bitmap → osd_font.mcm per the osd_charmap layout). Until the font is flashed, Cyrillic renders as `?`.
+  - `tools/gen_osd_font.py` — font generator: renders a TTF (Consolas by default) into 12×18px glyphs → `.mcm` (MAX7456 format, inverse of bri3d/mcm2img) + a C array `osd_font_data.h`. 168 glyphs (ASCII + Cyrillic + Ukrainian specials), black outline for legibility over video, `--preview` atlas for tuning. The renderer embeds the array and flashes it to NVM in init() (sentinel guards against needless re-flash). Build with the font: +13.8KB, 25% headroom. 4 host cases for the font data.
   - Docs: AT7456E section in `modules/display.md` (EN + UK).
 
 ## 2026-06-11
