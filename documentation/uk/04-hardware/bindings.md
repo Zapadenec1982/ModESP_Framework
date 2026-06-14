@@ -4,9 +4,9 @@
 
 `bindings.json` — це **підключення, специфічне для розгортання**: який
 тип драйвера обслуговує який апаратний вивід і яку семантичну **роль**
-(ім'я на кшталт `air_temp`, `compressor`) він надає решті системи.
+(ім'я на кшталт `air_temp`, `actuator_1`) він надає решті системи.
 Якщо `board.json` каже "у мене є ці GPIO-виходи", то `bindings.json`
-каже "GPIO-реле 1 — це компресор, спілкуйтеся з ним через драйвер
+каже "GPIO-реле 1 — це actuator_1, спілкуйтеся з ним через драйвер
 `relay`".
 
 Ця сторінка — довідник для написання прив'язок із реальними прикладами
@@ -17,7 +17,7 @@
 ```
    board.json              bindings.json            модулі
    ─────────               ─────────────            ──────
-   "GPIO 14 існує"   →    "GPIO 14 — компресор   →   read_bool("equipment.compressor")
+   "GPIO 14 існує"   →    "GPIO 14 — actuator_1  →   read_bool("equipment.actuator_1")
                           під керуванням драйвера relay"
 ```
 
@@ -28,7 +28,7 @@
    теплиця чи пивоварня можуть використовувати ту саму плату з різними
    призначеннями ролей).
 3. **Модулі** дбають лише про імена ролей (`equipment.air_temp`,
-   `equipment.req_compressor`) — вони не знають, який GPIO чи який
+   `equipment.req_actuator_1`) — вони не знають, який GPIO чи який
    драйвер постачає дані.
 
 Ви змінюєте прив'язки без перебудови прошивки — закидаєте новий
@@ -129,7 +129,7 @@ boards/<board_name>/bindings.json
 автоматично знаходить єдиний сенсор на шині. Якби сенсорів було кілька,
 кожен потребував би окремої прив'язки зі своєю ROM-адресою.
 
-### KC868-A6 — виробниче охолодження
+### KC868-A6 — повний набір реле та входів
 
 `boards/kc868a6/bindings.json`:
 
@@ -137,26 +137,41 @@ boards/<board_name>/bindings.json
 {
   "manifest_version": 1,
   "bindings": [
-    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "compressor",     "module": "equipment"},
-    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "evap_fan",       "module": "equipment"},
-    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "cond_fan",       "module": "equipment"},
-    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "defrost_relay",  "module": "equipment"},
-    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",       "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
-    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "evap_temp",      "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
-    {"hardware": "din_1",   "driver": "pcf8574_input", "role": "door_contact",   "module": "equipment"}
+    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "actuator_1", "module": "equipment"},
+    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "actuator_2", "module": "equipment"},
+    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "actuator_3", "module": "equipment"},
+    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "actuator_4", "module": "equipment"},
+    {"hardware": "relay_5", "driver": "pcf8574_relay", "role": "actuator_5", "module": "equipment"},
+    {"hardware": "relay_6", "driver": "pcf8574_relay", "role": "actuator_6", "module": "equipment"},
+    {"hardware": "din_1",   "driver": "pcf8574_input", "role": "input_1",    "module": "equipment"},
+    {"hardware": "din_2",   "driver": "pcf8574_input", "role": "input_2",    "module": "equipment"},
+    {"hardware": "din_3",   "driver": "pcf8574_input", "role": "input_3",    "module": "equipment"},
+    {"hardware": "din_4",   "driver": "pcf8574_input", "role": "input_4",    "module": "equipment"},
+    {"hardware": "din_5",   "driver": "pcf8574_input", "role": "input_5",    "module": "equipment"},
+    {"hardware": "din_6",   "driver": "pcf8574_input", "role": "input_6",    "module": "equipment"},
+    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",   "module": "equipment"},
+    {"hardware": "ow_2",    "driver": "ds18b20",       "role": "temp_2",     "module": "equipment"}
   ]
 }
 ```
 
-Це розгортання ставить контролер промислового охолодження на KC868-A6.
-Виводи розширювача PCF8574 `relay_1`..`relay_4` стають актуаторами
-охолодження; `din_1` стає контактом дверей; два сенсори DS18B20
-поділяють одну шину OneWire, кожен зі своєю унікальною ROM-адресою.
+Референсна плата прив'язує всю периферію KC868-A6 у **загальних** ролях:
+шість виходів розширювача PCF8574 `relay_1`..`relay_6` стають
+`actuator_1`..`actuator_6`; шість опто-входів `din_1`..`din_6` стають
+`input_1`..`input_6`; дві окремі шини OneWire (`ow_1`, `ow_2`) дають
+`air_temp` і `temp_2`.
 
-Зверніть увагу на **`address` у прив'язках OneWire** — кілька сенсорів
-на одній шині потребують явної адресації. Знайдіть адреси через API
-виявлення драйвера (`GET /api/drivers/ds18b20/scan`) одноразово після
-підключення, а потім вставте їх у прив'язки.
+Зверніть увагу: **немає `address`** у прив'язках OneWire — кожен сенсор
+сидить сам на власній шині (`ow_1`, `ow_2`) і визначається автоматично.
+Кілька сенсорів на *одній* шині потребували б явних ROM-адрес — див.
+розділ нижче.
+
+> **Загальні vs. семантичні ролі.** Загальні імена (`actuator_1`,
+> `input_3`) описують *апаратуру*. Будуючи конкретний продукт, ви даєте
+> тим самим виводам семантичні ролі — для холодильної камери це могли б
+> бути `compressor`, `evap_fan`, `cond_fan`, `defrost_relay` на реле і
+> `door_contact` на вході, плюс `evap_temp` на другому сенсорі. Змінюється
+> лише цей файл прив'язок; плата і модулі лишаються тими ж.
 
 ## Кілька сенсорів на одній шині
 
@@ -167,9 +182,9 @@ OneWire — найпоширеніший випадок із багатьма п
 кожного сенсора:
 
 ```json
-{"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp",  "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
-{"hardware": "ow_1", "driver": "ds18b20", "role": "evap_temp", "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
-{"hardware": "ow_1", "driver": "ds18b20", "role": "cond_temp", "module": "equipment", "address": "28:55:1B:35:E1:90:6A:24"}
+{"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp", "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
+{"hardware": "ow_1", "driver": "ds18b20", "role": "temp_2",   "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
+{"hardware": "ow_1", "driver": "ds18b20", "role": "temp_3",   "module": "equipment", "address": "28:55:1B:35:E1:90:6A:24"}
 ```
 
 Прапор `multiple_per_bus: true` у маніфесті драйвера повідомляє
@@ -186,10 +201,10 @@ OneWire — найпоширеніший випадок із багатьма п
 | Сенсор (`category: "sensor"`) | `equipment.<role>` (поточне значення, лише для читання) <br> `equipment.<role>_ok` (справність, bool) |
 | Актуатор (`category: "actuator"`) | `equipment.<role>` (поточний фактичний стан, лише для читання) <br> `equipment.req_<role>` (запитаний стан, доступний для запису) |
 
-Тож запис `equipment.req_compressor = true` — це спосіб, яким
-бізнес-модуль вмикає компресор. Equipment Manager читає ключ запиту,
+Тож запис `equipment.req_actuator_1 = true` — це спосіб, яким
+бізнес-модуль вмикає актуатор. Equipment Manager читає ключ запиту,
 передає його прив'язаному драйверу-актуатору і відображає фактичний
-результат назад у `equipment.compressor`.
+результат назад у `equipment.actuator_1`.
 
 ## Виявлення адрес
 
@@ -286,7 +301,9 @@ OTA, або редагуйте через редактор прив'язок у 
 ## Робочий процес для нового розгортання
 
 1. **Визначте ваші ролі** на основі рецепту / варіанту використання.
-   Приклад для холодильної камери: `air_temp`, `evap_temp`,
+   Референсна плата постачається із загальними ролями (`actuator_1`,
+   `input_1`, `air_temp`); для конкретного продукту ви обираєте семантичні
+   імена — напр. для холодильної камери: `air_temp`, `evap_temp`,
    `compressor`, `evap_fan`, `defrost_relay`, `door_contact`.
 2. **Зіставте з апаратурою плати.** Подивіться у `board.json`, щоб
    побачити, що доступно — реле, шини OneWire, GPIO-входи.

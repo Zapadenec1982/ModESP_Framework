@@ -219,9 +219,9 @@ class TestFeatureResolverRealData:
         resolver = FeatureResolver(real_bindings, equipment)
         expected = {b["role"] for b in real_bindings["bindings"]}
         assert resolver.bound_roles == expected
-        # bindings.json плати kc868_a6 містить ці ролі
+        # air_temp + actuator_1 — generic roles present on any reference board (dev, kc868a6)
         assert "air_temp" in resolver.bound_roles
-        assert "door_contact" in resolver.bound_roles
+        assert "actuator_1" in resolver.bound_roles
 
     def test_equipment_roles_from_real_manifest(self, real_bindings, equipment):
         """all_equipment_roles == ролі з equipment.requires."""

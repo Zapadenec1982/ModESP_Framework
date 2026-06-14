@@ -1,12 +1,19 @@
 {
   "manifest_version": 1,
   "bindings": [
-    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "compressor", "module": "equipment"},
-    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "evap_fan",   "module": "equipment"},
-    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "cond_fan",   "module": "equipment"},
-    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "defrost_relay", "module": "equipment"},
-    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",   "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
-    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "evap_temp",  "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
-    {"hardware": "din_1",   "driver": "pcf8574_input",  "role": "door_contact", "module": "equipment"}
+    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "actuator_1", "module": "equipment"},
+    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "actuator_2", "module": "equipment"},
+    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "actuator_3", "module": "equipment"},
+    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "actuator_4", "module": "equipment"},
+    {"hardware": "relay_5", "driver": "pcf8574_relay", "role": "actuator_5", "module": "equipment"},
+    {"hardware": "relay_6", "driver": "pcf8574_relay", "role": "actuator_6", "module": "equipment"},
+    {"hardware": "din_1",   "driver": "pcf8574_input", "role": "input_1",    "module": "equipment"},
+    {"hardware": "din_2",   "driver": "pcf8574_input", "role": "input_2",    "module": "equipment"},
+    {"hardware": "din_3",   "driver": "pcf8574_input", "role": "input_3",    "module": "equipment"},
+    {"hardware": "din_4",   "driver": "pcf8574_input", "role": "input_4",    "module": "equipment"},
+    {"hardware": "din_5",   "driver": "pcf8574_input", "role": "input_5",    "module": "equipment"},
+    {"hardware": "din_6",   "driver": "pcf8574_input", "role": "input_6",    "module": "equipment"},
+    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",   "module": "equipment"},
+    {"hardware": "ow_2",    "driver": "ds18b20",       "role": "temp_2",     "module": "equipment"}
   ]
 }

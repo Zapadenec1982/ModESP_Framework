@@ -4,9 +4,9 @@
 
 `bindings.json` is the **deployment-specific wiring** — which driver type
 handles which hardware pin, і what semantic **role** (a name like
-`air_temp`, `compressor`) it provides to the rest of the system. While
+`air_temp`, `actuator_1`) it provides to the rest of the system. While
 `board.json` says "I have these GPIO outputs", `bindings.json` says "GPIO
-relay 1 is the compressor, talk to it through the `relay` driver".
+relay 1 is actuator_1, talk to it through the `relay` driver".
 
 This page is the reference для writing bindings, supplemented із real
 examples з the dev і KC868-A6 reference boards.
@@ -16,7 +16,7 @@ examples з the dev і KC868-A6 reference boards.
 ```
    board.json              bindings.json            modules
    ─────────               ─────────────            ───────
-   "GPIO 14 exists"   →    "GPIO 14 is compressor   →   read_bool("equipment.compressor")
+   "GPIO 14 exists"   →    "GPIO 14 is actuator_1   →   read_bool("equipment.actuator_1")
                             driven by relay driver"
 ```
 
@@ -26,7 +26,7 @@ Three pieces decouple:
 2. **Bindings** vary per deployment (cold room vs. greenhouse vs. brewing
    setup may reuse the same PCB із different role assignments).
 3. **Modules** only care about role names (`equipment.air_temp`,
-   `equipment.req_compressor`) — they don't know which GPIO або which
+   `equipment.req_actuator_1`) — they don't know which GPIO або which
    driver provides the data.
 
 You change bindings without rebuilding firmware — drop а new
@@ -127,7 +127,7 @@ Note **no `address`** on the OneWire binding: the driver auto-discovers the
 single sensor on the bus. Якщо there were multiple sensors, each would need
 а separate binding із its ROM address.
 
-### KC868-A6 — production refrigeration
+### KC868-A6 — full relay and input set
 
 `boards/kc868a6/bindings.json`:
 
@@ -135,26 +135,41 @@ single sensor on the bus. Якщо there were multiple sensors, each would need
 {
   "manifest_version": 1,
   "bindings": [
-    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "compressor",     "module": "equipment"},
-    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "evap_fan",       "module": "equipment"},
-    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "cond_fan",       "module": "equipment"},
-    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "defrost_relay",  "module": "equipment"},
-    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",       "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
-    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "evap_temp",      "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
-    {"hardware": "din_1",   "driver": "pcf8574_input", "role": "door_contact",   "module": "equipment"}
+    {"hardware": "relay_1", "driver": "pcf8574_relay", "role": "actuator_1", "module": "equipment"},
+    {"hardware": "relay_2", "driver": "pcf8574_relay", "role": "actuator_2", "module": "equipment"},
+    {"hardware": "relay_3", "driver": "pcf8574_relay", "role": "actuator_3", "module": "equipment"},
+    {"hardware": "relay_4", "driver": "pcf8574_relay", "role": "actuator_4", "module": "equipment"},
+    {"hardware": "relay_5", "driver": "pcf8574_relay", "role": "actuator_5", "module": "equipment"},
+    {"hardware": "relay_6", "driver": "pcf8574_relay", "role": "actuator_6", "module": "equipment"},
+    {"hardware": "din_1",   "driver": "pcf8574_input", "role": "input_1",    "module": "equipment"},
+    {"hardware": "din_2",   "driver": "pcf8574_input", "role": "input_2",    "module": "equipment"},
+    {"hardware": "din_3",   "driver": "pcf8574_input", "role": "input_3",    "module": "equipment"},
+    {"hardware": "din_4",   "driver": "pcf8574_input", "role": "input_4",    "module": "equipment"},
+    {"hardware": "din_5",   "driver": "pcf8574_input", "role": "input_5",    "module": "equipment"},
+    {"hardware": "din_6",   "driver": "pcf8574_input", "role": "input_6",    "module": "equipment"},
+    {"hardware": "ow_1",    "driver": "ds18b20",       "role": "air_temp",   "module": "equipment"},
+    {"hardware": "ow_2",    "driver": "ds18b20",       "role": "temp_2",     "module": "equipment"}
   ]
 }
 ```
 
-This deployment puts а commercial refrigeration controller on the KC868-A6.
-The PCF8574 expander pins `relay_1`..`relay_4` become refrigeration
-actuators; `din_1` becomes the door contact; two DS18B20 sensors share the
-same OneWire bus, each із its unique ROM address.
+The reference board wires every KC868-A6 peripheral under **generic** roles:
+the six PCF8574 expander outputs `relay_1`..`relay_6` become
+`actuator_1`..`actuator_6`; the six opto-isolated inputs `din_1`..`din_6`
+become `input_1`..`input_6`; two separate OneWire buses (`ow_1`, `ow_2`)
+provide `air_temp` and `temp_2`.
 
-Notice the **`address` on the OneWire bindings** — multiple sensors on the
-same bus require explicit addressing. Discover the addresses via the
-driver's discovery API (`GET /api/drivers/ds18b20/scan`) once after wiring,
-then paste into bindings.
+Notice there is **no `address`** on the OneWire bindings — each sensor sits
+alone on its own bus (`ow_1`, `ow_2`) and is auto-discovered. Multiple
+sensors on a *single* bus would need explicit ROM addresses — see the
+section below.
+
+> **Generic vs. semantic roles.** Generic names (`actuator_1`, `input_3`)
+> describe the *hardware*. When you build a specific product you give those
+> same pins semantic roles instead — a cold room might map them to
+> `compressor`, `evap_fan`, `cond_fan`, `defrost_relay` on the relays and
+> `door_contact` on an input, plus `evap_temp` on the second sensor. Only
+> this bindings file changes; the board and the modules stay the same.
 
 ## Multiple sensors on one bus
 
@@ -164,9 +179,9 @@ usually discovered у software). Bindings reference the bus's `id` (z
 `board.json::onewire_buses`) і supply the `address` для each sensor:
 
 ```json
-{"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp",  "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
-{"hardware": "ow_1", "driver": "ds18b20", "role": "evap_temp", "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
-{"hardware": "ow_1", "driver": "ds18b20", "role": "cond_temp", "module": "equipment", "address": "28:55:1B:35:E1:90:6A:24"}
+{"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp", "module": "equipment", "address": "28:8C:5E:45:D4:08:44:09"},
+{"hardware": "ow_1", "driver": "ds18b20", "role": "temp_2",   "module": "equipment", "address": "28:40:0A:45:D4:72:7E:F0"},
+{"hardware": "ow_1", "driver": "ds18b20", "role": "temp_3",   "module": "equipment", "address": "28:55:1B:35:E1:90:6A:24"}
 ```
 
 The `multiple_per_bus: true` flag у the driver manifest tells the framework
@@ -182,10 +197,10 @@ state keys:
 | Sensor (`category: "sensor"`) | `equipment.<role>` (current value, read-only) <br> `equipment.<role>_ok` (health, bool) |
 | Actuator (`category: "actuator"`) | `equipment.<role>` (current actual state, read-only) <br> `equipment.req_<role>` (requested state, writable) |
 
-So writing `equipment.req_compressor = true` is how а business module
-turns the compressor ON. Equipment Manager reads the request key, forwards
-to the bound actuator driver, і reflects the actual outcome back to
-`equipment.compressor`.
+So writing `equipment.req_actuator_1 = true` is how a business module
+turns an actuator ON. Equipment Manager reads the request key, forwards
+to the bound actuator driver, and reflects the actual outcome back to
+`equipment.actuator_1`.
 
 ## Address discovery
 
@@ -277,8 +292,10 @@ editor (planned).
 
 ## Workflow для а new deployment
 
-1. **Decide your roles** based on the recipe / use case. Example для cold
-   room: `air_temp`, `evap_temp`, `compressor`, `evap_fan`, `defrost_relay`,
+1. **Decide your roles** based on the recipe / use case. The reference board
+   ships with generic roles (`actuator_1`, `input_1`, `air_temp`); for a
+   specific product you pick semantic names instead — e.g. for a cold room:
+   `air_temp`, `evap_temp`, `compressor`, `evap_fan`, `defrost_relay`,
    `door_contact`.
 2. **Match to board hardware.** Look at `board.json` to see what's
    available — relays, OneWire buses, GPIO inputs.
