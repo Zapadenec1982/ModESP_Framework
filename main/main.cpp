@@ -48,6 +48,7 @@
 #include "modesp/scenario/continuous_primitives.h"
 #include "modesp/scenario/nvs_observer.h"
 #include "shared_state_backend.h"  // local adapter (main/)
+#include "scenario_persist.h"      // local off-loop NVS persistence (main/)
 
 // Cloud backend (compile-time Kconfig choice)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
@@ -228,27 +229,15 @@ extern "C" void app_main(void)
     // observers span. No singletons; constexpr-known set of observers.
     static SharedStateBackend shared_state_backend(app.state());
 
-    // NVS persistence callbacks (block I/O — observer batches writes per
-    // throttle policy).
-    static auto seq_nvs_write = [](void* /*user*/, uint8_t slot,
-                                    const uint8_t* token, size_t len) -> bool {
-        char key[8];
-        std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
-        return modesp::nvs_helper::write_blob("scnstate", key, token, len);
-    };
-    static auto seq_nvs_read = [](void* /*user*/, uint8_t slot,
-                                   uint8_t* buf, size_t* in_out_len) -> bool {
-        char key[8];
-        std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
-        size_t out_len = 0;
-        bool ok = modesp::nvs_helper::read_blob("scnstate", key, buf,
-                                                 *in_out_len, out_len);
-        if (ok) *in_out_len = out_len;
-        return ok;
-    };
+    // NVS persistence: phase-change tokens are queued and flushed off the
+    // 100 Hz control loop by a low-priority drain task; scenario start/terminal
+    // stay durable-on-return (crash recovery). See main/scenario_persist.{h,cpp}.
+    modesp::scenario_persist::init();
 
     static modesp::scenario::NvsObserver scenario_nvs_obs(
-        seq_nvs_write, seq_nvs_read, /*user=*/nullptr);
+        &modesp::scenario_persist::write,
+        &modesp::scenario_persist::read,
+        /*user=*/nullptr);
 
     // Observer span — pointer array stored у static array, span wraps it.
     static modesp::scenario::IEngineObserver* scenario_obs_list[] = {

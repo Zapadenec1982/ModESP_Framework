@@ -28,13 +28,17 @@
 
 using namespace modesp::scenario;
 
-// Mock NVS write — counts calls.
+// Mock NVS write — counts calls and records the durability mode of the last
+// write (Deferred for phase changes, CrashCritical for start/terminal).
 static int write_call_count = 0;
 static uint8_t last_slot_written = 0xFF;
+static NvsWriteMode last_mode_written = NvsWriteMode::Deferred;
 static bool mock_write(void* /*user*/, uint8_t slot,
-                       const uint8_t* /*token*/, size_t /*len*/) {
+                       const uint8_t* /*token*/, size_t /*len*/,
+                       NvsWriteMode mode) {
     ++write_call_count;
     last_slot_written = slot;
+    last_mode_written = mode;
     return true;
 }
 

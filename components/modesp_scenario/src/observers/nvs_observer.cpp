@@ -27,7 +27,7 @@ bool NvsObserver::throttle_check(uint8_t slot_idx) {
     return true;
 }
 
-bool NvsObserver::persist_slot(SequenceHandle h) {
+bool NvsObserver::persist_slot(SequenceHandle h, NvsWriteMode mode) {
     if (write_fn_ == nullptr || engine_ == nullptr) return false;
     const SequenceRuntime* sr = engine_->runtime_for(h);
     if (sr == nullptr || sr->scenario.header() == nullptr) return false;
@@ -38,7 +38,7 @@ bool NvsObserver::persist_slot(SequenceHandle h) {
         return false;
     }
     uint8_t slot_idx = static_cast<uint8_t>(h - 1);
-    bool ok = write_fn_(user_, slot_idx, token, SEQ_TOKEN_SIZE);
+    bool ok = write_fn_(user_, slot_idx, token, SEQ_TOKEN_SIZE, mode);
     if (ok && slot_idx < MAX_SLOTS) {
         time_since_persist_ms_[slot_idx] = 0;
     }
@@ -69,8 +69,10 @@ void NvsObserver::on_tick(uint32_t dt_ms) {
 // ── IEngineObserver overrides ──
 
 void NvsObserver::on_scenario_started(SequenceHandle h) {
-    // Crash-critical event — write immediately, ignore throttle.
-    (void)persist_slot(h);
+    // Crash-critical event — durable write before return, ignore throttle.
+    // Fired from start() (caller/HTTP task, off the control loop), so the
+    // synchronous commit here does not stall the engine tick.
+    (void)persist_slot(h, NvsWriteMode::CrashCritical);
 }
 
 void NvsObserver::on_phase_entered(SequenceHandle h, TrackIdx t, uint8_t /*phase*/) {
@@ -85,18 +87,23 @@ void NvsObserver::on_phase_entered(SequenceHandle h, TrackIdx t, uint8_t /*phase
     bool is_main = (t < track_count) && (tracks[t].flags & MODR_TRACK_FLAG_MAIN);
 
     uint8_t slot_idx = static_cast<uint8_t>(h - 1);
+    // Phase-change edges fire during the engine tick — defer the actual flash
+    // write off the control loop (Deferred). Main track = every phase, non-main
+    // = throttled, same policy as before; only the durability mode differs.
     if (is_main) {
-        (void)persist_slot(h);
+        (void)persist_slot(h, NvsWriteMode::Deferred);
     } else if (throttle_check(slot_idx)) {
-        (void)persist_slot(h);
+        (void)persist_slot(h, NvsWriteMode::Deferred);
     }
     // else: throttled — counter continues accumulating; next phase change
     // OR scenario state change will trigger write коли gate opens.
 }
 
 void NvsObserver::on_scenario_terminal(SequenceHandle h, SequenceRuntime::State /*final_state*/) {
-    // Crash-critical edge — write immediately.
-    (void)persist_slot(h);
+    // Crash-critical edge — durable write before return. Fired from the engine
+    // tick, but only once per scenario run, so the one-off commit cost is
+    // acceptable; recovery must never falsely re-recover a finished scenario.
+    (void)persist_slot(h, NvsWriteMode::CrashCritical);
 }
 
 // ── Recovery ──

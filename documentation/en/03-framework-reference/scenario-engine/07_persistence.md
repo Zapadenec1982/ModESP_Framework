@@ -61,13 +61,38 @@ Instead it emits edge events through `IEngineObserver` hooks
 synchronously from the tick path. `NvsObserver` implements those
 hooks and applies this policy:
 
-| Event | Persist timing | Rationale |
-|-------|---------------|-----------|
-| `on_scenario_started` (LOADED→RUNNING) | **Immediate** | Crash-critical event must survive |
-| `on_scenario_terminal` (COMPLETED, FAILED, including ABORTING→FAILED) | **Immediate** | Final state must be recorded |
-| `on_phase_entered` for main track (`MODR_TRACK_FLAG_MAIN`) | **Immediate** | Main track invariants preserved |
-| `on_phase_entered` for side track | Throttled to ≥1 s between writes | Flash wear protection |
-| 5-minute checkpoint (Stage 1.5) | Periodic | Ensures resume accuracy when only side-track activity |
+| Event | Persist timing | Durability mode | Rationale |
+|-------|---------------|-----------------|-----------|
+| `on_scenario_started` (LOADED→RUNNING) | **Immediate** | `CrashCritical` | Crash-critical event must survive; fired off the control loop (start() runs on the HTTP task) |
+| `on_scenario_terminal` (COMPLETED, FAILED, including ABORTING→FAILED) | **Immediate** | `CrashCritical` | Final state must be recorded; once per run |
+| `on_phase_entered` for main track (`MODR_TRACK_FLAG_MAIN`) | **Immediate** | `Deferred` | Main track invariants preserved; write queued off-loop |
+| `on_phase_entered` for side track | Throttled to ≥1 s between writes | `Deferred` | Flash wear protection; write queued off-loop |
+| 5-minute checkpoint (Stage 1.5) | Periodic | `Deferred` | Ensures resume accuracy when only side-track activity |
+
+### Off-loop write durability (`NvsWriteMode`)
+
+Phase-change edges are detected *inside* the 100 Hz engine tick. A synchronous
+`nvs_set_blob` + `nvs_commit` there (tens of ms of flash I/O) overruns the 10 ms
+tick budget and stalls the control loop. To avoid this, the observer no longer
+decides *where* the write runs — it only tags each write with a durability
+**mode**, and the target-side callback honours it:
+
+- **`Deferred`** — phase-change writes. The callback enqueues the serialized
+  token onto a FreeRTOS queue and returns immediately; a dedicated low-priority
+  task drains the queue and performs the actual flash write. The tick never
+  blocks on flash. Losing the most recent deferred token on a crash only rewinds
+  recovery by one phase (recovery enters PAUSED anyway — no actuation).
+- **`CrashCritical`** — scenario start / terminal. The callback enqueues the
+  token **and blocks until the drain task has committed it**. Because there is a
+  single drain task and the queue is FIFO, by the time a crash-critical item
+  commits, every earlier deferred write for that slot has already been flushed —
+  so a stale phase token can never overwrite a terminal token, and the token is
+  durable before the edge handler returns.
+
+This single-writer + FIFO design is what preserves crash-recovery semantics
+while moving the frequent writes off the loop. The reference implementation
+lives in `main/scenario_persist.{h,cpp}` (FreeRTOS queue + drain task); if queue
+allocation fails it degrades to a synchronous direct write for every mode.
 
 Per-slot throttle state lives **in `NvsObserver`**, not in the engine
 `Slot`. The observer keeps a saturating `time_since_persist_ms_[]`
@@ -105,8 +130,11 @@ itself has no NVS hooks: it accepts the observer through its
 events; the observer owns the callbacks.
 
 ```cpp
+// `mode` is the durability hint (Deferred / CrashCritical) — see the
+// "Off-loop write durability" section above.
 using NvsWriteFn = bool (*)(void* user, uint8_t slot,
-                            const uint8_t* token, size_t len);
+                            const uint8_t* token, size_t len,
+                            NvsWriteMode mode);
 using NvsReadFn  = bool (*)(void* user, uint8_t slot,
                             uint8_t* token_buf, size_t* in_out_len);
 
@@ -117,33 +145,30 @@ Engine engine{state_backend, actions, continuous, obs_list};
 nvs_obs.bind_engine(engine);  // required before engine.start()
 ```
 
-Reference target wiring in `main.cpp`:
+Reference target wiring in `main.cpp` — the callbacks are provided by the
+`scenario_persist` module (FreeRTOS queue + low-priority drain task):
 
 ```cpp
-static auto seq_nvs_write = [](void*, uint8_t slot,
-                                const uint8_t* token, size_t len) -> bool {
-    char key[8];
-    std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
-    return modesp::nvs_helper::write_blob("scnstate", key, token, len);
-};
+// Creates the queue, flush primitives, and drain task. Call once before the
+// engine starts running scenarios. Degrades to synchronous writes on failure.
+modesp::scenario_persist::init();
 
-static auto seq_nvs_read = [](void*, uint8_t slot,
-                               uint8_t* buf, size_t* in_out_len) -> bool {
-    char key[8];
-    std::snprintf(key, sizeof(key), "t%u", static_cast<unsigned>(slot));
-    size_t out_len = 0;
-    bool ok = modesp::nvs_helper::read_blob("scnstate", key, buf,
-                                             *in_out_len, out_len);
-    if (ok) *in_out_len = out_len;
-    return ok;
-};
-
-static modesp::scenario::NvsObserver nvs_obs{seq_nvs_write, seq_nvs_read, nullptr};
+static modesp::scenario::NvsObserver nvs_obs{
+    &modesp::scenario_persist::write,   // honours NvsWriteMode (defer / flush)
+    &modesp::scenario_persist::read,    // synchronous NVS read (boot recovery)
+    nullptr};
 ```
 
-Callbacks are invoked from the engine update task only (synchronously
-inside an observer event) — the caller does not need synchronization
-beyond what NVS itself provides.
+`scenario_persist::write` keys each slot to `scnstate/t<slot>` exactly as
+before; the only change is *where* the flash write runs. See
+`main/scenario_persist.{h,cpp}` for the queue / drain-task implementation.
+
+The write callback is invoked from two tasks — `on_scenario_started` from the
+HTTP task (via `start()`), phase/terminal edges from the engine update task —
+so it must be thread-safe. The `scenario_persist` backend handles this:
+`xQueueSend` is multi-producer safe, and a mutex serialises the crash-critical
+flush handshake so producers never steal each other's completion signal. The
+single drain task is the only code that touches NVS, so writes never reorder.
 
 ### Callback failure handling
 

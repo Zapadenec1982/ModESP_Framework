@@ -41,6 +41,7 @@ INCLUDES := \
     -I$(COMPONENT)/private \
     -I$(THIS_DIR)common \
     -I$(ROOT)/components/modesp_core/include \
+    -I$(ROOT)/generated \
     -I$(ETL_INCLUDE)
 
 # ── Sources ──

@@ -5,12 +5,20 @@
  * Implements `IEngineObserver`. Listens to scenario lifecycle edges
  * (started/phase_entered/terminal) and writes 96-byte tokens to NVS via
  * caller-supplied write callback. Throttle policy preserved verbatim
- * з old `SequenceEngine::persist_scan` (plan A14):
+ * з old `SequenceEngine::persist_scan` (plan A14); the durability *mode*
+ * passed to the write callback decides whether the actual flash write may be
+ * deferred off the 100 Hz control loop:
  *
- *   - on_scenario_started → immediate write
- *   - on_scenario_terminal → immediate write
- *   - on_phase_entered (main track) → immediate write
- *   - on_phase_entered (non-main track) → throttle 1 s minimum між writes
+ *   - on_scenario_started → immediate, CrashCritical (durable before return)
+ *   - on_scenario_terminal → immediate, CrashCritical (durable before return)
+ *   - on_phase_entered (main track) → immediate, Deferred (queued off-loop)
+ *   - on_phase_entered (non-main track) → throttle 1 s minimum, Deferred
+ *
+ * Phase changes fire DURING the engine tick, so a synchronous `nvs_commit`
+ * (tens of ms) there stalls the control loop. Marking them `Deferred` lets the
+ * target wiring queue the token and flush it from a low-priority task. Start /
+ * terminal stay `CrashCritical` because crash recovery depends on them — see
+ * `NvsWriteMode`.
  *
  * Engine snapshot обтикає у `seq_token` через `serialize_token()` з
  * `nvs_token.h`. Write callback (passed з main.cpp wiring) writes blob
@@ -36,11 +44,30 @@ namespace modesp::scenario {
 
 class Engine;
 
+/// Durability hint passed to the write callback. The observer classifies each
+/// edge; the target-side write implementation decides how to honour it. The
+/// observer itself stays target-agnostic (no FreeRTOS / NVS knowledge).
+///
+///  - `Deferred`      — frequent phase-change write. May be queued and flushed
+///                      off the control loop by a background task. Losing the
+///                      very latest one on a crash only rewinds recovery by one
+///                      phase (recovery enters PAUSED anyway, no actuation).
+///  - `CrashCritical` — scenario start / terminal edge. MUST be durably
+///                      committed before the callback returns: a crash right
+///                      after the edge must still recover correctly (started →
+///                      recoverable, terminal → not falsely re-recovered).
+enum class NvsWriteMode : uint8_t {
+    Deferred = 0,
+    CrashCritical = 1,
+};
+
 /// Write callback signature. `user` is caller-supplied opaque pointer.
 /// `slot` is the engine slot index (0-based, не handle). `token`+`len` is
-/// the 96-byte payload. Return true on success.
+/// the 96-byte payload. `mode` is the durability hint (see NvsWriteMode).
+/// Return true on success.
 using NvsWriteFn = bool (*)(void* user, uint8_t slot,
-                            const uint8_t* token, size_t len);
+                            const uint8_t* token, size_t len,
+                            NvsWriteMode mode);
 
 /// Read callback signature. `slot` — engine slot index.
 /// `in_out_len` is input buffer capacity, set to actual bytes read on success.
@@ -102,8 +129,9 @@ private:
     /// false → throttled, observer skips цей write.
     bool throttle_check(uint8_t slot_idx);
 
-    /// Persist а snapshot of slot's runtime. Returns true on success.
-    bool persist_slot(SequenceHandle h);
+    /// Persist а snapshot of slot's runtime з given durability mode. Returns
+    /// true on success (for Deferred = successfully enqueued).
+    bool persist_slot(SequenceHandle h, NvsWriteMode mode);
 
     /// Saturating per-slot counter advance — folded into on_tick().
     void advance_throttle(uint8_t slot_idx, uint32_t dt_ms);
