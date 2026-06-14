@@ -4,6 +4,17 @@
 
 > Full project changelog.
 
+## 2026-06-14
+
+- **feat(osd): AT7456E (MAX7456-compatible OSD) screen-menu renderer + portable driver:**
+  - New component `components/modesp_osd/` — portable AT7456E bit-bang driver (`At7456e` class, pins via config), shared between the framework and sibling projects (ModESP_Sacaner). Protocol ported from the scanner's working driver and generalized.
+  - Character NVM: `upload_font`/`upload_char` (CMAH/CMAL/CMDI + CMM=0xA0, STAT[5] poll, sentinel to avoid re-flashing NVM) — for uploading a custom Cyrillic font.
+  - `osd_charmap.h` — pure UTF-8 decoder + glyph layout for our own NVM font (ASCII identity, Cyrillic U+0410-044F → 0x80+, Ukrainian specials Є/І/Ї/Ґ fixed). 13 host cases (50 assertions).
+  - `AT7456ERenderer : IDisplayRenderer` in `modules/display` — each `DisplayFrame` row UTF-8→glyphs→`write_glyphs`, vertically centered on the OSD grid. Kconfig toggle `MODESP_DISPLAY_AT7456E` (pins/video standard/sync); `DisplayModule` picks it over LogRenderer automatically.
+  - modesp_osd is an unconditional REQUIRES (ESP-IDF resolves deps before Kconfig); the renderer body is `#ifdef`-guarded and the linker drops it when disabled. Build with the option enabled links, 26% partition headroom.
+  - Remaining (blocked on font source): `tools/gen_osd_font.py` (TTF/bitmap → osd_font.mcm per the osd_charmap layout). Until the font is flashed, Cyrillic renders as `?`.
+  - Docs: AT7456E section in `modules/display.md` (EN + UK).
+
 ## 2026-06-11
 
 - **feat(display): on-device menu generated from manifests — full vertical slice, hardware-agnostic:**

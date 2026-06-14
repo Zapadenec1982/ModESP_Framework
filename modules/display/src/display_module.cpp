@@ -6,6 +6,13 @@
 #include "display_module.h"
 #include "esp_log.h"
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+#ifdef CONFIG_MODESP_DISPLAY_AT7456E
+#include "display/at7456e_renderer.h"
+#endif
+
 static const char* TAG = "Display";
 
 namespace {
@@ -24,6 +31,19 @@ public:
 
 LogRenderer s_log_renderer;
 
+#ifdef CONFIG_MODESP_DISPLAY_AT7456E
+modesp::display::AT7456ERenderer s_at7456e_renderer;
+#endif
+
+/// Дефолтний рендерер: AT7456E якщо ввімкнено в menuconfig, інакше — лог.
+modesp::display::IDisplayRenderer* default_renderer() {
+#ifdef CONFIG_MODESP_DISPLAY_AT7456E
+    return &s_at7456e_renderer;
+#else
+    return &s_log_renderer;
+#endif
+}
+
 } // namespace
 
 DisplayModule::DisplayModule()
@@ -36,7 +56,7 @@ DisplayModule::DisplayModule()
           modesp::gen::MAIN_VALUES,
           modesp::gen::MAIN_VALUES_COUNT,
       })
-    , renderer_(&s_log_renderer)
+    , renderer_(default_renderer())
 {}
 
 void DisplayModule::set_renderer(modesp::display::IDisplayRenderer* renderer) {

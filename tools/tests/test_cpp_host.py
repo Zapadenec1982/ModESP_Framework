@@ -288,6 +288,12 @@ def test_datalogger_suite(built_binary):
     assert rc == 0, f"DataLogger tests failed:\n{out}"
 
 
+def test_osd_charmap_suite(built_binary):
+    """Run all osd_charmap (UTF-8 → glyph) test cases."""
+    out, rc = _run_suite(built_binary, '*utf8*,*glyph*,*osd_map*')
+    assert rc == 0, f"osd_charmap tests failed:\n{out}"
+
+
 def test_all_pass(built_binary):
     """Run the full test suite and verify zero failures."""
     out, rc = _run_suite(built_binary)

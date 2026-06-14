@@ -40,6 +40,7 @@ include_directories(
     "${ROOT}/modules/equipment/include"                     # equipment_module.h
     "${ROOT}/modules/datalogger/include"                    # datalogger_module.h
     "${ROOT}/modules/display/include"                       # display_module.h, display/menu_engine.h
+    "${ROOT}/components/modesp_osd/include"                  # modesp/osd/osd_charmap.h (header-only on host)
     "${CMAKE_SOURCE_DIR}"                                   # for #include "doctest.h"
 )
 
@@ -65,6 +66,7 @@ set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_equipment.cpp"
     "${CMAKE_SOURCE_DIR}/test_datalogger.cpp"
     "${CMAKE_SOURCE_DIR}/test_display_menu.cpp"
+    "${CMAKE_SOURCE_DIR}/test_osd_charmap.cpp"
 )
 
 add_executable(test_runner

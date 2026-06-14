@@ -4,6 +4,17 @@
 
 > Повний changelog проекту.
 
+## 2026-06-14
+
+- **feat(osd): рендерер екранного меню на AT7456E (MAX7456-сумісний OSD) + переносний драйвер:**
+  - Новий компонент `components/modesp_osd/` — переносний bit-bang драйвер AT7456E (клас `At7456e`, піни через конфіг), спільний для фреймворку і проектів-сиблінгів (ModESP_Sacaner). Протокол портовано з робочого драйвера сканера + узагальнено.
+  - Character-NVM: `upload_font`/`upload_char` (CMAH/CMAL/CMDI + CMM=0xA0, опитування STAT[5], sentinel щоб не перепрошувати NVM) — для заливки власного кириличного шрифту.
+  - `osd_charmap.h` — чистий UTF-8-декодер + розкладка гліфів власного NVM-шрифту (ASCII тотожно, кирилиця U+0410-044F → 0x80+, українські спецлітери Є/І/Ї/Ґ фіксовано). 13 host-кейсів (50 assertions).
+  - `AT7456ERenderer : IDisplayRenderer` у `modules/display` — кожен рядок `DisplayFrame` UTF-8→гліфи→`write_glyphs`, вертикальне центрування на сітці OSD. Kconfig-тогл `MODESP_DISPLAY_AT7456E` (піни/відеостандарт/sync); `DisplayModule` сам бере його замість LogRenderer.
+  - Залежність modesp_osd безумовна в REQUIRES (ESP-IDF резолвить deps до Kconfig); тіло рендерера під `#ifdef`, лінкер відкидає невживане. Збірка з опцією: бінар лінкується, 26% запасу.
+  - Лишилось (заблоковано на джерелі шрифту): `tools/gen_osd_font.py` (TTF/bitmap → osd_font.mcm за розкладкою osd_charmap). Доки шрифт не залито — кирилиця як `?`.
+  - Docs: секція AT7456E у `modules/display.md` (EN + UK).
+
 ## 2026-06-11
 
 - **feat(display): екранне меню генерується з маніфестів — повний вертикальний зріз без заліза:**

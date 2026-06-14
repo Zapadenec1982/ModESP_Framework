@@ -1,0 +1,56 @@
+menu "ModESP Display"
+
+    config MODESP_DISPLAY_AT7456E
+        bool "AT7456E OSD renderer (composite video overlay)"
+        default n
+        help
+            Рендерити екранне меню на AT7456E (MAX7456-сумісний OSD-чіп),
+            що накладає символьну сітку на аналоговий composite-відеосигнал.
+            Потребує відеомонітор на CVBS-виході. Без цієї опції екранне
+            меню рендериться у серійний лог (LogRenderer).
+
+    if MODESP_DISPLAY_AT7456E
+
+        config MODESP_DISPLAY_AT7456E_CS
+            int "CS GPIO"
+            default 5
+
+        config MODESP_DISPLAY_AT7456E_MOSI
+            int "DATA/MOSI GPIO"
+            default 23
+
+        config MODESP_DISPLAY_AT7456E_CLK
+            int "CLK GPIO"
+            default 18
+
+        config MODESP_DISPLAY_AT7456E_MISO
+            int "MISO GPIO"
+            default 19
+
+        choice MODESP_DISPLAY_AT7456E_STD
+            prompt "Video standard"
+            default MODESP_DISPLAY_AT7456E_PAL
+            config MODESP_DISPLAY_AT7456E_PAL
+                bool "PAL (16 rows)"
+            config MODESP_DISPLAY_AT7456E_NTSC
+                bool "NTSC (13 rows)"
+        endchoice
+
+        choice MODESP_DISPLAY_AT7456E_SYNC
+            prompt "Sync source"
+            default MODESP_DISPLAY_AT7456E_SYNC_AUTO
+            help
+                internal — власний sync (екран горить без вхідного відео);
+                auto — internal лише при втраті вхідного sync;
+                external — тримати вхідний sync.
+            config MODESP_DISPLAY_AT7456E_SYNC_AUTO
+                bool "auto"
+            config MODESP_DISPLAY_AT7456E_SYNC_INTERNAL
+                bool "internal"
+            config MODESP_DISPLAY_AT7456E_SYNC_EXTERNAL
+                bool "external"
+        endchoice
+
+    endif
+
+endmenu

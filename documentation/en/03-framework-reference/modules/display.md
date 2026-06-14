@@ -67,6 +67,14 @@ public:
 
 `render()` is only called when the frame changes. The renderer decides how many glyphs fit; frame rows are capped at 40 UTF-8 bytes.
 
+### Built-in renderer: AT7456E (OSD composite overlay)
+
+The framework ships a built-in renderer for the **AT7456E** (MAX7456-compatible OSD chip) — it overlays a character grid (PAL 16×30 / NTSC 13×30) on an analog composite video signal. It needs a video monitor on the CVBS output; the chip can run on its own internal sync, so the screen lights up even with no input video.
+
+The driver is portable — component `components/modesp_osd/` (shared with sibling projects). Enable it in `idf.py menuconfig` → **ModESP Display → AT7456E OSD renderer**, which also sets the pins (CS/DATA/CLK/MISO), video standard, and sync. When enabled, `DisplayModule` defaults to `AT7456ERenderer` instead of `LogRenderer`.
+
+**Font and Cyrillic.** The AT7456E keeps its font in character NVM (256 glyphs, 12×18px). The stock font has **no Cyrillic**, so a custom font is uploaded to NVM for the Ukrainian UI. The layout is defined by [osd_charmap.h](../../../../components/modesp_osd/include/modesp/osd/osd_charmap.h) (ASCII identity, Cyrillic U+0410-044F → 0x80+, Ukrainian specials Є/І/Ї/Ґ at fixed indices), and the driver can flash the font (`upload_font`, with a sentinel check to avoid re-flashing NVM). The `.mcm` font itself is produced by `tools/gen_osd_font.py` *(in progress)*; until the font is flashed, Cyrillic renders as `?`.
+
 ## Adding your module to the menu
 
 Add a `display:` section to your module's manifest.json (full spec in [manifest.md](../../02-module-author-guide/manifest.md)):
