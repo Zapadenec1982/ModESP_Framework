@@ -1,13 +1,32 @@
 menu "ModESP Display"
 
-    config MODESP_DISPLAY_AT7456E
-        bool "AT7456E OSD renderer (composite video overlay)"
-        default n
+    choice MODESP_DISPLAY_BACKEND
+        prompt "Display backend"
+        default MODESP_DISPLAY_LOG
         help
-            Рендерити екранне меню на AT7456E (MAX7456-сумісний OSD-чіп),
-            що накладає символьну сітку на аналоговий composite-відеосигнал.
-            Потребує відеомонітор на CVBS-виході. Без цієї опції екранне
-            меню рендериться у серійний лог (LogRenderer).
+            Бекенд рендерингу екранного меню (ADR-002). Дисплей у системі —
+            одинак, тож backend обирається радіо-вибором. Вимкнені backend-и
+            не компілюються (менший бінарник).
+
+        config MODESP_DISPLAY_LOG
+            bool "Serial log (no hardware)"
+            help
+                Без заліза: View екранного меню у серійний лог (LogPort).
+
+        config MODESP_DISPLAY_AT7456E
+            bool "AT7456E OSD (composite video overlay)"
+            help
+                AT7456E (MAX7456-сумісний OSD-чіп) накладає символьну сітку на
+                аналоговий composite-відеосигнал. Потребує відеомонітор на CVBS.
+
+        config MODESP_DISPLAY_AMT630A
+            bool "AMT630A OSD/TFT (I2C)"
+            help
+                AMT630A video-SoC керується ззовні по I²C поверх заводської
+                прошивки (Шлях A). OSD/меню/колір/вибір CVBS-входу на TFT.
+                ⚠ Поточний рендер — лише латиниця/цифри (ROM-шрифт). Кирилиця
+                потребує завантаження RAM-шрифту (gen_osd_font.py --target amt630a, TODO).
+    endchoice
 
     if MODESP_DISPLAY_AT7456E
 
@@ -50,6 +69,34 @@ menu "ModESP Display"
             config MODESP_DISPLAY_AT7456E_SYNC_EXTERNAL
                 bool "external"
         endchoice
+
+    endif
+
+    if MODESP_DISPLAY_AMT630A
+
+        config MODESP_DISPLAY_AMT630A_SDA
+            int "I2C SDA GPIO"
+            default 21
+
+        config MODESP_DISPLAY_AMT630A_SCL
+            int "I2C SCL GPIO"
+            default 22
+
+        config MODESP_DISPLAY_AMT630A_FREQ
+            int "I2C frequency (Hz)"
+            default 100000
+
+        config MODESP_DISPLAY_AMT630A_COLS
+            int "OSD columns (chars)"
+            range 1 40
+            default 20
+
+        config MODESP_DISPLAY_AMT630A_ROWS
+            int "OSD rows (chars)"
+            range 1 12
+            default 10
+            help
+                cols×rows має не перевищувати 511 (BGMAP — 9-біт адреса, 512 слів).
 
     endif
 

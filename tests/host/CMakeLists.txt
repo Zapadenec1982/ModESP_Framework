@@ -57,6 +57,8 @@ set(MODULE_SOURCES
     "${ROOT}/modules/equipment/src/equipment_base.cpp"
     "${ROOT}/modules/datalogger/src/datalogger_module.cpp"
     "${ROOT}/modules/display/src/menu_engine.cpp"
+    "${ROOT}/modules/display/src/char_grid.cpp"
+    "${ROOT}/modules/display/src/notification_queue.cpp"
     "${ROOT}/modules/display/src/display_module.cpp"
 )
 
@@ -66,6 +68,9 @@ set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_equipment.cpp"
     "${CMAKE_SOURCE_DIR}/test_datalogger.cpp"
     "${CMAKE_SOURCE_DIR}/test_display_menu.cpp"
+    "${CMAKE_SOURCE_DIR}/test_display_module.cpp"
+    "${CMAKE_SOURCE_DIR}/test_char_grid.cpp"
+    "${CMAKE_SOURCE_DIR}/test_notification_queue.cpp"
     "${CMAKE_SOURCE_DIR}/test_osd_charmap.cpp"
 )
 

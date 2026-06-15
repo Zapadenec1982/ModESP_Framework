@@ -119,6 +119,7 @@ namespace msg_id {
     constexpr etl::message_id_t SETPOINT_CHANGED   = 160;
     constexpr etl::message_id_t DEFROST_START      = 170;
     constexpr etl::message_id_t DEFROST_END        = 171;
+    constexpr etl::message_id_t UI_NOTICE          = 180;  // банер на дисплей (ADR-001)
 } // namespace msg_id
 
 // ═══════════════════════════════════════════════════════════════

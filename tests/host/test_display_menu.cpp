@@ -1,17 +1,10 @@
 /**
  * @file test_display_menu.cpp
- * @brief HOST unit tests for MenuEngine (display module).
+ * @brief HOST unit tests for MenuEngine (View-model, ADR-002).
  *
- * MenuEngine отримує дерево меню через DI (MenuData), тому тести
- * використовують власні фікстурні масиви з тими ж структурами, що
- * генерує generate_ui.py — незалежно від project.json.
- *
- * Tests cover:
- *   - MAIN screen: main values rendering, [OK] hint
- *   - MENU navigation: up/down/select, submenu enter/exit, scroll, back
- *   - EDIT: float clamp min/max/step, enum cycle, bool toggle, save
- *   - Idle timeout повертає на MAIN (зміни відкидаються)
- *   - consume_dirty семантика
+ * MenuEngine віддає СЕМАНТИЧНІ View (MainView/MenuView/EditView), а не кадр.
+ * Тести перевіряють домен (склад View, selected-індекс, навігацію, edit/save),
+ * без жодних presentation-припущень (курсор/скрол — справа драйвера).
  */
 
 #include "mocks/freertos_mock.h"
@@ -19,6 +12,7 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "doctest.h"
 #include "modesp/shared_state.h"
@@ -78,6 +72,34 @@ struct TestIO : IMenuStateIO {
     }
 };
 
+// Зчитати поточний екран у читабельні рядки (домен → текст, для contains).
+static std::vector<std::string> screen_texts(const MenuEngine& e) {
+    std::vector<std::string> out;
+    switch (e.screen()) {
+    case MenuEngine::Screen::MAIN:
+        for (const auto& it : e.main_view().items) {
+            std::string s = std::string(it.label.c_str()) + " " + it.value.c_str();
+            if (!it.unit.empty()) { s += " "; s += it.unit.c_str(); }
+            out.push_back(s);
+        }
+        break;
+    case MenuEngine::Screen::MENU:
+        out.push_back(e.menu_view().title.c_str());
+        for (const auto& it : e.menu_view().items) {
+            std::string s = it.label.c_str();
+            if (!it.value.empty()) { s += ": "; s += it.value.c_str(); }
+            out.push_back(s);
+        }
+        break;
+    case MenuEngine::Screen::EDIT:
+        out.push_back(e.edit_view().title.c_str());
+        out.push_back(e.edit_view().value.c_str());
+        out.push_back(e.edit_view().range.c_str());
+        break;
+    }
+    return out;
+}
+
 struct EngineFixture {
     TestIO io;
     MenuEngine eng;
@@ -90,7 +112,7 @@ struct EngineFixture {
         io.state.set("t.mode", static_cast<int32_t>(1));
         io.state.set("t.heat", true);
         io.state.set("sys.up", static_cast<int32_t>(123));
-        eng.tick(MenuEngine::REFRESH_MS);  // перший кадр
+        eng.tick(MenuEngine::REFRESH_MS);  // перший View
     }
 
     float get_float(const char* key) {
@@ -109,9 +131,9 @@ struct EngineFixture {
         return b && *b;
     }
 
-    bool frame_contains(const char* text) const {
-        for (const auto& row : eng.frame().rows) {
-            if (strstr(row.c_str(), text)) return true;
+    bool contains(const char* text) const {
+        for (const auto& s : screen_texts(eng)) {
+            if (s.find(text) != std::string::npos) return true;
         }
         return false;
     }
@@ -123,8 +145,8 @@ TEST_CASE("MenuEngine: starts on MAIN with main values") {
     EngineFixture f;
     CHECK(f.eng.screen() == MenuEngine::Screen::MAIN);
     CHECK(std::string(f.eng.screen_name()) == "main");
-    CHECK(f.frame_contains("Thermo 21.5"));
-    CHECK(f.frame_contains("[OK]"));
+    CHECK(f.contains("Thermo 21.5"));
+    CHECK(f.eng.main_view().has_menu);          // є меню → підказка входу
 }
 
 TEST_CASE("MenuEngine: MAIN refreshes values periodically") {
@@ -133,7 +155,7 @@ TEST_CASE("MenuEngine: MAIN refreshes values periodically") {
     f.io.state.set("t.temp", 25.0f);
     f.eng.tick(MenuEngine::REFRESH_MS);
     CHECK(f.eng.consume_dirty());
-    CHECK(f.frame_contains("Thermo 25.0"));
+    CHECK(f.contains("Thermo 25.0"));
 }
 
 TEST_CASE("MenuEngine: consume_dirty returns true once") {
@@ -149,8 +171,8 @@ TEST_CASE("MenuEngine: SELECT opens root menu") {
     f.eng.handle_event(MenuEvent::SELECT);
     CHECK(f.eng.screen() == MenuEngine::Screen::MENU);
     CHECK(std::string(f.eng.screen_name()) == "menu:root");
-    CHECK(f.frame_contains("Thermo"));
-    CHECK(f.frame_contains("System"));
+    CHECK(f.contains("Thermo"));
+    CHECK(f.contains("System"));
 }
 
 TEST_CASE("MenuEngine: enter submenu and show live value") {
@@ -159,7 +181,7 @@ TEST_CASE("MenuEngine: enter submenu and show live value") {
     f.eng.handle_event(MenuEvent::DOWN);    // cursor → System
     f.eng.handle_event(MenuEvent::SELECT);  // enter System
     CHECK(std::string(f.eng.screen_name()) == "menu:System");
-    CHECK(f.frame_contains("Uptime: 123 s"));
+    CHECK(f.contains("Uptime: 123 s"));
 }
 
 TEST_CASE("MenuEngine: back returns to parent, exit returns to MAIN") {
@@ -167,24 +189,32 @@ TEST_CASE("MenuEngine: back returns to parent, exit returns to MAIN") {
     f.eng.handle_event(MenuEvent::SELECT);  // root
     f.eng.handle_event(MenuEvent::DOWN);
     f.eng.handle_event(MenuEvent::SELECT);  // System
-    f.eng.handle_event(MenuEvent::DOWN);    // cursor → "< Назад"
+    f.eng.handle_event(MenuEvent::DOWN);    // cursor → "Назад"
     f.eng.handle_event(MenuEvent::SELECT);  // back to root
     CHECK(std::string(f.eng.screen_name()) == "menu:root");
 
     f.eng.handle_event(MenuEvent::DOWN);    // System (cursor restored = 1)
-    f.eng.handle_event(MenuEvent::DOWN);    // "< Вихід"
+    f.eng.handle_event(MenuEvent::DOWN);    // "Вихід"
     f.eng.handle_event(MenuEvent::SELECT);
     CHECK(f.eng.screen() == MenuEngine::Screen::MAIN);
 }
 
-TEST_CASE("MenuEngine: scroll window follows cursor") {
+TEST_CASE("MenuEngine: cursor lands on virtual back item") {
     EngineFixture f;
     f.eng.handle_event(MenuEvent::SELECT);  // root
     f.eng.handle_event(MenuEvent::SELECT);  // enter Thermo (4 items + back)
     for (int i = 0; i < 4; ++i) f.eng.handle_event(MenuEvent::DOWN);
-    // cursor на "< Назад" (індекс 4), вікно прокручене
-    CHECK(f.frame_contains(">< Назад"));
-    CHECK_FALSE(f.frame_contains("Setpoint"));
+
+    const auto& mv = f.eng.menu_view();
+    REQUIRE(mv.items.size() == 5);          // 4 пункти + back
+    CHECK(mv.selected == 4);                // курсор на back-пункті
+    CHECK(mv.items[4].is_back);
+    CHECK(std::string(mv.items[4].label.c_str()) == "Назад");
+    // повний список лишається у View (скрол — справа драйвера)
+    bool has_setpoint = false;
+    for (const auto& it : mv.items)
+        if (std::string(it.label.c_str()) == "Setpoint") has_setpoint = true;
+    CHECK(has_setpoint);
 }
 
 TEST_CASE("MenuEngine: UP does not go above first item") {
@@ -192,7 +222,9 @@ TEST_CASE("MenuEngine: UP does not go above first item") {
     f.eng.handle_event(MenuEvent::SELECT);
     f.eng.handle_event(MenuEvent::UP);
     f.eng.handle_event(MenuEvent::UP);
-    CHECK(f.frame_contains(">Thermo"));
+    const auto& mv = f.eng.menu_view();
+    CHECK(mv.selected == 0);
+    CHECK(std::string(mv.items[0].label.c_str()) == "Thermo");
 }
 
 TEST_CASE("MenuEngine: VALUE item is not editable") {
@@ -242,10 +274,10 @@ TEST_CASE("MenuEngine: edit enum cycles options and saves value") {
     f.eng.handle_event(MenuEvent::SELECT);  // Thermo
     f.eng.handle_event(MenuEvent::DOWN);    // Mode
     f.eng.handle_event(MenuEvent::SELECT);  // edit (current = Manual)
-    CHECK(f.frame_contains("Manual"));
+    CHECK(f.contains("Manual"));
 
     f.eng.handle_event(MenuEvent::UP);      // Manual → Off
-    CHECK(f.frame_contains("Off"));
+    CHECK(f.contains("Off"));
     f.eng.handle_event(MenuEvent::SELECT);
     CHECK(f.get_int("t.mode") == 2);
 }
@@ -262,6 +294,17 @@ TEST_CASE("MenuEngine: edit enum wraps around") {
     CHECK(f.get_int("t.mode") == 2);
 }
 
+TEST_CASE("MenuEngine: edit enum does not clobber unknown value without change") {
+    EngineFixture f;
+    f.io.state.set("t.mode", static_cast<int32_t>(99));  // значення поза опціями
+    f.eng.handle_event(MenuEvent::SELECT);  // root
+    f.eng.handle_event(MenuEvent::SELECT);  // Thermo
+    f.eng.handle_event(MenuEvent::DOWN);    // Mode
+    f.eng.handle_event(MenuEvent::SELECT);  // edit Mode (значення 99 — невідоме)
+    f.eng.handle_event(MenuEvent::SELECT);  // save БЕЗ зміни
+    CHECK(f.get_int("t.mode") == 99);       // не затерто на options[0]
+}
+
 TEST_CASE("MenuEngine: edit bool toggles") {
     EngineFixture f;
     f.eng.handle_event(MenuEvent::SELECT);
@@ -269,7 +312,7 @@ TEST_CASE("MenuEngine: edit bool toggles") {
     f.eng.handle_event(MenuEvent::DOWN);
     f.eng.handle_event(MenuEvent::DOWN);    // Heat
     f.eng.handle_event(MenuEvent::SELECT);  // edit (true → "ON")
-    CHECK(f.frame_contains("ON"));
+    CHECK(f.contains("ON"));
     f.eng.handle_event(MenuEvent::UP);      // toggle → OFF
     f.eng.handle_event(MenuEvent::SELECT);
     CHECK_FALSE(f.get_bool("t.heat"));

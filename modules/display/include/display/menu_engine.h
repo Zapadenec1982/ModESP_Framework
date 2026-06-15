@@ -1,13 +1,11 @@
 /**
  * @file menu_engine.h
- * @brief Движок екранного меню — навігація по згенерованому дереву
+ * @brief Движок екранного меню — навігація по згенерованому дереву.
  *
- * Споживає дерево меню з generated/display_screens.h (DisplayMenuNode),
- * але отримує його через DI (MenuData) — прошивка передає згенеровані
- * масиви, host-тести — власні фікстури.
- *
- * FSM: MAIN (головний екран з main values) → MENU (список) → EDIT
- * (редагування значення з clamp по min/max/step зі state-маніфесту).
+ * Споживає дерево меню з generated/display_screens.h (DisplayMenuNode) через DI
+ * (MenuData). АГНОСТИЧНИЙ до геометрії дисплея: віддає СЕМАНТИЧНІ View
+ * (MainView/MenuView/EditView, display_port.h), а не готовий кадр. Скрол/курсор-
+ * презентацію рахує драйвер (CharGridLayout). FSM: MAIN → MENU → EDIT.
  *
  * Zero heap: etl-контейнери, фіксовані розміри. Безпечний для on_update().
  */
@@ -20,7 +18,7 @@
 #include "etl/vector.h"
 #include "modesp/types.h"
 #include "display_screens.h"
-#include "display/renderer.h"
+#include "display/display_port.h"
 
 namespace modesp::display {
 
@@ -50,25 +48,26 @@ public:
     enum class Screen : uint8_t { MAIN, MENU, EDIT };
 
     static constexpr uint32_t IDLE_TIMEOUT_MS = 30000;  // авто-повернення на MAIN
-    static constexpr uint32_t MAIN_ROTATE_MS  = 4000;   // зміна сторінки main values
     static constexpr uint32_t REFRESH_MS      = 500;    // оновлення значень на екрані
-    static constexpr size_t   VISIBLE_ITEMS   = DisplayFrame::MAX_ROWS - 1;
     static constexpr size_t   MAX_DEPTH       = 4;
 
     MenuEngine(IMenuStateIO& io, const MenuData& data);
 
-    /// Обробити подію кнопки (скидає idle-таймер, перебудовує кадр).
+    /// Обробити подію кнопки (скидає idle-таймер, перебудовує View).
     void handle_event(MenuEvent ev);
 
-    /// Періодичний тік: оновлення значень, ротація MAIN, idle-timeout.
+    /// Періодичний тік: оновлення значень, idle-timeout.
     void tick(uint32_t dt_ms);
 
-    const DisplayFrame& frame() const { return frame_; }
-
-    /// true один раз після зміни кадру (для рендерера).
-    bool consume_dirty();
-
     Screen screen() const { return screen_; }
+
+    // Активний семантичний View (валідний відповідно до screen()).
+    const MainView& main_view() const { return main_view_; }
+    const MenuView& menu_view() const { return menu_view_; }
+    const EditView& edit_view() const { return edit_view_; }
+
+    /// true один раз після зміни активного View (для драйвера).
+    bool consume_dirty();
 
     /// "main" | "menu:<label>" | "edit:<label>" — для display.screen.
     const char* screen_name() const { return screen_name_.c_str(); }
@@ -76,13 +75,12 @@ public:
 private:
     struct Level {
         uint8_t node;
-        uint8_t cursor;
-        uint8_t scroll;
+        uint8_t cursor;   // курсор; скрол більше НЕ зберігаємо (рахує драйвер)
     };
 
     // ── навігація ──
     uint8_t list_count() const;             // items + 1 (back)
-    uint8_t child_node(uint8_t i) const;    // index в data_.nodes
+    uint8_t child_node(uint8_t i) const;    // index у data_.nodes
     void    nav_up();
     void    nav_down();
     void    nav_select();
@@ -93,14 +91,13 @@ private:
     void edit_adjust(int8_t dir);
     void edit_save();
 
-    // ── кадр ──
+    // ── побудова View ──
     void rebuild();
-    void build_main(DisplayFrame& f) const;
-    void build_menu(DisplayFrame& f) const;
-    void build_edit(DisplayFrame& f) const;
+    void build_main(MainView& v) const;
+    void build_menu(MenuView& v) const;
+    void build_edit(EditView& v) const;
     void format_value(const gen::DisplayMenuNode& n, etl::istring& out) const;
     void update_screen_name();
-    size_t main_pages() const;
 
     IMenuStateIO&  io_;
     MenuData       data_;
@@ -108,24 +105,27 @@ private:
     Screen screen_ = Screen::MAIN;
 
     // MENU
-    etl::vector<Level, MAX_DEPTH> stack_;  // батьківські рівні
+    etl::vector<Level, MAX_DEPTH> stack_;   // батьківські рівні
     uint8_t cursor_ = 0;
-    uint8_t scroll_ = 0;
 
     // EDIT
     uint8_t edit_node_ = 0;
     float   edit_f_    = 0.0f;   // буфер для FLOAT/INT
     uint8_t edit_opt_  = 0;      // індекс опції для ENUM, 0/1 для BOOL
+    bool    edit_dirty_ = false; // чи користувач реально змінював (editenum-1)
+    bool    edit_known_ = true;  // чи поточне значення знайдено в опціях (ENUM)
 
     // таймери
     uint32_t idle_acc_    = 0;
-    uint32_t rotate_acc_  = 0;
     uint32_t refresh_acc_ = 0;
-    uint8_t  main_page_   = 0;
 
-    DisplayFrame        frame_;
-    bool                dirty_ = false;
-    etl::string<48>     screen_name_;
+    // кешований активний View + dirty
+    MainView main_view_;
+    MenuView menu_view_;
+    EditView edit_view_;
+    Screen   built_screen_ = Screen::MAIN;
+    bool     dirty_ = false;
+    etl::string<48> screen_name_;
 };
 
 } // namespace modesp::display
