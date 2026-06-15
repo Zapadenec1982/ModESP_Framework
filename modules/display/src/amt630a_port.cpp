@@ -8,6 +8,8 @@
 #ifdef CONFIG_MODESP_DISPLAY_AMT630A
 
 #include "display/amt630a_port.h"
+#include "modesp/osd/amt630a_font_data.h"
+#include "modesp/osd/amt630a_charmap.h"
 #include "esp_log.h"
 
 namespace modesp::display {
@@ -38,14 +40,6 @@ uint32_t decode_utf8(const char*& p) {
     return cp;
 }
 
-/// ROM-шрифт AMT630A (Fizik): пробіл, цифри, латиниця. Кирилиця → blank (TODO RAM-font).
-uint16_t rom_tile(uint32_t cp) {
-    if (cp >= '0' && cp <= '9') return static_cast<uint16_t>((cp - '0') + 0x01);  // 0x01..0x0A
-    if (cp >= 'A' && cp <= 'Z') return static_cast<uint16_t>((cp - 'A') + 0x0B);  // 0x0B..0x24
-    if (cp >= 'a' && cp <= 'z') return static_cast<uint16_t>((cp - 'a') + 0x0B);  // fold→upper
-    return 0x00;  // пробіл / невідоме
-}
-
 // Атрибут кольору за роллю: fg у bit0-2, bg у bit4-6 (0=прозорий).
 constexpr uint8_t ATTR_NORMAL = 0x06;  // fg=color6 (білий, ROM-default)
 constexpr uint8_t ATTR_SELECT = 0x02;  // fg=color2 (хайлайт)
@@ -65,11 +59,14 @@ bool Amt630aPort::init() {
     dev_.apply_init_table();                 // bring-up поверх OEM (bench: пропустити, якщо OEM сама)
     dev_.set_palette(1, 10, 0, 0);           // color1 = червоний (alarm)
     dev_.set_palette(2, 10, 10, 0);          // color2 = жовтий (highlight/warn)
-    dev_.set_char_size(16, 22);
     dev_.window0_setup(cols_, rows_, 10, 12);
-    dev_.window_enable(0x01);                // лише вікно 0 (текст)
+    // A1: залити кириличний RAM-шрифт (16×22 1bpp) у FONT RAM; restore_mask вмикає вікно 0.
+    dev_.upload_font(osd::AMT630A_FONT, /*first_tile=*/0,
+                     static_cast<uint8_t>(osd::AMT630A_FONT_COUNT),
+                     osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ, /*restore_mask=*/0x01);
     dev_.set_backlight(70);                  // amt-8: підсвітка після bring-up (init ставить duty=0!) ⚠ полярність — bench
-    ESP_LOGI(TAG, "ready: %ux%u", cols_, rows_);
+    ESP_LOGI(TAG, "ready: %ux%u, font %u glyphs", cols_, rows_,
+             static_cast<unsigned>(osd::AMT630A_FONT_COUNT));
     return true;
 }
 
@@ -94,7 +91,7 @@ void Amt630aPort::render(const CharGrid& g) {
         if (ln) {
             if (ln->role == RowRole::SELECTED) attr = ATTR_SELECT;
             const char* p = ln->text.c_str();
-            while (*p && n < cols) tiles[n++] = rom_tile(decode_utf8(p));
+            while (*p && n < cols) tiles[n++] = osd::amt630a_cp_to_tile(decode_utf8(p));
         }
         while (n < cols) tiles[n++] = 0x00;   // добити пробілами (очистити рядок)
         dev_.osd_print(static_cast<uint16_t>(r * cols), tiles, cols, attr);
@@ -120,7 +117,7 @@ void Amt630aPort::present_notice(const Notice& notice) {
     else if (notice.level == NoticeLevel::WARN) attr = 0x02;   // color2 жовтий
     size_t n = 0;
     const char* p = notice.text.c_str();
-    while (*p && n < cols) tiles[n++] = rom_tile(decode_utf8(p));
+    while (*p && n < cols) tiles[n++] = osd::amt630a_cp_to_tile(decode_utf8(p));
     while (n < cols) tiles[n++] = 0x00;
     dev_.osd_print(static_cast<uint16_t>((rows_ - 1) * cols), tiles, cols, attr);
 }

@@ -44,9 +44,20 @@ private:
     /// Передати активний View поточного екрана у port_.
     void present_current();
 
+    /// A2: маршрутизувати параметри екрана зі SharedState у port_ (за caps).
+    void apply_screen_params();
+
     modesp::display::MenuEngine        engine_;
     modesp::display::IDisplayPort*     port_ = nullptr;
     modesp::display::NotificationQueue notif_;
+    modesp::display::DisplayCaps       caps_{};
+
+    // A2: останні застосовані значення параметрів (виявлення зміни); -1 = ще не задано
+    int32_t last_backlight_  = -1;
+    int32_t last_contrast_   = -1;
+    int32_t last_brightness_ = -1;
+    int32_t last_saturation_ = -1;
+    int32_t last_input_      = -1;
 
     bool prev_up_     = false;
     bool prev_down_   = false;

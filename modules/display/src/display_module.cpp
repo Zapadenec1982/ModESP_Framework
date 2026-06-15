@@ -104,6 +104,8 @@ bool DisplayModule::on_init() {
         return true;  // не валимо систему через дисплей
     }
 
+    caps_ = port_->caps();   // A2: можливості backend — для маршрутизації параметрів екрана
+
     ESP_LOGI(TAG, "Initialized (%u menu nodes, %u main values)",
              static_cast<unsigned>(modesp::gen::MENU_NODES_COUNT),
              static_cast<unsigned>(modesp::gen::MAIN_VALUES_COUNT));
@@ -126,6 +128,30 @@ void DisplayModule::present_current() {
     case S::MAIN: port_->present_main(engine_.main_view()); break;
     case S::MENU: port_->present_menu(engine_.menu_view()); break;
     case S::EDIT: port_->present_edit(engine_.edit_view()); break;
+    }
+}
+
+void DisplayModule::apply_screen_params() {
+    // A2: маршрут «SharedState → залізо» лише для того, що backend уміє (caps).
+    // Канал керування з ESP32: WebUI/MQTT/майбутнє меню пишуть ключі, ми застосовуємо.
+    if (caps_.has_backlight) {
+        const int32_t v = read_int("display.backlight", -1);
+        if (v >= 0 && v != last_backlight_) { port_->set_backlight(static_cast<uint8_t>(v)); last_backlight_ = v; }
+    }
+    if (caps_.has_video_params) {
+        int32_t v = read_int("display.contrast", -1);
+        if (v >= 0 && v != last_contrast_)   { port_->set_contrast(static_cast<uint8_t>(v));   last_contrast_ = v; }
+        v = read_int("display.brightness", -1);
+        if (v >= 0 && v != last_brightness_) { port_->set_brightness(static_cast<uint8_t>(v)); last_brightness_ = v; }
+        v = read_int("display.saturation", -1);
+        if (v >= 0 && v != last_saturation_) { port_->set_saturation(static_cast<uint8_t>(v)); last_saturation_ = v; }
+    }
+    if (caps_.has_inputs) {
+        const int32_t v = read_int("display.input", -1);
+        if (v >= 0 && v != last_input_) {
+            if (auto* vi = port_->as_video_inputs()) vi->select_input(static_cast<uint8_t>(v));
+            last_input_ = v;
+        }
     }
 }
 
@@ -179,6 +205,8 @@ void DisplayModule::on_update(uint32_t dt_ms) {
             state_set("display.banner_level", static_cast<int32_t>(0));
         }
     }
+
+    apply_screen_params();   // A2: SharedState → port (яскравість/контраст/вхід тощо)
 
     if (last_screen_ != engine_.screen_name()) {
         last_screen_ = engine_.screen_name();

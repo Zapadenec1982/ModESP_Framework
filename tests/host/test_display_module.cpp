@@ -23,14 +23,25 @@ using namespace modesp::display;
 
 namespace {
 
-struct FakePort : IDisplayPort {
+struct FakePort : IDisplayPort, IVideoInputs {
     int    main_n = 0, menu_n = 0, edit_n = 0, notice_n = 0, clear_n = 0;
     Notice last_notice;
+    DisplayCaps caps_val{};
+    int bl = -1, ct = -1, br = -1, sat = -1, in = -1;   // останні застосовані
+
+    DisplayCaps caps() const override             { return caps_val; }
     void present_main(const MainView&) override   { ++main_n; }
     void present_menu(const MenuView&) override   { ++menu_n; }
     void present_edit(const EditView&) override   { ++edit_n; }
     void present_notice(const Notice& n) override { ++notice_n; last_notice = n; }
     void clear_notice() override                  { ++clear_n; }
+    void set_backlight(uint8_t p) override        { bl = p; }
+    void set_contrast(uint8_t p) override         { ct = p; }
+    void set_brightness(uint8_t p) override        { br = p; }
+    void set_saturation(uint8_t p) override        { sat = p; }
+    IVideoInputs* as_video_inputs() override      { return this; }
+    void    select_input(uint8_t n) override      { in = n; }
+    uint8_t input_count() const override          { return 2; }
 };
 
 struct DisplayFixture {
@@ -125,6 +136,46 @@ TEST_CASE_FIXTURE(DisplayFixture, "display.enabled=false short-circuits on_updat
     tick();
     CHECK(port.main_n + port.menu_n + port.edit_n == before);  // нічого не рендериться
     CHECK(flag("display.btn_select"));                          // кнопка НЕ оброблена (ранній вихід)
+}
+
+// ── A2: маршрутизація параметрів екрана за caps ──
+
+TEST_CASE("DisplayModule: screen params routed to port when caps allow") {
+    SharedState state; ModuleManager mgr; DisplayModule dm; FakePort port;
+    port.caps_val.has_backlight    = true;
+    port.caps_val.has_video_params = true;
+    port.caps_val.has_inputs       = true;
+    mgr.register_module(dm);
+    dm.set_port(&port);
+    mgr.init_all(state);                       // on_init читає caps()
+
+    state.set("display.backlight", static_cast<int32_t>(50));
+    state.set("display.contrast",  static_cast<int32_t>(30));
+    state.set("display.input",     static_cast<int32_t>(1));
+    dm.on_update(50);
+    CHECK(port.bl == 50);
+    CHECK(port.ct == 30);
+    CHECK(port.in == 1);
+
+    // повторно те саме значення → НЕ застосовується вдруге
+    port.bl = -2;
+    state.set("display.backlight", static_cast<int32_t>(50));
+    dm.on_update(50);
+    CHECK(port.bl == -2);
+}
+
+TEST_CASE("DisplayModule: params NOT routed when caps disallow") {
+    SharedState state; ModuleManager mgr; DisplayModule dm; FakePort port;
+    // caps усі false (LogPort-подібний)
+    mgr.register_module(dm);
+    dm.set_port(&port);
+    mgr.init_all(state);
+
+    state.set("display.backlight", static_cast<int32_t>(50));
+    state.set("display.input",     static_cast<int32_t>(1));
+    dm.on_update(50);
+    CHECK(port.bl == -1);   // не маршрутизовано
+    CHECK(port.in == -1);
 }
 
 } // TEST_SUITE
