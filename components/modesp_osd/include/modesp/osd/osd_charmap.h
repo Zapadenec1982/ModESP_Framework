@@ -10,6 +10,8 @@
  *   0x7F          '°' (U+00B0)
  *   0x80-0xBF     кириличний блок U+0410..U+044F (А-я, безперервний)
  *   0xC0-0xC7     українські спецлітери: Є І Ї Ґ є і ї ґ
+ *   0xC8-0xE0     польські+німецькі (i18n): Ä Ö Ü ä ö ü ß Ą ą Ć ć Ę ę
+ *                 Ł ł Ń ń Ó ó Ś ś Ź ź Ż ż
  *
  * Чистий хедер — без ESP-IDF/heap, тестується на host.
  */
@@ -47,6 +49,32 @@ inline uint8_t osd_codepoint_to_glyph(uint32_t cp) {
     case 0x0456: return 0xC5;          // і
     case 0x0457: return 0xC6;          // ї
     case 0x0491: return 0xC7;          // ґ
+    // PL/DE (i18n) — індекси 0xC8..0xE0; порядок = gen_osd_font.py EXT_LATIN
+    case 0x00C4: return 0xC8;  // Ä
+    case 0x00D6: return 0xC9;  // Ö
+    case 0x00DC: return 0xCA;  // Ü
+    case 0x00E4: return 0xCB;  // ä
+    case 0x00F6: return 0xCC;  // ö
+    case 0x00FC: return 0xCD;  // ü
+    case 0x00DF: return 0xCE;  // ß
+    case 0x0104: return 0xCF;  // Ą
+    case 0x0105: return 0xD0;  // ą
+    case 0x0106: return 0xD1;  // Ć
+    case 0x0107: return 0xD2;  // ć
+    case 0x0118: return 0xD3;  // Ę
+    case 0x0119: return 0xD4;  // ę
+    case 0x0141: return 0xD5;  // Ł
+    case 0x0142: return 0xD6;  // ł
+    case 0x0143: return 0xD7;  // Ń
+    case 0x0144: return 0xD8;  // ń
+    case 0x00D3: return 0xD9;  // Ó
+    case 0x00F3: return 0xDA;  // ó
+    case 0x015A: return 0xDB;  // Ś
+    case 0x015B: return 0xDC;  // ś
+    case 0x0179: return 0xDD;  // Ź
+    case 0x017A: return 0xDE;  // ź
+    case 0x017B: return 0xDF;  // Ż
+    case 0x017C: return 0xE0;  // ż
     case 0x00A0: return 0x20;          // nbsp → space
     default:     return GLYPH_QUESTION;
     }

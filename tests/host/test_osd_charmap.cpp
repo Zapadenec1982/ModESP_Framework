@@ -9,6 +9,7 @@
 #include "doctest.h"
 #include "modesp/osd/osd_charmap.h"
 #include "modesp/osd/osd_font_data.h"
+#include "modesp/osd/amt630a_charmap.h"
 
 using namespace modesp::osd;
 
@@ -148,4 +149,42 @@ TEST_CASE("osd_font: unused slot is blank") {
     // 0x01 не в наборі — має лишитись прозорим
     for (size_t i = 0; i < OSD_FONT_CHAR_BYTES; ++i)
         CHECK(OSD_FONT[0x01 * OSD_FONT_CHAR_BYTES + i] == 0x55);
+}
+
+// ── Polish / German (i18n) — AT7456E ──
+
+TEST_CASE("glyph: Polish/German letters map to 0xC8..0xE0") {
+    CHECK(osd_codepoint_to_glyph(0x00C4) == 0xC8);  // Ä
+    CHECK(osd_codepoint_to_glyph(0x00DC) == 0xCA);  // Ü
+    CHECK(osd_codepoint_to_glyph(0x00DF) == 0xCE);  // ß
+    CHECK(osd_codepoint_to_glyph(0x0105) == 0xD0);  // ą
+    CHECK(osd_codepoint_to_glyph(0x0119) == 0xD4);  // ę
+    CHECK(osd_codepoint_to_glyph(0x0142) == 0xD6);  // ł
+    CHECK(osd_codepoint_to_glyph(0x00F3) == 0xDA);  // ó
+    CHECK(osd_codepoint_to_glyph(0x017C) == 0xE0);  // ż
+}
+
+TEST_CASE("osd_font: PL/DE glyphs rendered (not blank)") {
+    auto non_blank = [](uint8_t idx) {
+        for (size_t i = 0; i < OSD_FONT_CHAR_BYTES; ++i)
+            if (OSD_FONT[idx * OSD_FONT_CHAR_BYTES + i] != 0x55) return true;
+        return false;
+    };
+    CHECK(non_blank(osd_codepoint_to_glyph(0x0105)));  // ą
+    CHECK(non_blank(osd_codepoint_to_glyph(0x00DF)));  // ß
+    CHECK(non_blank(osd_codepoint_to_glyph(0x0142)));  // ł
+}
+
+// ── AMT630A charmap (generated) ──
+
+TEST_CASE("amt630a_cp_to_tile: ranges, Ukrainian, PL/DE, fallback") {
+    CHECK(amt630a_cp_to_tile(' ')    == 0x1C0);  // ASCII base
+    CHECK(amt630a_cp_to_tile('A')    == 0x1E1);  // 0x1C0 + ('A'-0x20)
+    CHECK(amt630a_cp_to_tile(0x0410) == 0x220);  // А
+    CHECK(amt630a_cp_to_tile(0x044F) == 0x25F);  // я
+    CHECK(amt630a_cp_to_tile(0x00B0) == 0x21F);  // °
+    CHECK(amt630a_cp_to_tile(0x0404) == 0x260);  // Є
+    CHECK(amt630a_cp_to_tile(0x00C4) == 0x268);  // Ä (перший PL/DE)
+    CHECK(amt630a_cp_to_tile(0x017C) == 0x280);  // ż (останній)
+    CHECK(amt630a_cp_to_tile(0x4E2D) == 0x1C0);  // невідоме → space
 }
