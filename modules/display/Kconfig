@@ -1,32 +1,20 @@
 menu "ModESP Display"
 
-    choice MODESP_DISPLAY_BACKEND
-        prompt "Display backend"
-        default MODESP_DISPLAY_LOG
+    # Backend-и — це КОМПІЛЯЦІЙНІ перемикачі (як драйвери): вмикають збірку коду
+    # backend-у. АКТИВНИЙ backend обирається у bindings.json (поле "driver" на
+    # role у module "display"), а піни/шина/геометрія — з board.json. Без binding
+    # дисплея використовується LogPort (View у серійний лог, робота без заліза).
+    # Кілька backend-ів можна збирати одночасно — board обере потрібний.
+
+    config MODESP_DISPLAY_AT7456E
+        bool "Build AT7456E backend (composite video OSD overlay)"
+        default n
         help
-            Бекенд рендерингу екранного меню (ADR-002). Дисплей у системі —
-            одинак, тож backend обирається радіо-вибором. Вимкнені backend-и
-            не компілюються (менший бінарник).
-
-        config MODESP_DISPLAY_LOG
-            bool "Serial log (no hardware)"
-            help
-                Без заліза: View екранного меню у серійний лог (LogPort).
-
-        config MODESP_DISPLAY_AT7456E
-            bool "AT7456E OSD (composite video overlay)"
-            help
-                AT7456E (MAX7456-сумісний OSD-чіп) накладає символьну сітку на
-                аналоговий composite-відеосигнал. Потребує відеомонітор на CVBS.
-
-        config MODESP_DISPLAY_AMT630A
-            bool "AMT630A OSD/TFT (I2C)"
-            help
-                AMT630A video-SoC керується ззовні по I²C поверх заводської
-                прошивки (Шлях A). OSD/меню/колір/вибір CVBS-входу на TFT.
-                ⚠ Поточний рендер — лише латиниця/цифри (ROM-шрифт). Кирилиця
-                потребує завантаження RAM-шрифту (gen_osd_font.py --target amt630a, TODO).
-    endchoice
+            AT7456E (MAX7456-сумісний OSD-чіп) накладає символьну сітку на
+            аналоговий composite-відеосигнал. Потребує відеомонітор на CVBS.
+            Активувати: bindings.json driver "at7456e".
+            ⚠ SPI-піни наразі тут (Kconfig). TODO: перенести у board.json
+              (секція spi_buses), як AMT630A вже на board.json i2c_buses.
 
     if MODESP_DISPLAY_AT7456E
 
@@ -72,32 +60,14 @@ menu "ModESP Display"
 
     endif
 
-    if MODESP_DISPLAY_AMT630A
-
-        config MODESP_DISPLAY_AMT630A_SDA
-            int "I2C SDA GPIO"
-            default 21
-
-        config MODESP_DISPLAY_AMT630A_SCL
-            int "I2C SCL GPIO"
-            default 22
-
-        config MODESP_DISPLAY_AMT630A_FREQ
-            int "I2C frequency (Hz)"
-            default 100000
-
-        config MODESP_DISPLAY_AMT630A_COLS
-            int "OSD columns (chars)"
-            range 1 40
-            default 20
-
-        config MODESP_DISPLAY_AMT630A_ROWS
-            int "OSD rows (chars)"
-            range 1 12
-            default 10
-            help
-                cols×rows має не перевищувати 511 (BGMAP — 9-біт адреса, 512 слів).
-
-    endif
+    config MODESP_DISPLAY_AMT630A
+        bool "Build AMT630A backend (I2C OSD/TFT video-SoC)"
+        default n
+        help
+            AMT630A video-SoC керується ззовні по I²C поверх заводської прошивки
+            (Шлях A). OSD/меню/колір/вибір CVBS-входу на TFT.
+            Активувати: bindings.json driver "amt630a" на hardware з board.json
+            секції i2c_displays. Піни/швидкість — board.json i2c_buses; сітка
+            cols×rows — board.json i2c_displays. ЖОДНИХ пінів у Kconfig.
 
 endmenu

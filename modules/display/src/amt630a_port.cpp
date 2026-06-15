@@ -8,6 +8,8 @@
 #ifdef CONFIG_MODESP_DISPLAY_AMT630A
 
 #include "display/amt630a_port.h"
+#include "display/display_backend_registry.h"
+#include "modesp/hal/hal.h"                 // HAL + Binding (board.json/bindings)
 #include "modesp/osd/amt630a_font_data.h"
 #include "modesp/osd/amt630a_charmap.h"
 #include "esp_log.h"
@@ -17,14 +19,6 @@ namespace modesp::display {
 static const char* TAG = "amt630a_port";
 
 namespace {
-osd::Amt630aPins kconfig_pins() {
-    return osd::Amt630aPins{
-        CONFIG_MODESP_DISPLAY_AMT630A_SDA,
-        CONFIG_MODESP_DISPLAY_AMT630A_SCL,
-        static_cast<uint32_t>(CONFIG_MODESP_DISPLAY_AMT630A_FREQ),
-    };
-}
-
 /// UTF-8 → кодпойнт (просуває p).
 uint32_t decode_utf8(const char*& p) {
     const uint8_t c = static_cast<uint8_t>(*p++);
@@ -45,10 +39,11 @@ constexpr uint8_t ATTR_NORMAL = 0x06;  // fg=color6 (білий, ROM-default)
 constexpr uint8_t ATTR_SELECT = 0x02;  // fg=color2 (хайлайт)
 } // namespace
 
-Amt630aPort::Amt630aPort()
-    : dev_(kconfig_pins())
-    , cols_(static_cast<uint8_t>(CONFIG_MODESP_DISPLAY_AMT630A_COLS))
-    , rows_(static_cast<uint8_t>(CONFIG_MODESP_DISPLAY_AMT630A_ROWS))
+Amt630aPort::Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz,
+                         uint8_t cols, uint8_t rows)
+    : dev_(bus, freq_hz)
+    , cols_(cols)
+    , rows_(rows)
 {}
 
 bool Amt630aPort::init() {
@@ -136,6 +131,32 @@ void Amt630aPort::set_saturation(uint8_t pct) { dev_.set_saturation(pct); }
 
 void    Amt630aPort::select_input(uint8_t n)   { dev_.select_input(n); }
 uint8_t Amt630aPort::input_count() const       { return 2; }
+
+// ── Backend factory + реєстрація (board.json/bindings → IDisplayPort) ──
+//
+// bindings.json: {"hardware":"disp_0","driver":"amt630a","role":"display_main",
+//                 "module":"display"} → DisplayModule зве цю фабрику.
+// Піни/швидкість/геометрія — з board.json (i2c_buses + i2c_displays) через HAL.
+namespace {
+IDisplayPort* amt630a_factory(const modesp::Binding& b, modesp::HAL& hal) {
+    auto* dcfg = hal.find_i2c_display(b.hardware_id);
+    if (!dcfg) {
+        ESP_LOGE(TAG, "no i2c_display '%s' in board.json", b.hardware_id.c_str());
+        return nullptr;
+    }
+    auto* bus = hal.find_i2c_bus(dcfg->bus_id);
+    if (!bus || !bus->bus_handle) {
+        ESP_LOGE(TAG, "i2c bus '%s' not found for display '%s'",
+                 dcfg->bus_id.c_str(), b.hardware_id.c_str());
+        return nullptr;
+    }
+    // Дисплей — singleton: один статичний порт (zero heap), будується на місці.
+    static Amt630aPort port(bus->bus_handle, bus->freq_hz, dcfg->cols, dcfg->rows);
+    return &port;
+}
+} // namespace
+
+MODESP_REGISTER_DISPLAY(amt630a, &amt630a_factory)
 
 } // namespace modesp::display
 

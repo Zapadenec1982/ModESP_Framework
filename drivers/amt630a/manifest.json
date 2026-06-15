@@ -1,0 +1,12 @@
+{
+  "manifest_version": 1,
+  "driver": "amt630a",
+  "description": "AMT630A I2C OSD/TFT video-SoC display backend",
+  "category": "display",
+  "hardware_type": "i2c_display",
+  "requires_address": false,
+  "multiple_per_bus": false,
+  "provides": {"type": "display"},
+  "settings": [],
+  "_note": "Manifest-only: validation + UI metadata. The backend code lives in modules/display (Amt630aPort, gated by CONFIG_MODESP_DISPLAY_AMT630A); there is no driver component here."
+}

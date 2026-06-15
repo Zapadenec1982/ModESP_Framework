@@ -21,12 +21,6 @@
 
 namespace modesp::osd {
 
-struct Amt630aPins {
-    int      sda;
-    int      scl;
-    uint32_t freq_hz;
-};
-
 // I²C 7-біт банки (Rosetta-карта, design doc §2.1)
 namespace amt_bank {
     constexpr uint8_t GLOBAL = 0x58;  // FDxx: PWM-підсвітка / PLL
@@ -39,9 +33,12 @@ namespace amt_bank {
 
 class Amt630a {
 public:
-    explicit Amt630a(const Amt630aPins& pins) : pins_(pins) {}
+    /// Чіп НЕ володіє шиною — bus_handle надає HAL (board.json i2c_buses).
+    /// Драйвер лише додає свої device-handle-и банків (0x58–0x5F) на цю шину.
+    Amt630a(i2c_master_bus_handle_t bus, uint32_t freq_hz)
+        : bus_(bus), freq_hz_(freq_hz ? freq_hz : 100000) {}
 
-    /// Створити I²C-шину + device-handle-и банків; probe present.
+    /// Додати device-handle-и банків на надану шину; probe present.
     bool init();
     /// ACK-probe на OSD-банку (0x5B).
     bool present();
@@ -80,8 +77,8 @@ private:
     static bool is_danger(uint8_t dev7, uint8_t reg);
     i2c_master_dev_handle_t handle_for(uint8_t dev7) const;
 
-    Amt630aPins pins_;
-    i2c_master_bus_handle_t bus_ = nullptr;
+    i2c_master_bus_handle_t bus_ = nullptr;   // власність HAL — НЕ видаляти
+    uint32_t freq_hz_ = 100000;               // per-device scl_speed_hz
     i2c_master_dev_handle_t h58_ = nullptr, h59_ = nullptr, h5A_ = nullptr,
                             h5B_ = nullptr, h5C_ = nullptr, h5F_ = nullptr;
     uint8_t  sh_fed8_ = 0xA3;  // тінь FED8 (amt-6: засів OEM-init значенням → зберігає config-біти 0x23)

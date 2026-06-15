@@ -21,7 +21,9 @@ namespace modesp::display {
 
 class Amt630aPort : public IDisplayPort, public IVideoInputs {
 public:
-    Amt630aPort();
+    /// Шину + швидкість надає HAL (board.json i2c_buses); cols/rows — board.json
+    /// i2c_displays. Жодних Kconfig-пінів — конфіг приходить через board+bindings.
+    Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz, uint8_t cols, uint8_t rows);
 
     bool init() override;
     DisplayCaps caps() const override;

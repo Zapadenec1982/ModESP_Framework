@@ -270,6 +270,7 @@ bool HAL::init_i2c(const BoardConfig& config) {
         }
 
         res.id = cfg.id;
+        res.freq_hz = cfg.freq_hz ? cfg.freq_hz : 100000;
         res.initialized = true;
         i2c_bus_count_++;
 
@@ -352,6 +353,17 @@ bool HAL::init_i2c_expanders(const BoardConfig& config) {
     expander_inputs_.clear();
     for (const auto& c : config.expander_inputs) expander_inputs_.push_back(c);
 
+    // I²C-дисплеї: HAL не створює device-handle-и (чіп володіє своїми банками),
+    // лише зберігає config — бекенд резолвить bus_handle через find_i2c_bus().
+    i2c_displays_.clear();
+    for (const auto& c : config.i2c_displays) {
+        if (i2c_displays_.full()) break;
+        i2c_displays_.push_back(c);
+        ESP_LOGI(TAG, "  I2C display '%s' [%s] on '%s' (%ux%u)",
+                 c.id.c_str(), c.chip.c_str(), c.bus_id.c_str(),
+                 (unsigned)c.cols, (unsigned)c.rows);
+    }
+
     return true;
 }
 
@@ -381,11 +393,31 @@ bool I2CExpanderResource::read_state(uint8_t& input_byte) {
 // I2C find methods
 // ═══════════════════════════════════════════════════════════════
 
+I2CBusResource* HAL::find_i2c_bus(etl::string_view id) {
+    for (size_t i = 0; i < i2c_bus_count_; i++) {
+        if (i2c_buses_[i].id.size() == id.size() &&
+            etl::string_view(i2c_buses_[i].id.c_str(), i2c_buses_[i].id.size()) == id) {
+            return &i2c_buses_[i];
+        }
+    }
+    return nullptr;
+}
+
 I2CExpanderResource* HAL::find_i2c_expander(etl::string_view id) {
     for (size_t i = 0; i < i2c_expander_count_; i++) {
         if (i2c_expanders_[i].id.size() == id.size() &&
             etl::string_view(i2c_expanders_[i].id.c_str(), i2c_expanders_[i].id.size()) == id) {
             return &i2c_expanders_[i];
+        }
+    }
+    return nullptr;
+}
+
+I2CDisplayConfig* HAL::find_i2c_display(etl::string_view id) {
+    for (auto& cfg : i2c_displays_) {
+        if (cfg.id.size() == id.size() &&
+            etl::string_view(cfg.id.c_str(), cfg.id.size()) == id) {
+            return &cfg;
         }
     }
     return nullptr;

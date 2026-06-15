@@ -5,6 +5,16 @@
   "description": "Екранне меню — навігація та редагування параметрів, згенерованих з маніфестів",
   "priority": 3,
 
+  "requires": [
+    {
+      "role": "display_main",
+      "type": "display",
+      "driver": "amt630a",
+      "label": "Дисплей",
+      "optional": true
+    }
+  ],
+
   "state": {
     "display.enabled": {
       "type": "bool",

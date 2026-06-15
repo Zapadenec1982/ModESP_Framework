@@ -8,6 +8,7 @@
 #ifdef CONFIG_MODESP_DISPLAY_AT7456E
 
 #include "display/at7456e_port.h"
+#include "display/display_backend_registry.h"
 #include "modesp/osd/osd_charmap.h"
 #include "modesp/osd/osd_font_data.h"
 #include "esp_log.h"
@@ -119,6 +120,18 @@ void At7456ePort::clear_notice() {
     size_t n = osd::osd_map_utf8(blanks, idx, sizeof(idx));
     dev_.write_glyphs(0, row, idx, n);
 }
+
+// ── Backend factory + реєстрація ──
+// AT7456E — SPI; піни наразі з Kconfig (TODO: board.json spi_buses, окрема
+// задача). Binding/HAL не використовуються — backend обирається полем "driver".
+namespace {
+IDisplayPort* at7456e_factory(const modesp::Binding&, modesp::HAL&) {
+    static At7456ePort port;   // singleton, zero heap
+    return &port;
+}
+} // namespace
+
+MODESP_REGISTER_DISPLAY(at7456e, &at7456e_factory)
 
 } // namespace modesp::display
 

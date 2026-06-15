@@ -59,6 +59,7 @@ set(MODULE_SOURCES
     "${ROOT}/modules/display/src/menu_engine.cpp"
     "${ROOT}/modules/display/src/char_grid.cpp"
     "${ROOT}/modules/display/src/notification_queue.cpp"
+    "${ROOT}/modules/display/src/display_backend_registry.cpp"
     "${ROOT}/modules/display/src/display_module.cpp"
 )
 
@@ -72,6 +73,7 @@ set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_char_grid.cpp"
     "${CMAKE_SOURCE_DIR}/test_notification_queue.cpp"
     "${CMAKE_SOURCE_DIR}/test_osd_charmap.cpp"
+    "${CMAKE_SOURCE_DIR}/test_display_backend_registry.cpp"
 )
 
 add_executable(test_runner

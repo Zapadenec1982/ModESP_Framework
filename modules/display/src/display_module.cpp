@@ -4,18 +4,10 @@
  */
 
 #include "display_module.h"
+#include "display/display_backend_registry.h"
+#include "modesp/hal/hal.h"            // HAL + BindingTable (board.json/bindings)
 #include "modesp/message_types.h"
 #include "esp_log.h"
-
-#ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#endif
-#ifdef CONFIG_MODESP_DISPLAY_AT7456E
-#include "display/at7456e_port.h"
-#endif
-#ifdef CONFIG_MODESP_DISPLAY_AMT630A
-#include "display/amt630a_port.h"
-#endif
 
 static const char* TAG = "Display";
 
@@ -54,24 +46,6 @@ public:
 
 LogPort s_log_port;
 
-#ifdef CONFIG_MODESP_DISPLAY_AT7456E
-At7456ePort s_at7456e_port;
-#endif
-#ifdef CONFIG_MODESP_DISPLAY_AMT630A
-Amt630aPort s_amt630a_port;
-#endif
-
-/// Дефолтний backend: обраний у menuconfig (choice), інакше — лог (ADR-002 §2.4).
-IDisplayPort* default_port() {
-#if defined(CONFIG_MODESP_DISPLAY_AMT630A)
-    return &s_amt630a_port;
-#elif defined(CONFIG_MODESP_DISPLAY_AT7456E)
-    return &s_at7456e_port;
-#else
-    return &s_log_port;
-#endif
-}
-
 } // namespace
 
 DisplayModule::DisplayModule()
@@ -84,11 +58,34 @@ DisplayModule::DisplayModule()
           modesp::gen::MAIN_VALUES,
           modesp::gen::MAIN_VALUES_COUNT,
       })
-    , port_(default_port())
+    , port_(&s_log_port)   // fallback; bind_display() підмінює за bindings.json
 {}
 
 void DisplayModule::set_port(modesp::display::IDisplayPort* port) {
     port_ = port ? port : &s_log_port;
+}
+
+void DisplayModule::bind_display(const modesp::BindingTable& bindings, modesp::HAL& hal) {
+    using namespace modesp::display;
+    register_all_display_backends();   // заповнити реєстр (ідемпотентно)
+
+    for (const auto& b : bindings.bindings) {
+        if (!(b.module_name == "display")) continue;   // тільки наш модуль
+        const char* type = b.driver_type.c_str();
+        if (!DisplayBackendRegistry::is_known(type)) {
+            ESP_LOGW(TAG, "backend '%s' unknown/disabled in menuconfig — LogPort", type);
+            return;
+        }
+        if (IDisplayPort* p = DisplayBackendRegistry::create(type, b, hal)) {
+            port_ = p;
+            ESP_LOGI(TAG, "backend '%s' [hw=%s, role=%s]",
+                     type, b.hardware_id.c_str(), b.role.c_str());
+        } else {
+            ESP_LOGW(TAG, "backend '%s' create failed — LogPort", type);
+        }
+        return;   // дисплей у системі один
+    }
+    ESP_LOGI(TAG, "no display binding — LogPort (serial)");
 }
 
 bool DisplayModule::on_init() {

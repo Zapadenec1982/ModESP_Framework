@@ -1,0 +1,6 @@
+{
+  "manifest_version": 1,
+  "bindings": [
+    {"hardware": "disp_0", "driver": "amt630a", "role": "display_main", "module": "display"}
+  ]
+}

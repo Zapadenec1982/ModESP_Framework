@@ -217,6 +217,10 @@ extern "C" void app_main(void)
     // ── Step 7: Register all modules (auto-generated from project.json) ──
     equipment.bind_drivers(driver_manager);
 
+    // Display backend: resolved from bindings.json (role/driver), pins from
+    // board.json via HAL — same board+bindings abstraction as drivers.
+    display.bind_display(bindings, hal);
+
     // ── Step 7a: Scenario engine wiring (Phase 3 rebuild) ──
     //
     // Stack (constexpr-known у static locals, lifetime = program):

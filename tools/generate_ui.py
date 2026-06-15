@@ -460,12 +460,17 @@ class ManifestLoader:
 # ═══════════════════════════════════════════════════════════════
 
 # Допустимі категорії та hardware types для драйверів
-VALID_DRIVER_CATEGORIES = {"sensor", "actuator", "io"}
+VALID_DRIVER_CATEGORIES = {"sensor", "actuator", "io", "display"}
 VALID_HARDWARE_TYPES = {
     "gpio_output", "gpio_input", "onewire_bus",
     "adc_channel", "pwm_channel", "i2c_bus",
     "i2c_expander_output", "i2c_expander_input",
+    "i2c_display",
 }
+# Категорії, що мають компільований driver-компонент у drivers/ (Kconfig toggle +
+# register-all). Решта (display) — лише маніфест для валідації bindings + UI;
+# код backend-у живе у своєму модулі (modules/display, CONFIG_MODESP_DISPLAY_*).
+DRIVER_COMPONENT_CATEGORIES = {"sensor", "actuator", "io"}
 VALID_KEY_RE = re.compile(r'^[a-z0-9_]+$')
 
 
@@ -616,6 +621,7 @@ BOARD_SECTION_TO_HW_TYPE = {
     "i2c_buses": "i2c_bus",
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
+    "i2c_displays": "i2c_display",
 }
 
 
@@ -2299,8 +2305,13 @@ def main():
         if not re.match(r"^[a-z][a-z0-9_]*$", name):
             print(f"  WARNING: driver '{name}' has invalid name — skipped")
             continue
-        drivers_meta.append((name, dm.get("category", "sensor"),
-                             dm.get("description", name)))
+        category = dm.get("category", "sensor")
+        if category not in DRIVER_COMPONENT_CATEGORIES:
+            # display backends: manifest is validation/UI metadata only — no
+            # driver component, no MODESP_DRIVER_<NAME> toggle, no register-all.
+            # Code lives in its module (e.g. modules/display, CONFIG_MODESP_DISPLAY_*).
+            continue
+        drivers_meta.append((name, category, dm.get("description", name)))
 
     # Driver Kconfig — one toggle per driver (default y → existing behaviour).
     # Written to components/modesp_hal/Kconfig so ESP-IDF auto-discovers it as a

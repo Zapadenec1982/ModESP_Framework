@@ -12,12 +12,16 @@ menu "ModESP Configuration"
 
         config MODESP_BOARD_KC868A6
             bool "KC868-A6 (I2C PCF8574)"
+
+        config MODESP_BOARD_STAND_S3
+            bool "Stand ESP32-S3 + AMT630A (I2C OSD/TFT)"
     endchoice
 
     config MODESP_BOARD_DIR
         string
         default "dev"       if MODESP_BOARD_DEV
         default "kc868a6"   if MODESP_BOARD_KC868A6
+        default "stand_s3"  if MODESP_BOARD_STAND_S3
 
     choice MODESP_CLOUD_BACKEND
         prompt "Cloud backend"

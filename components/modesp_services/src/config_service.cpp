@@ -527,6 +527,47 @@ bool ConfigService::parse_board_json() {
                 }
             }
             i = j;
+        } else if (jsoneq(buf, &tokens[i], "i2c_displays")) {
+            if (tokens[i + 1].type != JSMN_ARRAY) {
+                ESP_LOGE(TAG, "board.json: 'i2c_displays' is not array");
+                return false;
+            }
+            int arr_size = tokens[i + 1].size;
+            int j = i + 2;
+
+            for (int elem = 0; elem < arr_size; elem++) {
+                if (tokens[j].type != JSMN_OBJECT) {
+                    ESP_LOGE(TAG, "board.json: i2c_display entry is not object");
+                    return false;
+                }
+                int obj_keys = tokens[j].size;
+                j++;
+
+                I2CDisplayConfig cfg = {};
+                cfg.cols = 20;  // sane defaults — конкретику задає board.json
+                cfg.rows = 10;
+                for (int k = 0; k < obj_keys; k++) {
+                    if (jsoneq(buf, &tokens[j], "id")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.id = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "bus")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.bus_id = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "chip")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.chip = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "cols")) {
+                        cfg.cols = (uint8_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "rows")) {
+                        cfg.rows = (uint8_t)tok_to_int(buf, &tokens[j + 1]);
+                    }
+                    j += 2;
+                }
+                if (!board_config_.i2c_displays.full()) {
+                    board_config_.i2c_displays.push_back(cfg);
+                }
+            }
+            i = j;
         } else {
             // Пропустити невідомий ключ + значення (масиви/об'єкти коректно)
             i++;  // skip key

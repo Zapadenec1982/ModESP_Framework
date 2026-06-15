@@ -17,6 +17,8 @@
 #include "display/display_port.h"
 #include "display/notification_queue.h"
 
+namespace modesp { struct BindingTable; class HAL; }
+
 class DisplayModule : public modesp::BaseModule,
                       private modesp::display::IMenuStateIO {
 public:
@@ -28,6 +30,12 @@ public:
 
     /// Підключити backend дисплея (за замовчуванням — LogPort).
     void set_port(modesp::display::IDisplayPort* port);
+
+    /// Резолвити активний backend з bindings.json (role/driver) через
+    /// DisplayBackendRegistry; піни — з board.json через HAL. Кличеться у
+    /// main.cpp після hal.init (як equipment.bind_drivers). Без binding —
+    /// лишається LogPort. Має передувати on_init().
+    void bind_display(const modesp::BindingTable& bindings, modesp::HAL& hal);
 
 private:
     // IMenuStateIO — місток до SharedState

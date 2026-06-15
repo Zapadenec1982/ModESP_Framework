@@ -33,6 +33,7 @@ static constexpr size_t MAX_SENSORS        = 8;
 static constexpr size_t MAX_ACTUATORS      = 8;
 static constexpr size_t MAX_I2C_BUSES      = 2;
 static constexpr size_t MAX_I2C_EXPANDERS  = 4;
+static constexpr size_t MAX_I2C_DISPLAYS   = 2;
 static constexpr size_t MAX_EXPANDER_IOS   = 16;   // Outputs + Inputs через expanders
 static constexpr size_t MAX_BINDING_SETTINGS = 6;  // per-binding driver settings
 
@@ -103,6 +104,17 @@ struct I2CExpanderInputConfig {
     bool invert;            // true для KC868-A6 (opto-isolated active-LOW)
 };
 
+/// I²C-дисплей (multi-address пристрій на шині). На відміну від expander —
+/// чіп сам володіє своїми адресами (банками), HAL лише надає bus_handle.
+/// Бекенд (driver у bindings) обирає, як саме керувати чіпом.
+struct I2CDisplayConfig {
+    HalId   id;             // "disp_0" (hardware_id для bindings)
+    HalId   bus_id;         // "i2c_0" — посилання на i2c_buses
+    HalId   chip;           // "amt630a"
+    uint8_t cols;           // символьна сітка OSD
+    uint8_t rows;
+};
+
 struct BoardConfig {
     etl::string<24> board_name;
     etl::string<8>  board_version;
@@ -114,6 +126,7 @@ struct BoardConfig {
     etl::vector<I2CExpanderConfig, MAX_I2C_EXPANDERS>             i2c_expanders;
     etl::vector<I2CExpanderOutputConfig, MAX_EXPANDER_IOS>        expander_outputs;
     etl::vector<I2CExpanderInputConfig, MAX_EXPANDER_IOS>         expander_inputs;
+    etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>               i2c_displays;
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -184,6 +197,7 @@ struct AdcChannelResource {
 struct I2CBusResource {
     HalId id;
     i2c_master_bus_handle_t bus_handle = nullptr;
+    uint32_t freq_hz = 100000;   // швидкість шини (per-device scl_speed_hz)
     bool initialized = false;
 };
 

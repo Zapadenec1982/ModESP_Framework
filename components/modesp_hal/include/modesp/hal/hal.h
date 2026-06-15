@@ -34,8 +34,18 @@ public:
     /// Find an ADC channel resource by hardware ID (e.g. "adc_1")
     AdcChannelResource*  find_adc_channel(etl::string_view id);
 
+    /// Find a board-declared I2C bus resource by ID (e.g. "i2c_0").
+    /// Generic seam for any multi-address device (display, multi-bank chip)
+    /// that owns its own device handles on top of a shared bus.
+    I2CBusResource*            find_i2c_bus(etl::string_view id);
+
     /// Find an I2C expander resource by ID (e.g. "relay_exp")
     I2CExpanderResource*       find_i2c_expander(etl::string_view id);
+
+    /// Find an I2C display config by hardware ID (e.g. "disp_0").
+    /// HAL holds only the config (bus_id/chip/cols/rows); the backend resolves
+    /// the bus handle via find_i2c_bus() and owns its device handles.
+    I2CDisplayConfig*          find_i2c_display(etl::string_view id);
 
     /// Find an expander output config by hardware ID (e.g. "relay_1")
     I2CExpanderOutputConfig*   find_expander_output(etl::string_view id);
@@ -58,6 +68,7 @@ private:
     etl::array<I2CExpanderResource, MAX_I2C_EXPANDERS> i2c_expanders_;
     etl::vector<I2CExpanderOutputConfig, MAX_EXPANDER_IOS> expander_outputs_;
     etl::vector<I2CExpanderInputConfig, MAX_EXPANDER_IOS>  expander_inputs_;
+    etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>        i2c_displays_;
 
     size_t gpio_output_count_  = 0;
     size_t onewire_count_      = 0;
