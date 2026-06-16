@@ -67,11 +67,14 @@ private:
     int32_t last_saturation_ = -1;
     int32_t last_input_      = -1;
     int32_t last_backdrop_   = -1;
+    int32_t last_cal_x_      = INT32_MIN;   // cal може бути від'ємним → -1 не годиться як sentinel
+    int32_t last_cal_y_      = INT32_MIN;
     bool    prev_enabled_    = true;   // для виявлення переходу display.enabled (гасіння екрана)
 
     bool prev_up_     = false;
     bool prev_down_   = false;
     bool prev_select_ = false;
+    bool prev_reinit_ = false;   // momentary display.reinit (відновлення OSD після power-on)
 
     etl::string<48> last_screen_;
 };

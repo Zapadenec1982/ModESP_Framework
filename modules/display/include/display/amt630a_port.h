@@ -27,6 +27,9 @@ public:
 
     bool init() override;
     DisplayCaps caps() const override;
+    void begin_reinit() override;                 // запустити неблокуюче відновлення OSD
+    bool reinit_busy() const override;            // true поки відновлення триває
+    bool reinit_tick(uint32_t dt_ms) override;    // крок відновлення (з on_update)
 
     void present_main(const MainView& view) override;
     void present_menu(const MenuView& view) override;
@@ -39,6 +42,7 @@ public:
     void set_brightness(uint8_t pct) override;
     void set_saturation(uint8_t pct) override;
     void set_backdrop(uint8_t mode) override;
+    void set_calibration(int dx, int dy) override;   // overscan-зсув усього OSD (px)
 
     IVideoInputs* as_video_inputs() override { return this; }
 
@@ -48,10 +52,25 @@ public:
 
 private:
     void render(const CharGrid& g);
+    // Конфігурація OSD поверх OEM-прошивки (unlock+вікна+палітра+шрифт+підсвітка) — спільне
+    // для init() і reinit() (відновлення після холодного старту заліза).
+    void configure_chip_();
+    // Розмістити вікно зі зсувом калібровки (cal_x_/cal_y_), з клемпом у [0,255].
+    void win0_(uint8_t cols, uint8_t rows, int x, int y);
+    void win_(uint8_t win, uint8_t cols, uint8_t rows, int x, int y, uint16_t vram);
 
     osd::Amt630a dev_;
     uint8_t      cols_;
     uint8_t      rows_;
+    int          cal_x_ = 0;   // overscan-калібровка: піксельний зсув усього OSD
+    int          cal_y_ = 0;
+    uint8_t      backlight_pct_ = 70;  // остання яскравість — відновити після cold boot
+
+    // Неблокуюче відновлення після cold boot (chunked state-machine).
+    enum class Recov : uint8_t { IDLE, WAIT, SETUP, FONT };
+    Recov    recov_        = Recov::IDLE;
+    uint32_t recov_wait_   = 0;        // лічильник затримки/таймауту
+    uint16_t recov_cursor_ = 0;        // індекс наступного гліфа для заливки
 };
 
 } // namespace modesp::display

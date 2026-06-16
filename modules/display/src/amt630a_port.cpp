@@ -40,6 +40,13 @@ uint32_t decode_utf8(const char*& p) {
 // камера → відео під текстом (режим «відео+OSD»). Фон керується backdrop, не OSD.
 constexpr uint8_t ATTR_NORMAL = 0x06;  // FG=color6 (білий), BG=0 (прозорий)
 constexpr uint8_t ATTR_SELECT = 0x02;  // FG=color2 (хайлайт), BG=0 (прозорий)
+
+inline uint8_t clamp_u8(int v) { return v < 0 ? 0 : (v > 255 ? 255 : static_cast<uint8_t>(v)); }
+
+// Неблокуюче відновлення після cold boot (power-gate)
+constexpr uint32_t kBootDelayMs   = 300;    // чекати холодний старт чіпа перед першим I²C
+constexpr uint32_t kBootTimeoutMs = 4000;   // не з'явився за цей час → здатися
+constexpr uint16_t kFontChunk     = 4;      // гліфів за один on_update-цикл (менше = плавніше)
 } // namespace
 
 Amt630aPort::Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz,
@@ -54,21 +61,92 @@ bool Amt630aPort::init() {
         ESP_LOGW(TAG, "AMT630A not responding — port disabled");
         return false;
     }
+    configure_chip_();
+    ESP_LOGI(TAG, "ready: %ux%u, font %u glyphs", cols_, rows_,
+             static_cast<unsigned>(osd::AMT630A_FONT_COUNT));
+    return true;
+}
+
+// ── Неблокуюче відновлення OSD після холодного старту заліза (power-gate) ──
+// OEM-прошивка піднімає відео сама; ESP-side OSD-стан (unlock, вікна, шрифт, палітра, калібровка,
+// яскравість) втрачено. Реконфігурація chunked: жоден on_update-крок не блокує надовго (на відміну
+// від монолітного configure_chip_ ~5-7с, що трипить TWDT). I²C device-handle-и ESP чинні.
+void Amt630aPort::begin_reinit() {
+    if (recov_ != Recov::IDLE) return;   // вже триває
+    recov_       = Recov::WAIT;
+    recov_wait_  = 0;
+    recov_cursor_ = 0;
+    ESP_LOGI(TAG, "reinit: scheduled (await cold boot)");
+}
+
+bool Amt630aPort::reinit_busy() const { return recov_ != Recov::IDLE; }
+
+bool Amt630aPort::reinit_tick(uint32_t dt_ms) {
+    switch (recov_) {
+    case Recov::IDLE:
+        return false;
+
+    case Recov::WAIT: {
+        recov_wait_ += dt_ms;
+        if (recov_wait_ < kBootDelayMs) return false;          // чекаємо cold boot ~300мс
+        uint8_t v;                                              // ACK-чек звичайним read (НЕ probe)
+        if (!dev_.amt_r(osd::amt_bank::OSD, 0x05, v)) {
+            if (recov_wait_ >= kBootTimeoutMs) {
+                recov_ = Recov::IDLE;
+                ESP_LOGW(TAG, "reinit: chip absent after %ums — giving up", (unsigned)recov_wait_);
+            }
+            return false;                                      // ще не на шині — чекаємо далі
+        }
+        recov_ = Recov::SETUP;
+        return false;
+    }
+
+    case Recov::SETUP:                                          // конфіг OSD (без шрифту), один крок
+        dev_.apply_osd_init();                                 // unlock + OSD-вікна (вкл. 50мс delay)
+        dev_.set_palette(1, 10, 0, 0);
+        dev_.set_palette(2, 10, 10, 0);
+        win0_(cols_, rows_, 80, 36);                           // з калібровкою
+        dev_.begin_font_upload(osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ,
+                               static_cast<uint16_t>(osd::AMT630A_FONT_COUNT));  // вікна OFF + bitmap_start
+        recov_cursor_ = 0;
+        recov_ = Recov::FONT;                                   // гліфи з НАСТУПНОГО кадру (вікна вже OFF)
+        return false;
+
+    case Recov::FONT: {                                         // заливка шрифту порціями
+        const uint16_t total = static_cast<uint16_t>(osd::AMT630A_FONT_COUNT);
+        const uint16_t left  = static_cast<uint16_t>(total - recov_cursor_);
+        const uint16_t n     = (left < kFontChunk) ? left : kFontChunk;
+        dev_.upload_font_chunk(osd::AMT630A_FONT, /*first_tile=*/0,
+                               recov_cursor_, n, osd::AMT630A_FONT_YSIZ);
+        recov_cursor_ = static_cast<uint16_t>(recov_cursor_ + n);
+        if (recov_cursor_ >= total) {
+            dev_.end_font_upload(0x00);                         // вікна OFF — present увімкне після BGMAP
+            dev_.set_backlight(backlight_pct_);                // відновити яскравість
+            recov_ = Recov::IDLE;
+            ESP_LOGI(TAG, "reinit: done (%u glyphs)", (unsigned)total);
+            return true;                                        // ЗАВЕРШЕНО → модуль re-apply + present
+        }
+        return false;
+    }
+    }
+    return false;
+}
+
+// Конфігурація OSD поверх працюючої OEM-прошивки (спільне для init() і reinit()).
+void Amt630aPort::configure_chip_() {
     // МІНІМАЛЬНИЙ OSD-init: лише unlock (0x5F) + OSD-вікна. БЕЗ відеобанків — відео OEM ціле.
     dev_.apply_osd_init();
     dev_.set_palette(1, 10, 0, 0);           // color1 = червоний (alarm) — OSD-банк, безпечно
     dev_.set_palette(2, 10, 10, 0);          // color2 = жовтий — OSD-банк
-    // xloc/yloc — у ПІКСЕЛЯХ (FIZIK osdPrint(50,30)). Центруємо вікно 20×10 (320×200px)
-    // на панелі 480×272, щоб обійти overscan, що з'їдав ~3 ліві стовпці при x=10.
-    dev_.window0_setup(cols_, rows_, 80, 36);
-    // Залити кириличний RAM-шрифт (16×20 1bpp) у FONT RAM; bitmap_start вмикає 1bpp.
+    // xloc/yloc — у ПІКСЕЛЯХ. Центруємо вікно на панелі 480×272 (overscan); win0_ додає калібровку.
+    win0_(cols_, rows_, 80, 36);
+    // Кириличний RAM-шрифт (16×20 1bpp) у FONT RAM; bitmap_start вмикає 1bpp.
+    // restore_mask=0x00: вікна лишаємо ВИМКНЕНИМИ — перший present увімкне їх ПІСЛЯ запису BGMAP
+    // (інакше на старті блимає сміття: кольорові квадрати / випадкові гліфи поверх порожнього BGMAP).
     dev_.upload_font(osd::AMT630A_FONT, /*first_tile=*/0,
                      static_cast<uint8_t>(osd::AMT630A_FONT_COUNT),
-                     osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ, /*restore_mask=*/0x01);
-    dev_.set_backlight(70);  // PWM-підсвітка: банк 0x58 безпечний (відео не чіпає), FD42 у PWM-режим.
-    ESP_LOGI(TAG, "ready: %ux%u, font %u glyphs", cols_, rows_,
-             static_cast<unsigned>(osd::AMT630A_FONT_COUNT));
-    return true;
+                     osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ, /*restore_mask=*/0x00);
+    dev_.set_backlight(backlight_pct_);      // відновити поточну яскравість (не hardcode)
 }
 
 DisplayCaps Amt630aPort::caps() const {
@@ -78,17 +156,29 @@ DisplayCaps Amt630aPort::caps() const {
     c.has_video_params = true;
     c.has_inputs       = true;
     c.has_backdrop     = true;
+    c.has_calibration  = true;
     c.input_count      = 2;   // CVBS1 / CVBS3 (AV1/AV3)
     return c;
+}
+
+// Розмістити вікно зі зсувом overscan-калібровки (cal_x_/cal_y_), клемп у видимий діапазон.
+void Amt630aPort::win0_(uint8_t cols, uint8_t rows, int x, int y) {
+    dev_.window0_setup(cols, rows, clamp_u8(x + cal_x_), clamp_u8(y + cal_y_));
+}
+void Amt630aPort::win_(uint8_t win, uint8_t cols, uint8_t rows, int x, int y, uint16_t vram) {
+    dev_.window_setup(win, cols, rows, clamp_u8(x + cal_x_), clamp_u8(y + cal_y_), vram);
+}
+void Amt630aPort::set_calibration(int dx, int dy) {
+    cal_x_ = dx; cal_y_ = dy;   // перемалювання робить DisplayModule (present_current)
+    ESP_LOGI(TAG, "calibration: dx=%d dy=%d px", dx, dy);
 }
 
 void Amt630aPort::render(const CharGrid& g) {
     // present_main міг переналаштувати W0 (геометрія+масштаб ×2) і ввімкнути W1 —
     // повертаємо повноекранний W0 ×1 і вимикаємо решту вікон, інакше меню малюється
     // у крихітному масштабованому вікні головного екрана.
-    dev_.window0_setup(cols_, rows_, 80, 36);
+    win0_(cols_, rows_, 80, 36);
     dev_.set_window_scale(0, 1, 1);
-    dev_.window_enable(0x01);
     // mem-2: ітеруємо КЛЕМПЛЕНУ сітку (g.cols/g.rows), а не сирі Kconfig cols_/rows_.
     uint16_t tiles[64];
     const uint8_t cols = (g.cols > 64) ? 64 : g.cols;
@@ -104,6 +194,7 @@ void Amt630aPort::render(const CharGrid& g) {
         while (n < cols) tiles[n++] = 0x1C0; // добити RAM-пробілом (відомо порожній; ROM 0x00 — невідомий)
         dev_.osd_print(static_cast<uint16_t>(r * cols), tiles, cols, attr);
     }
+    dev_.window_enable(0x01);   // W0 ON ПІСЛЯ запису BGMAP — кадр з'являється атомарно, без блимання
 }
 
 void Amt630aPort::present_main(const MainView& view) {
@@ -142,12 +233,12 @@ void Amt630aPort::present_main(const MainView& view) {
     char big[24] = {0};
     if (!view.items.empty())
         snprintf(big, sizeof(big), "%s%s", view.items[0].value.c_str(), view.items[0].unit.c_str());
-    dev_.window_setup(0, BIG_COLS, 1, /*x*/80, /*y*/12, /*vram*/0x000);
+    win_(0, BIG_COLS, 1, /*x*/80, /*y*/12, /*vram*/0x000);
     dev_.set_window_scale(0, 2, 2);
     put(0x000, BIG_COLS, big);
 
     // ── W1 ×1: решта пунктів дрібними рядками ──
-    dev_.window_setup(1, SMALL_COLS, SMALL_ROWS, /*x*/80, /*y*/64, /*vram*/0x040);
+    win_(1, SMALL_COLS, SMALL_ROWS, /*x*/80, /*y*/64, /*vram*/0x040);
     dev_.set_window_scale(1, 1, 1);
     uint16_t addr = 0x040;
     uint8_t  row  = 0;
@@ -190,7 +281,7 @@ void Amt630aPort::clear_notice() {
     dev_.osd_print(static_cast<uint16_t>((rows_ - 1) * cols), tiles, cols, ATTR_NORMAL);
 }
 
-void Amt630aPort::set_backlight(uint8_t pct)  { dev_.set_backlight(pct); }
+void Amt630aPort::set_backlight(uint8_t pct)  { backlight_pct_ = pct; dev_.set_backlight(pct); }
 void Amt630aPort::set_contrast(uint8_t pct)   { dev_.set_contrast(pct); }
 void Amt630aPort::set_brightness(uint8_t pct) { dev_.set_video_brightness(pct); }
 void Amt630aPort::set_saturation(uint8_t pct) { dev_.set_saturation(pct); }

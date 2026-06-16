@@ -82,6 +82,7 @@ struct DisplayCaps {
     bool    has_video_params = false;  ///< AMT630A: video brightness/contrast/saturation
     bool    has_inputs       = false;  ///< AMT630A: вибір CVBS-входу
     bool    has_backdrop     = false;  ///< AMT630A: фон no-signal (Snow/Blue/Black)
+    bool    has_calibration  = false;  ///< AMT630A: піксельний зсув OSD (overscan-калібровка)
     uint8_t input_count      = 0;
 };
 
@@ -123,6 +124,16 @@ public:
     /// Можливості — модуль читає ОДИН раз для фільтрації складу меню.
     virtual DisplayCaps caps() const { return {}; }
 
+    // ── Неблокуюче відновлення після холодного старту заліза (power-gate) ──
+    // ВАЖЛИВО: повна реконфігурація (перезаливка шрифту ~5-7с) НЕ МОЖЕ блокувати головний таск
+    // (TWDT + фриз керування). Тому recovery — chunked state-machine, керована з on_update.
+    /// Запит на (неблокуюче) відновлення: ESP кличе ПІСЛЯ ввімкнення живлення дисплея.
+    virtual void begin_reinit() {}
+    /// true, поки відновлення триває — модуль на цей час припиняє звичайне малювання.
+    virtual bool reinit_busy() const { return false; }
+    /// Просунути відновлення на один крок (кликати з on_update). Повертає true НА ЦИКЛІ завершення.
+    virtual bool reinit_tick(uint32_t dt_ms) { (void)dt_ms; return false; }
+
     // present_* — модуль штовхає ПОВНИЙ семантичний стан кадру.
     // Diff / тіньовий буфер — приватна справа драйвера (дельти через шов НЕ передавати).
     virtual void present_main(const MainView& view) = 0;
@@ -140,6 +151,10 @@ public:
     virtual void set_saturation(uint8_t pct) { (void)pct; }
     /// Фон no-signal: 0=Snow, 1=Blue, 2=Black (лише за has_backdrop).
     virtual void set_backdrop(uint8_t mode)  { (void)mode; }
+    /// Overscan-калібровка: піксельний зсув УСЬОГО OSD (dx,dy у пікселях панелі).
+    /// Pass-through tuning (як set_backlight) — модуль не інтерпретує геометрію, лише
+    /// передає user-значення. Реалізують тільки піксельні backend-и (за has_calibration).
+    virtual void set_calibration(int dx, int dy) { (void)dx; (void)dy; }
 
     // ── Структурно-чужорідні можливості: capability-інтерфейси через as_*()→nullptr
     //    (zero-cost, без RTTI). Реалізує лише той backend, що вміє. ──

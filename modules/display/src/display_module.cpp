@@ -161,6 +161,17 @@ void DisplayModule::apply_screen_params() {
             last_input_ = v;
         }
     }
+    // Overscan-калібровка: піксельний зсув усього OSD (dx,dy). Значення МОЖЕ бути від'ємним,
+    // тож sentinel = INT32_MIN (не -1). Після зміни — негайне перемалювання поточного екрана.
+    if (caps_.has_calibration) {
+        const int32_t cx = read_int("display.cal_x", 0);
+        const int32_t cy = read_int("display.cal_y", 0);
+        if (cx != last_cal_x_ || cy != last_cal_y_) {
+            port_->set_calibration(static_cast<int>(cx), static_cast<int>(cy));
+            last_cal_x_ = cx; last_cal_y_ = cy;
+            present_current();
+        }
+    }
 }
 
 void DisplayModule::on_message(const etl::imessage& msg) {
@@ -173,6 +184,24 @@ void DisplayModule::on_message(const etl::imessage& msg) {
 }
 
 void DisplayModule::on_update(uint32_t dt_ms) {
+    // Тригер відновлення OSD: momentary display.reinit (ESP виставляє ПІСЛЯ ввімкнення живлення
+    // дисплея; також кнопка у вебі/меню). Запускає неблокуючу chunked-reconfig.
+    if (poll_button("display.reinit", prev_reinit_)) {
+        port_->begin_reinit();
+    }
+    // Поки триває відновлення — лише крутимо його, звичайне малювання на паузі (без конфлікту I²C).
+    if (port_->reinit_busy()) {
+        if (port_->reinit_tick(dt_ms)) {       // завершилось цього циклу
+            // чіп холодно стартував → втратив усі надіслані параметри: форсуємо повторну подачу
+            last_backlight_ = last_contrast_ = last_brightness_ = last_saturation_ = -1;
+            last_input_ = last_backdrop_ = -1;
+            last_cal_x_ = last_cal_y_ = INT32_MIN;
+            if (read_bool("display.enabled", true)) { apply_screen_params(); present_current(); }
+            else                                     { port_->set_backlight(0); }
+        }
+        return;   // нічого більше цього циклу
+    }
+
     const bool enabled = read_bool("display.enabled", true);
     if (enabled != prev_enabled_) {
         prev_enabled_ = enabled;
