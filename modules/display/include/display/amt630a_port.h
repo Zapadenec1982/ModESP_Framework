@@ -38,6 +38,7 @@ public:
     void set_contrast(uint8_t pct) override;
     void set_brightness(uint8_t pct) override;
     void set_saturation(uint8_t pct) override;
+    void set_backdrop(uint8_t mode) override;
 
     IVideoInputs* as_video_inputs() override { return this; }
 

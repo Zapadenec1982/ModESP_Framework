@@ -47,7 +47,92 @@
       "type": "string",
       "access": "read",
       "description": "Поточний екран меню"
+    },
+    "display.backlight": {
+      "type": "int",
+      "access": "readwrite",
+      "default": 70,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit": "%",
+      "persist": true,
+      "mqtt_subscribe": true,
+      "description": "Підсвітка екрана (PWM)"
+    },
+    "display.brightness": {
+      "type": "int",
+      "access": "readwrite",
+      "default": 50,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit": "%",
+      "persist": true,
+      "mqtt_subscribe": true,
+      "description": "Яскравість відео"
+    },
+    "display.contrast": {
+      "type": "int",
+      "access": "readwrite",
+      "default": 50,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit": "%",
+      "persist": true,
+      "mqtt_subscribe": true,
+      "description": "Контраст відео"
+    },
+    "display.saturation": {
+      "type": "int",
+      "access": "readwrite",
+      "default": 50,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit": "%",
+      "persist": true,
+      "mqtt_subscribe": true,
+      "description": "Насиченість відео"
+    },
+    "display.backdrop": {
+      "type": "int",
+      "access": "readwrite",
+      "default": 2,
+      "persist": true,
+      "mqtt_subscribe": true,
+      "options": [
+        {"value": 0, "label": "Сніг"},
+        {"value": 1, "label": "Синій"},
+        {"value": 2, "label": "Чорний"}
+      ],
+      "description": "Фон за відсутності відеосигналу"
+    },
+    "display.input": {
+      "type": "int",
+      "access": "readwrite",
+      "default": 0,
+      "persist": true,
+      "mqtt_subscribe": true,
+      "options": [
+        {"value": 0, "label": "Вхід 1 (AV1)"},
+        {"value": 1, "label": "Вхід 2 (AV3)"}
+      ],
+      "description": "Відеовхід (CVBS). n=0→AV1/CVBS1, n=1→AV3/CVBS3; фізичну розводку 2 входів визначити на бенчі"
     }
+  },
+
+  "mqtt": {
+    "subscribe": [
+      "display.enabled",
+      "display.backlight",
+      "display.brightness",
+      "display.contrast",
+      "display.saturation",
+      "display.backdrop",
+      "display.input"
+    ]
   },
 
   "ui": {
@@ -64,6 +149,19 @@
         ]
       },
       {
+        "title": "Налаштування екрана",
+        "subtitle": "Параметри зображення AMT630A",
+        "layout": "single",
+        "widgets": [
+          {"key": "display.backlight",  "widget": "slider"},
+          {"key": "display.brightness", "widget": "slider"},
+          {"key": "display.contrast",   "widget": "slider"},
+          {"key": "display.saturation", "widget": "slider"},
+          {"key": "display.backdrop",   "widget": "select"},
+          {"key": "display.input",      "widget": "select"}
+        ]
+      },
+      {
         "title": "Навігація",
         "subtitle": "Віртуальні кнопки (для тесту без заліза)",
         "layout": "single",
@@ -73,6 +171,18 @@
           {"key": "display.btn_select", "widget": "button"}
         ]
       }
+    ]
+  },
+
+  "display": {
+    "menu_label": "Екран",
+    "menu_items": [
+      {"label": "Підсвітка",   "key": "display.backlight"},
+      {"label": "Яскравість",  "key": "display.brightness"},
+      {"label": "Контраст",    "key": "display.contrast"},
+      {"label": "Насиченість", "key": "display.saturation"},
+      {"label": "Фон",         "key": "display.backdrop"},
+      {"label": "Вхід",        "key": "display.input"}
     ]
   }
 }

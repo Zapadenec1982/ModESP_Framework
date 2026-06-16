@@ -81,6 +81,7 @@ struct DisplayCaps {
     bool    has_backlight    = false;  ///< AMT630A: PWM-підсвітка
     bool    has_video_params = false;  ///< AMT630A: video brightness/contrast/saturation
     bool    has_inputs       = false;  ///< AMT630A: вибір CVBS-входу
+    bool    has_backdrop     = false;  ///< AMT630A: фон no-signal (Snow/Blue/Black)
     uint8_t input_count      = 0;
 };
 
@@ -137,6 +138,8 @@ public:
     virtual void set_contrast(uint8_t pct)   { (void)pct; }
     virtual void set_brightness(uint8_t pct) { (void)pct; }
     virtual void set_saturation(uint8_t pct) { (void)pct; }
+    /// Фон no-signal: 0=Snow, 1=Blue, 2=Black (лише за has_backdrop).
+    virtual void set_backdrop(uint8_t mode)  { (void)mode; }
 
     // ── Структурно-чужорідні можливості: capability-інтерфейси через as_*()→nullptr
     //    (zero-cost, без RTTI). Реалізує лише той backend, що вміє. ──

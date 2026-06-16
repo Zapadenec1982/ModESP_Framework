@@ -13,6 +13,7 @@
 #include "modesp/osd/amt630a_font_data.h"
 #include "modesp/osd/amt630a_charmap.h"
 #include "esp_log.h"
+#include <cstdio>
 
 namespace modesp::display {
 
@@ -34,9 +35,11 @@ uint32_t decode_utf8(const char*& p) {
     return cp;
 }
 
-// Атрибут кольору за роллю: fg у bit0-2, bg у bit4-6 (0=прозорий).
-constexpr uint8_t ATTR_NORMAL = 0x06;  // fg=color6 (білий, ROM-default)
-constexpr uint8_t ATTR_SELECT = 0x02;  // fg=color2 (хайлайт)
+// Атрибут кольору за роллю: attr = (FG&7) | ((BG&7)<<4). BG=0 = ПРОЗОРИЙ — текст
+// накладається на те, що позаду: backdrop=Чорний → чистий чорний; backdrop=Сніг +
+// камера → відео під текстом (режим «відео+OSD»). Фон керується backdrop, не OSD.
+constexpr uint8_t ATTR_NORMAL = 0x06;  // FG=color6 (білий), BG=0 (прозорий)
+constexpr uint8_t ATTR_SELECT = 0x02;  // FG=color2 (хайлайт), BG=0 (прозорий)
 } // namespace
 
 Amt630aPort::Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz,
@@ -51,15 +54,18 @@ bool Amt630aPort::init() {
         ESP_LOGW(TAG, "AMT630A not responding — port disabled");
         return false;
     }
-    dev_.apply_init_table();                 // bring-up поверх OEM (bench: пропустити, якщо OEM сама)
-    dev_.set_palette(1, 10, 0, 0);           // color1 = червоний (alarm)
-    dev_.set_palette(2, 10, 10, 0);          // color2 = жовтий (highlight/warn)
-    dev_.window0_setup(cols_, rows_, 10, 12);
-    // A1: залити кириличний RAM-шрифт (16×22 1bpp) у FONT RAM; restore_mask вмикає вікно 0.
+    // МІНІМАЛЬНИЙ OSD-init: лише unlock (0x5F) + OSD-вікна. БЕЗ відеобанків — відео OEM ціле.
+    dev_.apply_osd_init();
+    dev_.set_palette(1, 10, 0, 0);           // color1 = червоний (alarm) — OSD-банк, безпечно
+    dev_.set_palette(2, 10, 10, 0);          // color2 = жовтий — OSD-банк
+    // xloc/yloc — у ПІКСЕЛЯХ (FIZIK osdPrint(50,30)). Центруємо вікно 20×10 (320×200px)
+    // на панелі 480×272, щоб обійти overscan, що з'їдав ~3 ліві стовпці при x=10.
+    dev_.window0_setup(cols_, rows_, 80, 36);
+    // Залити кириличний RAM-шрифт (16×20 1bpp) у FONT RAM; bitmap_start вмикає 1bpp.
     dev_.upload_font(osd::AMT630A_FONT, /*first_tile=*/0,
                      static_cast<uint8_t>(osd::AMT630A_FONT_COUNT),
                      osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ, /*restore_mask=*/0x01);
-    dev_.set_backlight(70);                  // amt-8: підсвітка після bring-up (init ставить duty=0!) ⚠ полярність — bench
+    dev_.set_backlight(70);  // PWM-підсвітка: банк 0x58 безпечний (відео не чіпає), FD42 у PWM-режим.
     ESP_LOGI(TAG, "ready: %ux%u, font %u glyphs", cols_, rows_,
              static_cast<unsigned>(osd::AMT630A_FONT_COUNT));
     return true;
@@ -71,11 +77,18 @@ DisplayCaps Amt630aPort::caps() const {
     c.has_backlight    = true;
     c.has_video_params = true;
     c.has_inputs       = true;
+    c.has_backdrop     = true;
     c.input_count      = 2;   // CVBS1 / CVBS3 (AV1/AV3)
     return c;
 }
 
 void Amt630aPort::render(const CharGrid& g) {
+    // present_main міг переналаштувати W0 (геометрія+масштаб ×2) і ввімкнути W1 —
+    // повертаємо повноекранний W0 ×1 і вимикаємо решту вікон, інакше меню малюється
+    // у крихітному масштабованому вікні головного екрана.
+    dev_.window0_setup(cols_, rows_, 80, 36);
+    dev_.set_window_scale(0, 1, 1);
+    dev_.window_enable(0x01);
     // mem-2: ітеруємо КЛЕМПЛЕНУ сітку (g.cols/g.rows), а не сирі Kconfig cols_/rows_.
     uint16_t tiles[64];
     const uint8_t cols = (g.cols > 64) ? 64 : g.cols;
@@ -88,13 +101,66 @@ void Amt630aPort::render(const CharGrid& g) {
             const char* p = ln->text.c_str();
             while (*p && n < cols) tiles[n++] = osd::amt630a_cp_to_tile(decode_utf8(p));
         }
-        while (n < cols) tiles[n++] = 0x00;   // добити пробілами (очистити рядок)
+        while (n < cols) tiles[n++] = 0x1C0; // добити RAM-пробілом (відомо порожній; ROM 0x00 — невідомий)
         dev_.osd_print(static_cast<uint16_t>(r * cols), tiles, cols, attr);
     }
 }
 
 void Amt630aPort::present_main(const MainView& view) {
-    CharGrid g; CharGridLayout::layout_main(view, cols_, rows_, g); render(g);
+    // Головний (idle) екран: перший пункт — ВЕЛИКИМ у вікні W0 ×2, решта — дрібними
+    // рядками у вікні W1 ×1. Кожне вікно читає свою ділянку BGMAP (W0=0x000, W1=0x040),
+    // тому розміри незалежні. Кожен рядок добиваємо RAM-пробілом (0x1C0) на всю ширину
+    // вікна — інакше старі тайли BGMAP лишаються «хвостом» (напр. "26.5C"→"26.5Cенц").
+    constexpr uint8_t BIG_COLS   = 8;    // W0: 8 симв. × 16px × ×2 = 256px
+    constexpr uint8_t SMALL_COLS = 20;   // W1: 20 симв. × 16px = 320px
+    constexpr uint8_t SMALL_ROWS = 6;
+    constexpr uint8_t LABEL_COL  = 13;   // де починається value у дрібному рядку
+
+    // Записати рядок у BGMAP, доповнивши пробілами до width символів (рахуємо ДЕКОДОВАНІ).
+    auto put = [&](uint16_t bgaddr, uint8_t width, const char* s) {
+        uint16_t tiles[40];
+        uint8_t n = 0;
+        const char* p = s;
+        while (*p && n < width && n < 40) tiles[n++] = osd::amt630a_cp_to_tile(decode_utf8(p));
+        while (n < width && n < 40) tiles[n++] = 0x1C0;
+        dev_.osd_print(bgaddr, tiles, n, ATTR_NORMAL);
+    };
+    // Дрібний рядок: label зліва, value+unit вирівняні на LABEL_COL.
+    auto put_row = [&](uint16_t bgaddr, const char* label, const char* value) {
+        uint16_t tiles[40];
+        uint8_t n = 0;
+        const char* p = label;
+        while (*p && n < (LABEL_COL - 1) && n < SMALL_COLS) tiles[n++] = osd::amt630a_cp_to_tile(decode_utf8(p));
+        while (n < LABEL_COL && n < SMALL_COLS) tiles[n++] = 0x1C0;
+        p = value;
+        while (*p && n < SMALL_COLS && n < 40) tiles[n++] = osd::amt630a_cp_to_tile(decode_utf8(p));
+        while (n < SMALL_COLS && n < 40) tiles[n++] = 0x1C0;
+        dev_.osd_print(bgaddr, tiles, n, ATTR_NORMAL);
+    };
+
+    // ── W0 ×2: головне значення (перший пункт) "<value><unit>" ──
+    char big[24] = {0};
+    if (!view.items.empty())
+        snprintf(big, sizeof(big), "%s%s", view.items[0].value.c_str(), view.items[0].unit.c_str());
+    dev_.window_setup(0, BIG_COLS, 1, /*x*/80, /*y*/12, /*vram*/0x000);
+    dev_.set_window_scale(0, 2, 2);
+    put(0x000, BIG_COLS, big);
+
+    // ── W1 ×1: решта пунктів дрібними рядками ──
+    dev_.window_setup(1, SMALL_COLS, SMALL_ROWS, /*x*/80, /*y*/64, /*vram*/0x040);
+    dev_.set_window_scale(1, 1, 1);
+    uint16_t addr = 0x040;
+    uint8_t  row  = 0;
+    const size_t first = view.items.empty() ? 0 : 1;   // пункт 0 вже показано великим
+    for (size_t i = first; i < view.items.size() && row < SMALL_ROWS; ++i, ++row) {
+        char val[24];
+        snprintf(val, sizeof(val), "%s%s", view.items[i].value.c_str(), view.items[i].unit.c_str());
+        put_row(addr, view.items[i].label.c_str(), val);
+        addr += SMALL_COLS;
+    }
+    for (; row < SMALL_ROWS; ++row) { put(addr, SMALL_COLS, ""); addr += SMALL_COLS; }
+
+    dev_.window_enable(0x03);   // W0 + W1
 }
 void Amt630aPort::present_menu(const MenuView& view) {
     CharGrid g; CharGridLayout::layout_menu(view, cols_, rows_, g); render(g);
@@ -128,6 +194,10 @@ void Amt630aPort::set_backlight(uint8_t pct)  { dev_.set_backlight(pct); }
 void Amt630aPort::set_contrast(uint8_t pct)   { dev_.set_contrast(pct); }
 void Amt630aPort::set_brightness(uint8_t pct) { dev_.set_video_brightness(pct); }
 void Amt630aPort::set_saturation(uint8_t pct) { dev_.set_saturation(pct); }
+
+void Amt630aPort::set_backdrop(uint8_t mode) {
+    dev_.set_backdrop(static_cast<osd::Amt630a::Backdrop>(mode));
+}
 
 void    Amt630aPort::select_input(uint8_t n)   { dev_.select_input(n); }
 uint8_t Amt630aPort::input_count() const       { return 2; }

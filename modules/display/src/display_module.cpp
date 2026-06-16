@@ -135,6 +135,14 @@ void DisplayModule::apply_screen_params() {
         const int32_t v = read_int("display.backlight", -1);
         if (v >= 0 && v != last_backlight_) { port_->set_backlight(static_cast<uint8_t>(v)); last_backlight_ = v; }
     }
+    // Backdrop (режим): FFD2 — зворотний blank. 0x4F=відео+OSD, 0x54=лише меню (чорний).
+    // Це і є перемикач «два режими». Не робить off→on, тож відео не ламає.
+    if (caps_.has_backdrop) {
+        const int32_t v = read_int("display.backdrop", -1);
+        if (v >= 0 && v != last_backdrop_) { port_->set_backdrop(static_cast<uint8_t>(v)); last_backdrop_ = v; }
+    }
+    // Video-параметри декодера (FFD3/D4/D6, банк 0x5A) — діють на ЖИВЕ відео (не OSD).
+    // Це параметри у вузькому діапазоні, НЕ роблять off→on, тож відео не ламають.
     if (caps_.has_video_params) {
         int32_t v = read_int("display.contrast", -1);
         if (v >= 0 && v != last_contrast_)   { port_->set_contrast(static_cast<uint8_t>(v));   last_contrast_ = v; }
@@ -143,6 +151,9 @@ void DisplayModule::apply_screen_params() {
         v = read_int("display.saturation", -1);
         if (v >= 0 && v != last_saturation_) { port_->set_saturation(static_cast<uint8_t>(v)); last_saturation_ = v; }
     }
+    // Вибір входу: тепер БЕЗПЕЧНИЙ. select_input за замовчуванням НЕ робить FED7 off→on брекет
+    // (міняє лише мукс-біти FED8/FEDC через RMW, відео лишається ON), тож більше не глушить
+    // відеотракт незворотньо. Лог драйвера покаже lock-статус (FE2A) після перемикання.
     if (caps_.has_inputs) {
         const int32_t v = read_int("display.input", -1);
         if (v >= 0 && v != last_input_) {
@@ -162,7 +173,17 @@ void DisplayModule::on_message(const etl::imessage& msg) {
 }
 
 void DisplayModule::on_update(uint32_t dt_ms) {
-    if (!read_bool("display.enabled", true)) {
+    const bool enabled = read_bool("display.enabled", true);
+    if (enabled != prev_enabled_) {
+        prev_enabled_ = enabled;
+        if (!enabled) {
+            port_->set_backlight(0);          // вимкнути: погасити підсвітку
+        } else {
+            last_backlight_ = -1;             // увімкнути: форсувати повторне застосування підсвітки
+            present_current();                // і негайно перемалювати екран
+        }
+    }
+    if (!enabled) {
         return;
     }
 
