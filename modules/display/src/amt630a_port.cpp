@@ -50,10 +50,12 @@ constexpr uint16_t kFontChunk     = 4;      // гліфів за один on_upd
 } // namespace
 
 Amt630aPort::Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz,
-                         uint8_t cols, uint8_t rows)
+                         uint8_t cols, uint8_t rows, int8_t cal_x, int8_t cal_y)
     : dev_(bus, freq_hz)
     , cols_(cols)
     , rows_(rows)
+    , cal_x_(cal_x)
+    , cal_y_(cal_y)
 {}
 
 bool Amt630aPort::init() {
@@ -156,7 +158,6 @@ DisplayCaps Amt630aPort::caps() const {
     c.has_video_params = true;
     c.has_inputs       = true;
     c.has_backdrop     = true;
-    c.has_calibration  = true;
     c.input_count      = 2;   // CVBS1 / CVBS3 (AV1/AV3)
     return c;
 }
@@ -167,10 +168,6 @@ void Amt630aPort::win0_(uint8_t cols, uint8_t rows, int x, int y) {
 }
 void Amt630aPort::win_(uint8_t win, uint8_t cols, uint8_t rows, int x, int y, uint16_t vram) {
     dev_.window_setup(win, cols, rows, clamp_u8(x + cal_x_), clamp_u8(y + cal_y_), vram);
-}
-void Amt630aPort::set_calibration(int dx, int dy) {
-    cal_x_ = dx; cal_y_ = dy;   // перемалювання робить DisplayModule (present_current)
-    ESP_LOGI(TAG, "calibration: dx=%d dy=%d px", dx, dy);
 }
 
 void Amt630aPort::render(const CharGrid& g) {
@@ -312,7 +309,8 @@ IDisplayPort* amt630a_factory(const modesp::Binding& b, modesp::HAL& hal) {
         return nullptr;
     }
     // Дисплей — singleton: один статичний порт (zero heap), будується на місці.
-    static Amt630aPort port(bus->bus_handle, bus->freq_hz, dcfg->cols, dcfg->rows);
+    static Amt630aPort port(bus->bus_handle, bus->freq_hz, dcfg->cols, dcfg->rows,
+                            dcfg->cal_x, dcfg->cal_y);
     return &port;
 }
 } // namespace

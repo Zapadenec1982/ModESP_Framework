@@ -7,6 +7,6 @@
     {"id": "i2c_0", "sda": 6, "scl": 5, "freq_hz": 100000, "label": "I2C (AMT630A; розширювана — тюнер/PCF8574 за потреби)"}
   ],
   "i2c_displays": [
-    {"id": "disp_0", "bus": "i2c_0", "chip": "amt630a", "cols": 20, "rows": 10, "label": "AMT630A OSD/TFT (ZCD-630A-4.3D)"}
+    {"id": "disp_0", "bus": "i2c_0", "chip": "amt630a", "cols": 20, "rows": 10, "cal_x": -8, "cal_y": -8, "label": "AMT630A OSD/TFT (ZCD-630A-4.3D); cal_x/cal_y = overscan-зсув OSD у пікселях"}
   ]
 }

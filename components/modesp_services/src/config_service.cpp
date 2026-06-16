@@ -337,6 +337,49 @@ bool ConfigService::parse_board_json() {
                 }
             }
             i = j;
+        } else if (jsoneq(buf, &tokens[i], "encoders")) {
+            if (tokens[i + 1].type != JSMN_ARRAY) {
+                ESP_LOGE(TAG, "board.json: 'encoders' is not array");
+                return false;
+            }
+            int arr_size = tokens[i + 1].size;
+            int j = i + 2;
+
+            for (int elem = 0; elem < arr_size; elem++) {
+                if (tokens[j].type != JSMN_OBJECT) {
+                    ESP_LOGE(TAG, "board.json: encoder entry is not object");
+                    return false;
+                }
+                int obj_keys = tokens[j].size;
+                j++;
+
+                EncoderConfig cfg = {};
+                cfg.pull_up = true;  // default
+                for (int k = 0; k < obj_keys; k++) {
+                    if (jsoneq(buf, &tokens[j], "id")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.id = tmp;
+                        j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "clk")) {
+                        cfg.clk = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                        j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "dt")) {
+                        cfg.dt = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                        j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "pull")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.pull_up = (strcmp(tmp, "up") == 0);
+                        j += 2;
+                    } else {
+                        j += 2;
+                    }
+                }
+
+                if (!board_config_.encoders.full()) {
+                    board_config_.encoders.push_back(cfg);
+                }
+            }
+            i = j;
         } else if (jsoneq(buf, &tokens[i], "adc_channels")) {
             if (tokens[i + 1].type != JSMN_ARRAY) {
                 ESP_LOGE(TAG, "board.json: 'adc_channels' is not array");
@@ -560,6 +603,10 @@ bool ConfigService::parse_board_json() {
                         cfg.cols = (uint8_t)tok_to_int(buf, &tokens[j + 1]);
                     } else if (jsoneq(buf, &tokens[j], "rows")) {
                         cfg.rows = (uint8_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "cal_x")) {
+                        cfg.cal_x = (int8_t)tok_to_int(buf, &tokens[j + 1]);   // overscan-зсув OSD
+                    } else if (jsoneq(buf, &tokens[j], "cal_y")) {
+                        cfg.cal_y = (int8_t)tok_to_int(buf, &tokens[j + 1]);
                     }
                     j += 2;
                 }

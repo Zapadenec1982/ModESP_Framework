@@ -28,6 +28,7 @@ static constexpr size_t MAX_RELAYS         = 8;
 static constexpr size_t MAX_ONEWIRE_BUSES  = 4;
 static constexpr size_t MAX_ADC_CHANNELS   = 8;
 static constexpr size_t MAX_PWM_CHANNELS   = 8;
+static constexpr size_t MAX_ENCODERS       = 2;
 static constexpr size_t MAX_BINDINGS       = 24;
 static constexpr size_t MAX_SENSORS        = 8;
 static constexpr size_t MAX_ACTUATORS      = 8;
@@ -75,6 +76,16 @@ struct AdcChannelConfig {
     uint8_t atten;      // 0=0dB, 2=2.5dB, 6=6dB, 11=11dB (0-3.3V)
 };
 
+/// Інкрементальний поворотний енкодер: два піни квадратури (CLK=A, DT=B).
+/// Кнопка енкодера (за наявності) описується ОКРЕМО як gpio_input і
+/// прив'язується драйвером digital_input — енкодер сюди не входить.
+struct EncoderConfig {
+    HalId id;               // "enc_0"
+    gpio_num_t clk;         // канал A
+    gpio_num_t dt;          // канал B
+    bool pull_up = true;    // true = pull-up (типово для механічних енкодерів)
+};
+
 struct I2CBusConfig {
     HalId id;               // "i2c_0"
     gpio_num_t sda;
@@ -113,6 +124,8 @@ struct I2CDisplayConfig {
     HalId   chip;           // "amt630a"
     uint8_t cols;           // символьна сітка OSD
     uint8_t rows;
+    int8_t  cal_x = 0;      // overscan-калібровка OSD: піксельний зсув по X (per-panel hardware-конфіг)
+    int8_t  cal_y = 0;      // overscan-калібровка OSD: піксельний зсув по Y
 };
 
 struct BoardConfig {
@@ -122,6 +135,7 @@ struct BoardConfig {
     etl::vector<OneWireBusConfig, MAX_ONEWIRE_BUSES>              onewire_buses;
     etl::vector<GpioInputConfig, MAX_ADC_CHANNELS>                gpio_inputs;
     etl::vector<AdcChannelConfig, MAX_ADC_CHANNELS>               adc_channels;
+    etl::vector<EncoderConfig, MAX_ENCODERS>                      encoders;
     etl::vector<I2CBusConfig, MAX_I2C_BUSES>                      i2c_buses;
     etl::vector<I2CExpanderConfig, MAX_I2C_EXPANDERS>             i2c_expanders;
     etl::vector<I2CExpanderOutputConfig, MAX_EXPANDER_IOS>        expander_outputs;
@@ -191,6 +205,14 @@ struct AdcChannelResource {
     HalId id;
     gpio_num_t gpio;
     uint8_t atten;
+    bool initialized = false;
+};
+
+struct EncoderResource {
+    HalId id;
+    gpio_num_t clk;
+    gpio_num_t dt;
+    bool pull_up = true;
     bool initialized = false;
 };
 

@@ -121,30 +121,6 @@
       ],
       "description": "Відеовхід (CVBS). n=0→AV1/CVBS1, n=1→AV3/CVBS3; фізичну розводку 2 входів визначити на бенчі"
     },
-    "display.cal_x": {
-      "type": "int",
-      "access": "readwrite",
-      "default": 0,
-      "min": -48,
-      "max": 48,
-      "step": 2,
-      "unit": "px",
-      "persist": true,
-      "mqtt_subscribe": true,
-      "description": "Калібровка OSD: зсув по X (overscan)"
-    },
-    "display.cal_y": {
-      "type": "int",
-      "access": "readwrite",
-      "default": 0,
-      "min": -32,
-      "max": 32,
-      "step": 2,
-      "unit": "px",
-      "persist": true,
-      "mqtt_subscribe": true,
-      "description": "Калібровка OSD: зсув по Y (overscan)"
-    },
     "display.reinit": {
       "type": "bool",
       "access": "readwrite",
@@ -163,8 +139,6 @@
       "display.saturation",
       "display.backdrop",
       "display.input",
-      "display.cal_x",
-      "display.cal_y",
       "display.reinit"
     ]
   },
@@ -193,8 +167,6 @@
           {"key": "display.saturation", "widget": "slider"},
           {"key": "display.backdrop",   "widget": "select"},
           {"key": "display.input",      "widget": "select"},
-          {"key": "display.cal_x",      "widget": "slider"},
-          {"key": "display.cal_y",      "widget": "slider"},
           {"key": "display.reinit",     "widget": "button"}
         ]
       },
@@ -219,9 +191,7 @@
       {"label": "Контраст",    "key": "display.contrast"},
       {"label": "Насиченість", "key": "display.saturation"},
       {"label": "Фон",         "key": "display.backdrop"},
-      {"label": "Вхід",        "key": "display.input"},
-      {"label": "Калібр. X",   "key": "display.cal_x"},
-      {"label": "Калібр. Y",   "key": "display.cal_y"}
+      {"label": "Вхід",        "key": "display.input"}
     ]
   }
 }

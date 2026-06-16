@@ -23,7 +23,9 @@ class Amt630aPort : public IDisplayPort, public IVideoInputs {
 public:
     /// Шину + швидкість надає HAL (board.json i2c_buses); cols/rows — board.json
     /// i2c_displays. Жодних Kconfig-пінів — конфіг приходить через board+bindings.
-    Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz, uint8_t cols, uint8_t rows);
+    /// cal_x/cal_y — overscan-зсув OSD (per-panel, з board.json i2c_displays).
+    Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz, uint8_t cols, uint8_t rows,
+                int8_t cal_x = 0, int8_t cal_y = 0);
 
     bool init() override;
     DisplayCaps caps() const override;
@@ -42,7 +44,6 @@ public:
     void set_brightness(uint8_t pct) override;
     void set_saturation(uint8_t pct) override;
     void set_backdrop(uint8_t mode) override;
-    void set_calibration(int dx, int dy) override;   // overscan-зсув усього OSD (px)
 
     IVideoInputs* as_video_inputs() override { return this; }
 

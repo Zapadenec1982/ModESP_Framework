@@ -82,7 +82,6 @@ struct DisplayCaps {
     bool    has_video_params = false;  ///< AMT630A: video brightness/contrast/saturation
     bool    has_inputs       = false;  ///< AMT630A: вибір CVBS-входу
     bool    has_backdrop     = false;  ///< AMT630A: фон no-signal (Snow/Blue/Black)
-    bool    has_calibration  = false;  ///< AMT630A: піксельний зсув OSD (overscan-калібровка)
     uint8_t input_count      = 0;
 };
 
@@ -151,10 +150,6 @@ public:
     virtual void set_saturation(uint8_t pct) { (void)pct; }
     /// Фон no-signal: 0=Snow, 1=Blue, 2=Black (лише за has_backdrop).
     virtual void set_backdrop(uint8_t mode)  { (void)mode; }
-    /// Overscan-калібровка: піксельний зсув УСЬОГО OSD (dx,dy у пікселях панелі).
-    /// Pass-through tuning (як set_backlight) — модуль не інтерпретує геометрію, лише
-    /// передає user-значення. Реалізують тільки піксельні backend-и (за has_calibration).
-    virtual void set_calibration(int dx, int dy) { (void)dx; (void)dy; }
 
     // ── Структурно-чужорідні можливості: capability-інтерфейси через as_*()→nullptr
     //    (zero-cost, без RTTI). Реалізує лише той backend, що вміє. ──
