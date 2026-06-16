@@ -128,7 +128,8 @@ void Amt630a::apply_osd_init() {
     static const RW seq[] = {
         {0x5F,0xAF,0x00},{0x5F,0xA1,0x55},{0x5F,0xA2,0xAA},{0x5F,0xA3,0x03},{0x5F,0xA4,0x50},
         {0x5F,0xA5,0x00},{0x5F,0xA6,0x53},{0x5F,0xAF,0x11},{0x5F,0xC6,0x42},{0x5F,0xC6,0x00},
-        {0x5B,0x05,0x1F},                                   // OSD вікна ON
+        {0x5B,0x05,0x00},                                   // OSD вікна OFF — увімкне present ПІСЛЯ конфігу
+                                                            // шрифту+BGMAP (інакше блимають кольорові квадрати: 4bpp на дефолтному bitmap_start)
         {0x5F,0xBE,0x55},{0x5F,0xBA,0x00},{0x5F,0xBE,0xAA},  // commit
     };
     for (const auto& w : seq) raw_w(w.dev, w.reg, w.val);
@@ -333,19 +334,19 @@ void Amt630a::selftest_one_glyph() {
     ESP_LOGI(TAG, "selftest_one_glyph: box@0x1C0 + solid@0x1C1, %dx%d fill, FB11=0xC1", W, H);
 }
 
-void Amt630a::upload_font(const uint16_t* glyphs, uint16_t first_tile, uint8_t count,
-                          uint8_t xsiz, uint8_t ysiz, uint8_t restore_mask) {
+void Amt630a::begin_font_upload(uint8_t xsiz, uint8_t ysiz, uint16_t bitmap_start) {
     set_char_size(xsiz, ysiz);                 // FB76/FB77
     window_enable(0x00);                        // вікна OFF на час запису (proven-порядок)
-    vTaskDelay(pdMS_TO_TICKS(25));              // діє з наступного кадру
     // bitmap_start (FB11/FB70) — РЕЛЯТИВНИЙ до 0x1C0 (bench-proven): 1bpp-зона =
-    // [0x1C0, 0x1C0+bitmap_start). first_tile+count покриває всі гліфи → 1bpp.
-    // (Раніше хибно ставили абсолютний 0x281 → кольорові квадрати.) Ставимо ПІСЛЯ вікон-OFF.
-    const uint16_t bitmap_start = static_cast<uint16_t>(first_tile + count);
+    // [0x1C0, 0x1C0+bitmap_start). Абсолютний (0x281) → гліфи у 4bpp-зоні → кольорові квадрати.
     amt_w(amt_bank::OSD, 0x11, static_cast<uint8_t>(bitmap_start & 0xFF));         // lsb
     amt_w(amt_bank::OSD, 0x70, static_cast<uint8_t>((bitmap_start >> 8) & 0xFF));  // msb
+}
+
+void Amt630a::upload_font_chunk(const uint16_t* glyphs, uint16_t first_tile,
+                                uint16_t from, uint16_t n, uint8_t ysiz) {
     const uint16_t W = ysiz;                   // слів/гліф (xsiz<=16 → 1 слово/ряд)
-    for (uint8_t c = 0; c < count; ++c) {
+    for (uint16_t c = from; c < from + n; ++c) {
         const uint16_t addr = static_cast<uint16_t>(W * (first_tile + c));
         for (uint16_t row = 0; row < W; ++row) {
             const uint16_t a = static_cast<uint16_t>(addr + row);
@@ -356,7 +357,19 @@ void Amt630a::upload_font(const uint16_t* glyphs, uint16_t first_tile, uint8_t c
             amt_w(amt_bank::OSD, 0x03, static_cast<uint8_t>(w & 0xFF));         // data lsb латч
         }
     }
+}
+
+void Amt630a::end_font_upload(uint8_t restore_mask) {
     window_enable(restore_mask);
+}
+
+void Amt630a::upload_font(const uint16_t* glyphs, uint16_t first_tile, uint8_t count,
+                          uint8_t xsiz, uint8_t ysiz, uint8_t restore_mask) {
+    // Монолітна (блокуюча) перезаливка — лише для init() на старті (TWDT той шлях не стереже).
+    begin_font_upload(xsiz, ysiz, static_cast<uint16_t>(first_tile + count));
+    vTaskDelay(pdMS_TO_TICKS(25));             // вікна-OFF діє з наступного кадру
+    upload_font_chunk(glyphs, first_tile, 0, count, ysiz);
+    end_font_upload(restore_mask);
 }
 
 // ── Параметри екрана ───────────────────────────────────────────

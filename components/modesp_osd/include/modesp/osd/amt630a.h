@@ -82,6 +82,14 @@ public:
     void upload_font(const uint16_t* glyphs, uint16_t first_tile, uint8_t count,
                      uint8_t xsiz, uint8_t ysiz, uint8_t restore_mask);
 
+    // ── Chunked FONT-upload (неблокуюча перезаливка після cold boot) ──
+    // begin → (наступний кадр) → N×chunk → end. Кожен chunk = кілька гліфів (малий I²C-блок),
+    // тож головний таск не блокується надовго (на відміну від монолітного upload_font ~5-7с).
+    void begin_font_upload(uint8_t xsiz, uint8_t ysiz, uint16_t bitmap_start);  // char-size + вікна OFF + bitmap_start
+    void upload_font_chunk(const uint16_t* glyphs, uint16_t first_tile,
+                           uint16_t from, uint16_t n, uint8_t ysiz);             // залити гліфи [from, from+n)
+    void end_font_upload(uint8_t restore_mask);                                  // вікна назад
+
     // ── Параметри екрана (0..100%) ──
     void set_backlight(uint8_t pct);        // dev 0x58 PWM0 duty
     void set_video_brightness(uint8_t pct); // dev 0x5A FFD4
