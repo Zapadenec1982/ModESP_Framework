@@ -161,6 +161,14 @@ void DisplayModule::apply_screen_params() {
             last_input_ = v;
         }
     }
+    // Power-gate (load-switch): display.power on/off → as_power()->set_rail(); recovery усередині порту.
+    if (caps_.has_power) {
+        const int32_t v = read_int("display.power", 1);   // 1=on (дефолт)
+        if (v != last_power_) {
+            if (auto* p = port_->as_power()) p->set_rail(v != 0);
+            last_power_ = v;
+        }
+    }
     // Калібровка OSD (overscan) — per-panel у board.json (i2c_displays cal_x/cal_y), НЕ runtime.
 }
 
@@ -174,22 +182,20 @@ void DisplayModule::on_message(const etl::imessage& msg) {
 }
 
 void DisplayModule::on_update(uint32_t dt_ms) {
-    // Тригер відновлення OSD: momentary display.reinit (ESP виставляє ПІСЛЯ ввімкнення живлення
-    // дисплея; також кнопка у вебі/меню). Запускає неблокуючу chunked-reconfig.
-    if (poll_button("display.reinit", prev_reinit_)) {
-        port_->begin_reinit();
+    // Generic heartbeat порту: внутрішнє housekeeping (chunked-відновлення після power-cycle).
+    // Модуль НЕ знає, що саме порт робить — лише дає пульс і реагує на busy.
+    port_->service(dt_ms);
+    const bool busy = port_->busy();
+    if (was_busy_ && !busy) {
+        // порт щойно завершив внутрішнє відновлення (cold boot) → чіп втратив параметри:
+        // форсуємо повторну подачу всього + перемалювання.
+        last_backlight_ = last_contrast_ = last_brightness_ = last_saturation_ = -1;
+        last_input_ = last_backdrop_ = -1;
+        if (read_bool("display.enabled", true)) { apply_screen_params(); present_current(); }
+        else                                     { port_->set_backlight(0); }
     }
-    // Поки триває відновлення — лише крутимо його, звичайне малювання на паузі (без конфлікту I²C).
-    if (port_->reinit_busy()) {
-        if (port_->reinit_tick(dt_ms)) {       // завершилось цього циклу
-            // чіп холодно стартував → втратив усі надіслані параметри: форсуємо повторну подачу
-            last_backlight_ = last_contrast_ = last_brightness_ = last_saturation_ = -1;
-            last_input_ = last_backdrop_ = -1;
-            if (read_bool("display.enabled", true)) { apply_screen_params(); present_current(); }
-            else                                     { port_->set_backlight(0); }
-        }
-        return;   // нічого більше цього циклу
-    }
+    was_busy_ = busy;
+    if (busy) return;   // порт зайнятий — нічого не подавати цього циклу
 
     const bool enabled = read_bool("display.enabled", true);
     if (enabled != prev_enabled_) {

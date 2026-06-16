@@ -67,12 +67,13 @@ private:
     int32_t last_saturation_ = -1;
     int32_t last_input_      = -1;
     int32_t last_backdrop_   = -1;
-    bool    prev_enabled_    = true;   // для виявлення переходу display.enabled (гасіння екрана)
+    int32_t last_power_      = 1;    // display.power: boot=ON (init() вже подав живлення+конфіг) → без spurious set_rail
+    bool    prev_enabled_    = true; // для виявлення переходу display.enabled (гасіння екрана)
+    bool    was_busy_        = false;// попередній port_->busy() (спад → повторна подача після cold boot)
 
     bool prev_up_     = false;
     bool prev_down_   = false;
     bool prev_select_ = false;
-    bool prev_reinit_ = false;   // momentary display.reinit (відновлення OSD після power-on)
 
     etl::string<48> last_screen_;
 };

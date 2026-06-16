@@ -121,12 +121,15 @@
       ],
       "description": "Відеовхід (CVBS). n=0→AV1/CVBS1, n=1→AV3/CVBS3; фізичну розводку 2 входів визначити на бенчі"
     },
-    "display.reinit": {
+    "display.power": {
       "type": "bool",
       "access": "readwrite",
-      "default": false,
+      "default": true,
+      "persist": true,
       "mqtt_subscribe": true,
-      "description": "Переініціалізувати OSD (momentary; виставити після ввімкнення живлення дисплея)"
+      "on_label": "ON",
+      "off_label": "OFF",
+      "description": "Живлення дисплея (power-gate load-switch): off = 0 мА; on = відео+OSD відновлюються (лише за power_gpio у bindings)"
     }
   },
 
@@ -139,7 +142,7 @@
       "display.saturation",
       "display.backdrop",
       "display.input",
-      "display.reinit"
+      "display.power"
     ]
   },
 
@@ -167,7 +170,7 @@
           {"key": "display.saturation", "widget": "slider"},
           {"key": "display.backdrop",   "widget": "select"},
           {"key": "display.input",      "widget": "select"},
-          {"key": "display.reinit",     "widget": "button"}
+          {"key": "display.power",      "widget": "toggle"}
         ]
       },
       {

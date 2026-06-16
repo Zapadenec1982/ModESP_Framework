@@ -12,6 +12,9 @@
 #include "modesp/hal/hal.h"                 // HAL + Binding (board.json/bindings)
 #include "modesp/osd/amt630a_font_data.h"
 #include "modesp/osd/amt630a_charmap.h"
+#include "driver/gpio.h"                   // power-gate load-switch
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"                 // vTaskDelay (cold-boot wait у init)
 #include "esp_log.h"
 #include <cstdio>
 
@@ -50,71 +53,88 @@ constexpr uint16_t kFontChunk     = 4;      // гліфів за один on_upd
 } // namespace
 
 Amt630aPort::Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz,
-                         uint8_t cols, uint8_t rows, int8_t cal_x, int8_t cal_y)
+                         uint8_t cols, uint8_t rows, int8_t cal_x, int8_t cal_y, int power_gpio)
     : dev_(bus, freq_hz)
     , cols_(cols)
     , rows_(rows)
     , cal_x_(cal_x)
     , cal_y_(cal_y)
+    , power_gpio_(power_gpio)
 {}
 
 bool Amt630aPort::init() {
+    if (power_gpio_ >= 0) {                                     // power-gate: живлення чіпа ON на старті
+        gpio_set_direction(static_cast<gpio_num_t>(power_gpio_), GPIO_MODE_OUTPUT);
+        gpio_set_level(static_cast<gpio_num_t>(power_gpio_), 1);
+        vTaskDelay(pdMS_TO_TICKS(kBootDelayMs));               // дочекатись cold boot чіпа
+    }
     if (!dev_.init()) {
         ESP_LOGW(TAG, "AMT630A not responding — port disabled");
         return false;
     }
-    configure_chip_();
-    ESP_LOGI(TAG, "ready: %ux%u, font %u glyphs", cols_, rows_,
-             static_cast<unsigned>(osd::AMT630A_FONT_COUNT));
+    configure_chip_();                                          // блокуюча конфіг — ок на старті
+    ESP_LOGI(TAG, "ready: %ux%u, font %u glyphs%s", cols_, rows_,
+             static_cast<unsigned>(osd::AMT630A_FONT_COUNT),
+             power_gpio_ >= 0 ? " (power-gated)" : "");
     return true;
 }
 
-// ── Неблокуюче відновлення OSD після холодного старту заліза (power-gate) ──
-// OEM-прошивка піднімає відео сама; ESP-side OSD-стан (unlock, вікна, шрифт, палітра, калібровка,
-// яскравість) втрачено. Реконфігурація chunked: жоден on_update-крок не блокує надовго (на відміну
-// від монолітного configure_chip_ ~5-7с, що трипить TWDT). I²C device-handle-и ESP чинні.
-void Amt630aPort::begin_reinit() {
-    if (recov_ != Recov::IDLE) return;   // вже триває
-    recov_       = Recov::WAIT;
-    recov_wait_  = 0;
-    recov_cursor_ = 0;
-    ESP_LOGI(TAG, "reinit: scheduled (await cold boot)");
+// ── Power-gate (load-switch на GPIO) + неблокуюче відновлення OSD ──
+// set_rail(true): живлення ON → chunked-reconfig (OEM піднімає відео, ESP-side OSD втрачено при
+// cold boot). set_rail(false): живлення OFF (0мА). Реконфіг chunked: жоден service()-крок не блокує
+// надовго (на відміну від монолітного configure_chip_ ~5-7с, що трипить TWDT). I²C-handle-и ESP чинні.
+void Amt630aPort::set_rail(bool on) {
+    if (power_gpio_ < 0) { ESP_LOGW(TAG, "set_rail(%d): no power_gpio in bindings", on ? 1 : 0); return; }
+    gpio_set_level(static_cast<gpio_num_t>(power_gpio_), on ? 1 : 0);
+    ESP_LOGI(TAG, "rail %s (GPIO%d)", on ? "ON" : "OFF", power_gpio_);
+    if (on) start_recovery_();
+    else    recov_ = Recov::IDLE;     // живлення знято — відновлення не має сенсу
 }
 
-bool Amt630aPort::reinit_busy() const { return recov_ != Recov::IDLE; }
+void Amt630aPort::start_recovery_() {
+    if (recov_ != Recov::IDLE) return;   // вже триває
+    recov_ = Recov::WAIT;
+    recov_wait_ = 0;
+    recov_cursor_ = 0;
+    ESP_LOGI(TAG, "recovery scheduled (await cold boot)");
+}
 
-bool Amt630aPort::reinit_tick(uint32_t dt_ms) {
+bool Amt630aPort::busy() const { return recov_ != Recov::IDLE; }
+
+// Generic heartbeat: просуває внутрішнє chunked-відновлення на один крок. Модуль кличе щотіку.
+// На завершенні recov_→IDLE → busy() стає false → модуль (на спаді) повторно подасть кадр+параметри.
+void Amt630aPort::service(uint32_t dt_ms) {
     switch (recov_) {
     case Recov::IDLE:
-        return false;
+        return;
 
     case Recov::WAIT: {
         recov_wait_ += dt_ms;
-        if (recov_wait_ < kBootDelayMs) return false;          // чекаємо cold boot ~300мс
-        uint8_t v;                                              // ACK-чек звичайним read (НЕ probe)
+        if (recov_wait_ < kBootDelayMs) return;                // чекаємо cold boot ~300мс
+        uint8_t v;                                             // ACK-чек звичайним read (НЕ probe)
         if (!dev_.amt_r(osd::amt_bank::OSD, 0x05, v)) {
             if (recov_wait_ >= kBootTimeoutMs) {
                 recov_ = Recov::IDLE;
-                ESP_LOGW(TAG, "reinit: chip absent after %ums — giving up", (unsigned)recov_wait_);
+                ESP_LOGW(TAG, "recovery: chip absent after %ums — giving up", (unsigned)recov_wait_);
             }
-            return false;                                      // ще не на шині — чекаємо далі
+            return;                                            // ще не на шині — чекаємо далі
         }
         recov_ = Recov::SETUP;
-        return false;
+        return;
     }
 
-    case Recov::SETUP:                                          // конфіг OSD (без шрифту), один крок
-        dev_.apply_osd_init();                                 // unlock + OSD-вікна (вкл. 50мс delay)
+    case Recov::SETUP:                                         // конфіг OSD (без шрифту), один крок
+        dev_.apply_osd_init();                                // unlock + OSD-вікна (вкл. 50мс delay)
         dev_.set_palette(1, 10, 0, 0);
         dev_.set_palette(2, 10, 10, 0);
-        win0_(cols_, rows_, 80, 36);                           // з калібровкою
+        win0_(cols_, rows_, 80, 36);                          // з калібровкою
         dev_.begin_font_upload(osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ,
                                static_cast<uint16_t>(osd::AMT630A_FONT_COUNT));  // вікна OFF + bitmap_start
         recov_cursor_ = 0;
-        recov_ = Recov::FONT;                                   // гліфи з НАСТУПНОГО кадру (вікна вже OFF)
-        return false;
+        recov_ = Recov::FONT;                                  // гліфи з НАСТУПНОГО кадру (вікна вже OFF)
+        return;
 
-    case Recov::FONT: {                                         // заливка шрифту порціями
+    case Recov::FONT: {                                        // заливка шрифту порціями
         const uint16_t total = static_cast<uint16_t>(osd::AMT630A_FONT_COUNT);
         const uint16_t left  = static_cast<uint16_t>(total - recov_cursor_);
         const uint16_t n     = (left < kFontChunk) ? left : kFontChunk;
@@ -122,16 +142,14 @@ bool Amt630aPort::reinit_tick(uint32_t dt_ms) {
                                recov_cursor_, n, osd::AMT630A_FONT_YSIZ);
         recov_cursor_ = static_cast<uint16_t>(recov_cursor_ + n);
         if (recov_cursor_ >= total) {
-            dev_.end_font_upload(0x00);                         // вікна OFF — present увімкне після BGMAP
-            dev_.set_backlight(backlight_pct_);                // відновити яскравість
+            dev_.end_font_upload(0x00);                        // вікна OFF — present увімкне після BGMAP
+            dev_.set_backlight(backlight_pct_);
             recov_ = Recov::IDLE;
-            ESP_LOGI(TAG, "reinit: done (%u glyphs)", (unsigned)total);
-            return true;                                        // ЗАВЕРШЕНО → модуль re-apply + present
+            ESP_LOGI(TAG, "recovery done (%u glyphs)", (unsigned)total);
         }
-        return false;
+        return;
     }
     }
-    return false;
 }
 
 // Конфігурація OSD поверх працюючої OEM-прошивки (спільне для init() і reinit()).
@@ -158,6 +176,7 @@ DisplayCaps Amt630aPort::caps() const {
     c.has_video_params = true;
     c.has_inputs       = true;
     c.has_backdrop     = true;
+    c.has_power        = (power_gpio_ >= 0);   // power-gate лише якщо binding дав power_gpio
     c.input_count      = 2;   // CVBS1 / CVBS3 (AV1/AV3)
     return c;
 }
@@ -309,8 +328,9 @@ IDisplayPort* amt630a_factory(const modesp::Binding& b, modesp::HAL& hal) {
         return nullptr;
     }
     // Дисплей — singleton: один статичний порт (zero heap), будується на місці.
+    const int power_gpio = static_cast<int>(b.setting_or("power_gpio", -1.0f));  // load-switch (опц.)
     static Amt630aPort port(bus->bus_handle, bus->freq_hz, dcfg->cols, dcfg->rows,
-                            dcfg->cal_x, dcfg->cal_y);
+                            dcfg->cal_x, dcfg->cal_y, power_gpio);
     return &port;
 }
 } // namespace
