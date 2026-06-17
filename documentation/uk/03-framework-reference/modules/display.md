@@ -1,106 +1,153 @@
-# `display` — екранне меню з маніфестів
+# `display` — екранне меню, згенероване з маніфестів
 
 > 📖 **In English:** [documentation/en/03-framework-reference/modules/display.md](../../../en/03-framework-reference/modules/display.md)
 
-`display` — generic-модуль фреймворку, що рендерить локальне екранне меню пристрою. Як і WebUI та MQTT, меню **генерується з маніфестів**: кожен модуль описує секцію `display:` у своєму manifest.json, генератор збирає їх в одне constexpr-дерево (`generated/display_screens.h`), а цей модуль виконує навігацію, показ значень та редагування параметрів через SharedState.
+`display` — це загальний модуль фреймворку, що малює локальне екранне меню пристрою. Як WebUI і MQTT, меню **генерується з маніфестів**: кожен модуль описує секцію `display:` у своєму manifest.json, генератор зводить їх в одне constexpr-дерево (`generated/display_screens.h`), а цей модуль веде навігацію, показ значень і редагування параметрів через SharedState.
 
-Модуль **апаратно-незалежний**: він формує текстовий кадр (`DisplayFrame`, 4 рядки UTF-8) і віддає його рендереру через інтерфейс `IDisplayRenderer`. Без заліза працює `LogRenderer` — кадр видно у серійному лозі. Драйвер реального дисплея (SSD1306, HD44780, TFT) реалізує той самий інтерфейс і підключається через `set_renderer()`.
+Модуль **апаратно-незалежний**: він ніколи не торкається пікселів, кольорів, рядків/колонок чи конкретного чипа. Він штовхає **семантичні View** (`MainView` / `MenuView` / `EditView` / `Notice`) крізь шов `IDisplayPort` і читає `caps()` backend-у. Драйвер-адаптер (`LogPort`, `At7456ePort`, `Amt630aPort`) перетворює ці View на залізо. Без заліза використовується дефолтний `LogPort` — View друкуються в серійний лог.
 
-ВИМАГАЄ: `modesp_core`. Жодного GPIO — лише SharedState.
+Цей дворівневий поділ — **ADR-002** ([docs/display/ADR-002-display-architecture.md](../../../../docs/display/ADR-002-display-architecture.md)); адаптер AMT630A приведено у відповідність до нього в **ADR-003** ([docs/display/ADR-003-amt630a-adr002-compliance.md](../../../../docs/display/ADR-003-amt630a-adr002-compliance.md)).
 
-## Як це працює
+REQUIRES: `modesp_core`. Власних GPIO немає — лише SharedState (шиною/пінами володіє backend).
+
+## Архітектура: три шари
+
+| Шар | Де | Що знає |
+|---|---|---|
+| **Абстрактний модуль** | `modules/display/` (`DisplayModule`, `MenuEngine`, `NotificationQueue`) | лише *намір* — семантичні View + `caps()`; ніколи пікселі/кольори/чіп |
+| **Адаптер порту** `XxxPort : IDisplayPort` | `modules/display/src/` (`LogPort`, `At7456ePort`, `Amt630aPort`) | View → чіп; володіє **усім layout** (через опційний `CharGridLayout`), кольором, скролом, capabilities |
+| **Переносний чіп-драйвер** | `components/modesp_osd/` (`At7456e`, `Amt630a`) | сирі регістри SPI/I²C; **0 ModESP-семантики** |
 
 ```
 manifest.json (display:) ──┐
-manifest.json (display:) ──┼→ generate_ui.py → display_screens.h (MENU_NODES, MAIN_VALUES)
+manifest.json (display:) ──┼→ generate_ui.py → display_screens.h (MENU_NODES, MENU_NODE_CAPS, MAIN_VALUES)
 manifest.json (display:) ──┘                          │
                                                       ▼
-кнопки (WebUI / MQTT / GPIO) → SharedState → DisplayModule → MenuEngine → DisplayFrame → IDisplayRenderer
+кнопки (WebUI / MQTT / GPIO) → SharedState → DisplayModule → MenuEngine → MainView/MenuView/EditView
+                                                      │
+                                          IDisplayPort (present_*, caps, set_*, as_*) → backend → чіп
 ```
 
-- **MenuEngine** — чиста логіка (host-тестована, zero heap): FSM `MAIN → MENU → EDIT`.
-- **DisplayModule** — BaseModule-обгортка: зчитує кнопки зі SharedState, тікає движок на 100 Гц, рендерить кадр лише при зміні.
+- **MenuEngine** — чиста логіка (host-тестована, zero heap): FSM `MAIN → MENU → EDIT`. Віддає семантичні View; скрол/курсор/колір рахує драйвер. Гейтить пункти меню за `caps()` (нижче).
+- **DisplayModule** — обгортка BaseModule: читає кнопки зі SharedState, тікає движок на 100 Гц, маршрутизує параметри екрана → backend, веде банер сповіщень і дає порту періодичний «пульс» `service(dt)`.
+- **CharGridLayout** — опційний host-тестований helper для *символьних* backend-ів: `MenuView` + `(cols, rows)` → сітка рядків із семантичними `RowRole`. Як роль виглядає — вирішує драйвер. Піксельні backend-и його не вживають.
 
 ## Екрани
 
 | Екран | Поведінка |
 |---|---|
-| `MAIN` | Головні значення модулів (`main_value` з маніфестів): «Термостат 22.5°C». Сторінки ротуються кожні 4 с; `[OK]` відкриває меню. |
-| `MENU` | Список: підменю модулів → пункти. Курсор `>`, прокрутка, віртуальний пункт `< Назад` / `< Вихід`. |
-| `EDIT` | Редагування значення: UP/DOWN ± `step` із clamp по `min`/`max` (зі state-декларації), для enum — перебір `options`, для bool — перемикач. `[OK]` зберігає у SharedState. |
+| `MAIN` | Головні значення модулів (`main_value` з маніфестів), напр. «Термостат 22.5°C». `[OK]` відкриває меню. |
+| `MENU` | Список: підменю модулів → пункти. Курсор `>`, скрол, віртуальний пункт `< Назад` / `< Вихід`. Пункти **фільтруються за `caps()`**. |
+| `EDIT` | Редагування значення: UP/DOWN ± `step` із клампом до `min`/`max` (з декларації стану); enum-и циклять `options`; bool перемикається. `[OK]` зберігає у SharedState. |
 
-Через 30 с без натискань — авто-повернення на `MAIN` (незбережені зміни відкидаються). Збережені значення проходять стандартний шлях SharedState: persist у NVS (якщо `persist: true`), WS-broadcast у WebUI, MQTT publish.
+Через 30 с без вводу движок авто-повертається на `MAIN` (незбережені правки відкидаються). Збережені значення йдуть стандартним шляхом SharedState: NVS-persist (якщо `persist: true`), WS-broadcast у WebUI, MQTT-publish — і потім маршрутизуються в backend через `apply_screen_params()`.
 
 ## Навігація: три кнопки
 
-Модуль читає momentary-ключі зі SharedState і самостійно скидає їх у `false` після обробки:
+Модуль читає momentary-ключі зі SharedState і скидає їх назад у `false` після обробки:
 
 | Ключ | Подія |
 |---|---|
-| `display.btn_up` | Вгору / збільшити |
-| `display.btn_down` | Вниз / зменшити |
+| `display.btn_up` | Вгору / +крок |
+| `display.btn_down` | Вниз / −крок |
 | `display.btn_select` | Вибір / зберегти |
 
-Джерело натискань — будь-яке: **WebUI** (сторінка «Дисплей» має віртуальні кнопки — повноцінний тест без заліза), **MQTT** або **фізичні кнопки** через `digital_input`/`pcf8574_input` драйвер, що пише ці ключі.
+Натискання можуть приходити звідусіль: **WebUI** (сторінка «Дисплей» має віртуальні кнопки — повний тест без заліза), **MQTT** або **фізичні кнопки** через драйвер `digital_input`/`pcf8574_input`, що пише ці ключі.
+
+## Можливості — `caps()` гейтить меню
+
+Backend повідомляє структуру `DisplayCaps`; модуль читає її один раз (`on_init`) і використовує, щоб **фільтрувати, які пункти меню показувати** — пункт оголошує потрібну можливість (`cap`) у маніфесті, а `MenuEngine` ховає його, коли backend цього не вміє. Тож той самий маніфест дає багате меню на AMT630A і скорочене на простому backend-і.
+
+| Можливість | Значення | Гейтований пункт / контрол |
+|---|---|---|
+| `has_color` | програмована палітра | колір тексту/ролей |
+| `has_backlight` | PWM-підсвітка | `display.backlight` |
+| `has_video_params` | brightness/contrast/saturation декодера | `display.brightness/contrast/saturation` |
+| `has_inputs` | вибір CVBS-входу (`as_video_inputs()`) | `display.input` |
+| `has_backdrop` | фон no-signal (сніг/синій/чорний) | `display.backdrop` |
+| `has_power` | power-gate (load-switch на GPIO, `as_power()`) | `display.power` |
+
+Структурно-чужорідні можливості доступні через zero-cost `as_*()` (повертають `nullptr`, якщо нема): `as_video_inputs()`, `as_graphic()`, `as_power()`.
 
 ## Ключі стану
 
 | Ключ | Тип | Примітки |
 |---|---|---|
-| `display.enabled` | bool | Вимикає рендер і обробку кнопок. Зберігається. |
+| `display.enabled` | bool | Вимикає рендер + обробку кнопок (підсвітка off). Persist. |
 | `display.btn_up/down/select` | bool | Momentary, самоскидаються. |
-| `display.screen` | string | Поточний екран: `main`, `menu:root`, `menu:<label>`, `edit:<label>`. |
+| `display.screen` | string | Поточний екран: `main`, `menu:<label>`, `edit:<label>`. |
+| `display.banner` / `display.banner_level` | string / int | Дзеркало активного банера сповіщень (для WebUI/MQTT). |
+| `display.backlight` | int 0–100 | PWM-підсвітка % (за `has_backlight`). Persist. |
+| `display.brightness/contrast/saturation` | int 0–100 | Video-параметри декодера (за `has_video_params`). Persist. |
+| `display.backdrop` | int (0=Сніг,1=Синій,2=Чорний) | Фон no-signal (за `has_backdrop`). Persist. |
+| `display.input` | int (0=AV1,1=AV3) | Вибір CVBS-входу (за `has_inputs`). Persist. |
+| `display.power` | bool | Power-gate живлення чіпа (за `has_power`). Persist. |
 
-## Підключення драйвера дисплея
+Сповіщення приходять як `MsgUiNotice` на шину повідомлень (ADR-001) → `NotificationQueue` (пріоритет + TTL) → `present_notice()`.
+
+## Backend-и
+
+Активний backend обирається на етапі компіляції (`idf.py menuconfig` → **ModESP Display**, Kconfig `choice`) і резолвиться у рантаймі з `bindings.json` (`{"driver":"…","role":"display_main","module":"display"}`); геометрія/піни — з `board.json`.
+
+| Backend | Чіп-драйвер | Примітки |
+|---|---|---|
+| **LogPort** (дефолт) | — | Друкує View у серійний лог. `caps()` усе false. Працює без заліза. |
+| **At7456ePort** | `modesp_osd::At7456e` (SPI) | OSD-оверлей MAX7456 на аналоговому CVBS (PAL 16×30 / NTSC 13×30). `caps()` усе false (чистий оверлей). |
+| **Amt630aPort** | `modesp_osd::Amt630a` (I²C) | Повнофункціональний: колір, апаратний масштаб per-window, 5 OSD-вікон, вибір CVBS-входу, no-signal фон, PWM-підсвітка, video-параметри, опційний power-gate. `caps()` усе true. |
+
+### Особливості AMT630A
+
+- **Конфіг:** запис `i2c_displays` у `board.json` — `cols`/`rows`, плюс `cal_x`/`cal_y` (per-panel overscan-зсув у px, застосовується до кожного OSD-вікна). `bindings.json` може додати `"settings": {"power_gpio": N}` для load-switch power-gate.
+- **Кириличний шрифт:** вантажиться у FONT RAM (16×20 1bpp) — ROM-шрифт чипа не має кирилиці. Мапа: `components/modesp_osd/include/modesp/osd/amt630a_charmap.h`. Генерується `tools/gen_osd_font.py --target amt630a`.
+- **Живлення / відновлення:** `display.power=false` ріже живлення (≈0 мА); `true` повертає живлення, і порт **внутрішньо** переініціалізує OSD (неблокуюче, chunked — через `service(dt)`), бо холодний старт губить увесь ESP-side OSD-стан.
+- **Повна довідка регістрів:** [docs/amt630a/AMT630A_control_reference.md](../../../../docs/amt630a/AMT630A_control_reference.md). Енергорежими: [docs/amt630a/AMT630A_power_modes.md](../../../../docs/amt630a/AMT630A_power_modes.md).
+
+## Підключення нового backend-у
+
+Реалізуй `IDisplayPort` (семантичний шов) — а для символьного дисплея перевикористай `CharGridLayout`:
 
 ```cpp
-#include "display/renderer.h"
+#include "display/display_port.h"
+#include "display/char_grid.h"
 
-class Ssd1306Renderer : public modesp::display::IDisplayRenderer {
+class MyPort : public modesp::display::IDisplayPort {
 public:
-    bool init() override { /* i2c init */ return true; }
-    void render(const modesp::display::DisplayFrame& f) override {
-        // f.rows[0..3] — UTF-8 рядки; намалювати і flush
+    bool init() override { /* шина/піни */ return true; }
+    modesp::display::DisplayCaps caps() const override { return {}; }   // оголоси, що вмієш
+    void present_main(const modesp::display::MainView& v) override { /* idle-екран */ }
+    void present_menu(const modesp::display::MenuView& v) override {
+        modesp::display::CharGrid g;
+        modesp::display::CharGridLayout::layout_menu(v, cols_, rows_, g);  // скрол/курсор/кламп
+        /* рендер g.lines (кожен має RowRole) */
     }
+    void present_edit(const modesp::display::EditView& v) override { /* ... */ }
+    void present_notice(const modesp::display::Notice& n) override { /* банер */ }
+    void clear_notice() override {}
+    // опційно: set_backlight/contrast/brightness/saturation/set_backdrop, as_video_inputs/as_power
 };
 ```
 
-`render()` викликається лише при зміні кадру. Кількість видимих символів визначає рендерер; рядки кадру обмежені 40 байтами UTF-8.
+`present_*` викликається лише коли View змінився (драйвер тримає власну тінь для diff). Зареєструй backend (`MODESP_REGISTER_DISPLAY(myport, &factory)`) і додай пункт Kconfig-choice. `DisplayModule` не міняється — рівно як додавання драйвера датчика/актуатора.
 
-### Готовий рендерер: AT7456E (OSD composite-оверлей)
+## Додати свій модуль у меню
 
-Фреймворк має вбудований рендерер на **AT7456E** (MAX7456-сумісний OSD-чіп) — накладає символьну сітку (PAL 16×30 / NTSC 13×30) на аналоговий composite-відеосигнал. Потрібен відеомонітор на CVBS-виході; чіп може працювати на власному internal-sync, тож екран горить і без вхідного відео.
-
-Драйвер переносний — компонент `components/modesp_osd/` (спільний для цього фреймворку і проектів-сиблінгів). Вмикається в `idf.py menuconfig` → **ModESP Display → AT7456E OSD renderer**; там же піни (CS/DATA/CLK/MISO), відеостандарт і sync. Коли опція увімкнена, `DisplayModule` за замовчуванням бере `AT7456ERenderer` замість `LogRenderer`.
-
-**Шрифт і кирилиця.** AT7456E зберігає шрифт у character-NVM (256 гліфів 12×18px). Стандартний шрифт **не має кирилиці**, тож для українського UI заливаємо власний. Розкладку визначає [osd_charmap.h](../../../../components/modesp_osd/include/modesp/osd/osd_charmap.h) (ASCII тотожно, кирилиця U+0410-044F → 0x80+, українські спецлітери Є/І/Ї/Ґ — фіксовані індекси).
-
-Шрифт генерує `tools/gen_osd_font.py` (TTF → `.mcm` у форматі MAX7456 + C-масив `osd_font_data.h`):
-
-```
-python tools/gen_osd_font.py --ttf C:/Windows/Fonts/consola.ttf --size 16 \
-                             --preview atlas.png
-```
-
-`AT7456ERenderer` вбудовує цей масив і заливає його в NVM при `init()` (sentinel-байт `OSD_FONT_SENTINEL_*` запобігає повторному прошиву — NVM має обмежений ресурс запису). Бампни sentinel у генераторі, щоб форсувати перезаливку після зміни шрифту. Параметри рендера (`--size`, `--x-off`, `--y-off`, `--threshold`, `--no-outline`) підкручуються за `--preview`-атласом.
-
-## Додавання модуля у меню
-
-У manifest.json вашого модуля — секція `display:` (повна специфікація у [manifest.md](../../02-module-author-guide/manifest.md)):
+Додай секцію `display:` у manifest.json свого модуля (повна специфікація — [manifest.md](../../02-module-author-guide/manifest.md)):
 
 ```json
 "display": {
   "main_value": {"key": "my.temp", "format": "%.1f°C"},
   "menu_label": "Мій модуль",
   "menu_items": [
-    {"label": "Уставка", "key": "my.setpoint"}
+    {"label": "Уставка", "key": "my.setpoint"},
+    {"label": "Вхід",    "key": "my.input", "cap": "inputs"}
   ]
 }
 ```
 
-Редагованість, межі, крок, одиниці та options движок бере зі `state`-декларації ключа — нічого дублювати не треба.
+Редагованість, межі, крок, одиниці й опції беруться з декларації `state` ключа — нічого не дублюється. Опційний `"cap"` ховає пункт на backend-ах без цієї можливості.
 
 ## Тести
 
-- `tools/tests/test_generator.py::TestDisplayScreensGenerator` — генерація дерева (pytest).
-- `tests/host/test_display_menu.cpp` — 16 doctest-кейсів MenuEngine: навігація, clamp, enum/bool, idle-timeout. Запуск: `python -m pytest tools/tests/test_cpp_host.py -v`.
+- `tools/tests/test_generator.py::TestDisplayScreensGenerator` — генерація дерева + `MENU_NODE_CAPS` (pytest).
+- `tests/host/test_display_menu.cpp` — doctest-кейси `MenuEngine`: навігація, клампинг, enum/bool, idle-timeout, caps-gating.
+- `tests/host/test_char_grid.cpp` / `test_notification_queue.cpp` / `test_display_module.cpp` — layout, черга банерів, glue. Запуск: `python -m pytest tools/tests/test_cpp_host.py -v`.
