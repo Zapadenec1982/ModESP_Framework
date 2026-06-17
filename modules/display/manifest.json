@@ -189,12 +189,12 @@
   "display": {
     "menu_label": "Екран",
     "menu_items": [
-      {"label": "Підсвітка",   "key": "display.backlight"},
-      {"label": "Яскравість",  "key": "display.brightness"},
-      {"label": "Контраст",    "key": "display.contrast"},
-      {"label": "Насиченість", "key": "display.saturation"},
-      {"label": "Фон",         "key": "display.backdrop"},
-      {"label": "Вхід",        "key": "display.input"}
+      {"label": "Підсвітка",   "key": "display.backlight",  "cap": "backlight"},
+      {"label": "Яскравість",  "key": "display.brightness", "cap": "video_params"},
+      {"label": "Контраст",    "key": "display.contrast",   "cap": "video_params"},
+      {"label": "Насиченість", "key": "display.saturation", "cap": "video_params"},
+      {"label": "Фон",         "key": "display.backdrop",   "cap": "backdrop"},
+      {"label": "Вхід",        "key": "display.input",      "cap": "inputs"}
     ]
   }
 }

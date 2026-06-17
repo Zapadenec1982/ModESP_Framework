@@ -57,6 +57,8 @@ DisplayModule::DisplayModule()
           modesp::gen::MENU_ROOT_COUNT,
           modesp::gen::MAIN_VALUES,
           modesp::gen::MAIN_VALUES_COUNT,
+          modesp::gen::MENU_NODE_CAPS,   // capability-gate складу меню (ADR-003 §3.3)
+          {},                            // caps — оновлюються set_caps() у on_init (після resolve порту)
       })
     , port_(&s_log_port)   // fallback; bind_display() підмінює за bindings.json
 {}
@@ -102,6 +104,7 @@ bool DisplayModule::on_init() {
     }
 
     caps_ = port_->caps();   // A2: можливості backend — для маршрутизації параметрів екрана
+    engine_.set_caps(caps_); // ADR-003 §3.3: гейтимо склад меню (показуємо лише доступні пункти)
 
     ESP_LOGI(TAG, "Initialized (%u menu nodes, %u main values)",
              static_cast<unsigned>(modesp::gen::MENU_NODES_COUNT),
