@@ -461,9 +461,12 @@ bool Amt630a::select_input(uint8_t n) {
 
 void Amt630a::set_backdrop(Backdrop mode) {
     // No-signal backdrop (control reference §1a; OEM apply_backdrop CLEAN:3044, ENGELS:5642-5686).
-    // Малює банк VIDEO (0x5A). FED5=0xB1 глушить АВТОномний апаратний сірий сніг чіпа, щоб ним
-    // керував FFB0 (без цього чіп сам малює сніг при втраті sync, ігноруючи FFB0).
-    amt_w(amt_bank::AV, 0xD5, 0xB1);
+    // FED5 = чутливість декодера / АВТОномний сірий сніг на no-signal:
+    //   SNOW      → 0x00 = чіп САМ малює «телевізійний» сірий сніг на no-signal (видимий сніг);
+    //   BLUE/BLACK→ 0xB1 = глушимо автономний сніг, щоб показати ЧИСТИЙ колір фону.
+    // (Раніше завжди 0xB1 → у SNOW глушило видимий сніг. Bench-tuning, control reference §1a.)
+    const bool snow = (mode == Backdrop::SNOW);
+    amt_w(amt_bank::AV, 0xD5, snow ? 0x00 : 0xB1);
 
     // Колір фону YCbCr (FFCE/CF/D0): BLUE=13,DD,72 ; BLACK/SNOW=00,80,80.
     const bool blue = (mode == Backdrop::BLUE);
@@ -485,9 +488,9 @@ void Amt630a::set_backdrop(Backdrop mode) {
     // SNOW/BLUE → 0x4F show-path (живе відео+OSD; фон видно лише коли НЕМАЄ сигналу).
     const uint8_t ffd2 = (mode == Backdrop::BLACK) ? 0x54 : 0x4F;
     amt_w(amt_bank::VIDEO, 0xD2, ffd2);
-    ESP_LOGI(TAG, "set_backdrop(%s): FFB0 snow=%d color=%s FFD2=0x%02X",
-             mode == Backdrop::SNOW ? "SNOW" : (blue ? "BLUE" : "BLACK"),
-             mode == Backdrop::SNOW ? 1 : 0, blue ? "BLUE" : "BLACK", ffd2);
+    ESP_LOGI(TAG, "set_backdrop(%s): FED5=0x%02X FFB0 snow=%d color=%s FFD2=0x%02X",
+             snow ? "SNOW" : (blue ? "BLUE" : "BLACK"),
+             snow ? 0x00 : 0xB1, snow ? 1 : 0, blue ? "BLUE" : "BLACK", ffd2);
 }
 
 void Amt630a::display_on(bool on) {
