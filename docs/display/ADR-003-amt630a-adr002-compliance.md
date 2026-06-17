@@ -1,6 +1,6 @@
 # ADR-003 — Приведення реалізації AMT630A до відповідності ADR-002 (чистий шов + 3 шари)
 
-- **Статус:** ЧЕРНЕТКА — на рев'ю архітектора (код НЕ змінюється до затвердження)
+- **Статус:** ПРИЙНЯТО + РЕАЛІЗОВАНО (кроки 1–4, гілка `refactor/display-adr002-compliance`; білд+host-тести зелені)
 - **Дата:** 2026-06-16
 - **Контекст:** ModESP Framework (ESP-IDF, C++17 + ETL, zero-heap у hot-path, single main-loop task)
 - **Спирається на:** [ADR-002](ADR-002-display-architecture.md) (дворівнева display-архітектура, семантичний шов `IDisplayPort`), [REVIEW-display-subsystem](REVIEW-display-subsystem.md) (борг arch-1/2/5/6)
