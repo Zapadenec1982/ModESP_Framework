@@ -156,7 +156,13 @@ nvs_handle_t batch_open(const char* ns, bool readonly) {
     nvs_handle_t handle = 0;
     esp_err_t err = nvs_open(ns, readonly ? NVS_READONLY : NVS_READWRITE, &handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS batch_open '%s' failed: %s", ns, esp_err_to_name(err));
+        // Read-only open of a namespace that was never written yet returns
+        // ESP_ERR_NVS_NOT_FOUND — expected on first boot (no saved data), not an error.
+        if (readonly && err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGD(TAG, "NVS namespace '%s' not created yet (no saved data)", ns);
+        } else {
+            ESP_LOGE(TAG, "NVS batch_open '%s' failed: %s", ns, esp_err_to_name(err));
+        }
         return 0;
     }
     return handle;
