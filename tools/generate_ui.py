@@ -465,7 +465,7 @@ VALID_HARDWARE_TYPES = {
     "gpio_output", "gpio_input", "onewire_bus",
     "adc_channel", "pwm_channel", "i2c_bus",
     "i2c_expander_output", "i2c_expander_input",
-    "i2c_display",
+    "i2c_display", "i2s_bus",
 }
 # Категорії, що мають компільований driver-компонент у drivers/ (Kconfig toggle +
 # register-all). Решта (display) — лише маніфест для валідації bindings + UI;
@@ -622,6 +622,7 @@ BOARD_SECTION_TO_HW_TYPE = {
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
     "i2c_displays": "i2c_display",
+    "i2s_buses": "i2s_bus",
 }
 
 

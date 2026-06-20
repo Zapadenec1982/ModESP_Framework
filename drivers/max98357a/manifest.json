@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "driver": "max98357a",
+  "description": "MAX98357A I²S Class-D аудіо-підсилювач — аларм-сигналізатор (тон-генератор)",
+  "category": "actuator",
+  "hardware_type": "i2s_bus",
+  "requires_address": false,
+  "multiple_per_bus": false,
+  "provides": {"type": "bool"},
+  "settings": [
+    {"key": "tone_hz", "type": "int", "default": 2000, "min": 200, "max": 8000, "step": 50, "unit": "Гц", "description": "Частота тону аларму"},
+    {"key": "volume",  "type": "int", "default": 70,   "min": 0,   "max": 100,  "step": 5,  "unit": "%",  "description": "Гучність"},
+    {"key": "pattern", "type": "int", "default": 1,    "min": 0,   "max": 3,    "step": 1,              "description": "Патерн: 0=безперервно, 1=повільні біпи, 2=швидкі біпи, 3=подвійні біпи"}
+  ]
+}

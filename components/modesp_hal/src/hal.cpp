@@ -49,9 +49,19 @@ bool HAL::init(const BoardConfig& config) {
         }
     }
 
-    ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_exp",
+    // I2S buses (тільки якщо є в config) — HAL лише зберігає конфіг, канал
+    // створює аудіо-драйвер (як ADC oneshot).
+    if (!config.i2s_buses.empty()) {
+        if (!init_i2s(config)) {
+            ESP_LOGE(TAG, "I2S init failed");
+            return false;
+        }
+    }
+
+    ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_exp, %d i2s",
              (int)gpio_output_count_, (int)onewire_count_,
-             (int)gpio_input_count_, (int)adc_count_, (int)i2c_expander_count_);
+             (int)gpio_input_count_, (int)adc_count_, (int)i2c_expander_count_,
+             (int)i2s_count_);
     return true;
 }
 
@@ -438,6 +448,48 @@ I2CExpanderInputConfig* HAL::find_expander_input(etl::string_view id) {
         if (cfg.id.size() == id.size() &&
             etl::string_view(cfg.id.c_str(), cfg.id.size()) == id) {
             return &cfg;
+        }
+    }
+    return nullptr;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// I2S bus init — HAL stores config only; the audio driver creates the
+// i2s_chan_handle_t (DMA + feeder task belong to the driver, like ADC oneshot).
+// ═══════════════════════════════════════════════════════════════
+
+bool HAL::init_i2s(const BoardConfig& config) {
+    i2s_count_ = 0;
+
+    for (const auto& cfg : config.i2s_buses) {
+        if (i2s_count_ >= MAX_I2S_BUSES) {
+            ESP_LOGW(TAG, "I2S bus limit reached (%d)", (int)MAX_I2S_BUSES);
+            break;
+        }
+
+        auto& res = i2s_buses_[i2s_count_];
+        res.id             = cfg.id;
+        res.bclk           = cfg.bclk;
+        res.ws             = cfg.ws;
+        res.dout           = cfg.dout;
+        res.sd             = cfg.sd;
+        res.sample_rate_hz = cfg.sample_rate_hz ? cfg.sample_rate_hz : 16000;
+        res.initialized    = true;
+        i2s_count_++;
+
+        ESP_LOGI(TAG, "  I2S '%s' BCLK=%d WS=%d DOUT=%d SD=%d @ %lu Hz",
+                 cfg.id.c_str(), (int)cfg.bclk, (int)cfg.ws, (int)cfg.dout,
+                 (int)cfg.sd, (unsigned long)res.sample_rate_hz);
+    }
+
+    return true;
+}
+
+I2SBusResource* HAL::find_i2s_bus(etl::string_view id) {
+    for (size_t i = 0; i < i2s_count_; i++) {
+        if (i2s_buses_[i].id.size() == id.size() &&
+            etl::string_view(i2s_buses_[i].id.c_str(), i2s_buses_[i].id.size()) == id) {
+            return &i2s_buses_[i];
         }
     }
     return nullptr;

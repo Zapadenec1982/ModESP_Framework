@@ -8,5 +8,8 @@
   ],
   "i2c_displays": [
     {"id": "disp_0", "bus": "i2c_0", "chip": "amt630a", "cols": 20, "rows": 10, "label": "AMT630A OSD/TFT (ZCD-630A-4.3D)"}
+  ],
+  "i2s_buses": [
+    {"id": "i2s_0", "bclk": 15, "ws": 16, "dout": 7, "sd": 17, "sample_rate_hz": 16000, "label": "MAX98357A аларм-сигналізатор (SD=GPIO17 hardware-mute)"}
   ]
 }
