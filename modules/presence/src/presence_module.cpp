@@ -46,7 +46,10 @@ void PresenceModule::on_update(uint32_t dt_ms) {
         gated = nearest > static_cast<float>(max_d);
     }
 
-    const bool effective = enabled && raw && !gated;
+    // sensor_ok gate: when the radar disconnects, the driver's read() goes stale
+    // and EquipmentBase keeps publishing the LAST equipment.presence value. Without
+    // this gate presence.detected would latch ON forever on a dead sensor.
+    const bool effective = enabled && sensor_ok && raw && !gated;
 
     // Occupancy hold: keep detected for hold_sec after the target clears.
     const uint32_t hold_ms = static_cast<uint32_t>(read_int("presence.hold_sec", 5)) * 1000u;
