@@ -240,6 +240,10 @@ extern "C" void app_main(void)
     // board.json via HAL — same board+bindings abstraction as drivers.
     display.bind_display(bindings, hal);
 
+    // Audio sink: resolved from bindings.json (role audio_main / driver) via
+    // AudioBackendRegistry, pins from board.json i2s_buses — same pattern.
+    player.bind_audio(bindings, hal);
+
     // ── Step 7a: Scenario engine wiring (Phase 3 rebuild) ──
     //
     // Stack (constexpr-known у static locals, lifetime = program):

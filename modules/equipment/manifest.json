@@ -5,8 +5,7 @@
 
   "requires": [
     {"role": "air_temp",    "type": "sensor",   "driver": ["ds18b20", "ntc"], "label": "Temperature sensor"},
-    {"role": "actuator_1",  "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Actuator 1", "optional": true},
-    {"role": "alarm_sound", "type": "actuator", "driver": ["max98357a"], "label": "Alarm sounder", "optional": true}
+    {"role": "actuator_1",  "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Actuator 1", "optional": true}
   ],
 
   "state": {

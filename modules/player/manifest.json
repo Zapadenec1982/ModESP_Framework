@@ -1,0 +1,84 @@
+{
+  "manifest_version": 1,
+  "module": "player",
+  "version": "1.0.0",
+  "description": "Аудіо-плеєр — аларм-тони та WAV-кліпи (LittleFS) через I²S-підсилювач",
+  "priority": 3,
+
+  "requires": [
+    {
+      "role": "audio_main",
+      "type": "audio",
+      "driver": "max98357a",
+      "label": "Аудіо-вихід",
+      "optional": true
+    }
+  ],
+
+  "state": {
+    "player.enabled": {
+      "type": "bool", "access": "readwrite", "default": true, "persist": true,
+      "on_label": "ON", "off_label": "OFF", "description": "Звук увімкнено"
+    },
+    "player.volume": {
+      "type": "int", "access": "readwrite", "default": 70, "min": 0, "max": 100, "step": 5,
+      "unit": "%", "persist": true, "mqtt_subscribe": true, "description": "Гучність"
+    },
+    "player.play": {
+      "type": "string", "access": "readwrite", "mqtt_subscribe": true,
+      "description": "Команда: 'alarm' / 'beep' / назва WAV-кліпа (момент., самоскид.)"
+    },
+    "player.stop": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "description": "Зупинити відтворення (momentary, самоскид.)"
+    },
+    "player.btn_alarm": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "description": "Тест: аларм-тон (momentary)"
+    },
+    "player.btn_beep": {
+      "type": "bool", "access": "readwrite", "default": false,
+      "description": "Тест: короткий біп (momentary)"
+    },
+    "player.playing": {
+      "type": "bool", "access": "read",
+      "on_label": "Грає", "off_label": "Тиша", "description": "Стан відтворення"
+    },
+    "player.clip": {
+      "type": "string", "access": "read", "description": "Поточний/останній кліп"
+    }
+  },
+
+  "mqtt": {
+    "publish": ["player.playing", "player.clip"],
+    "subscribe": ["player.play", "player.volume", "player.enabled"]
+  },
+
+  "ui": {
+    "page": "Аудіо",
+    "icon": "volume-2",
+    "cards": [
+      {
+        "title": "Плеєр",
+        "subtitle": "Стан відтворення",
+        "layout": "single",
+        "widgets": [
+          {"key": "player.playing", "widget": "indicator"},
+          {"key": "player.clip", "widget": "value"},
+          {"key": "player.volume", "widget": "slider"},
+          {"key": "player.enabled", "widget": "toggle"}
+        ]
+      },
+      {
+        "title": "Тест",
+        "subtitle": "Перевірка без файлів (вбудовані тони)",
+        "layout": "single",
+        "widgets": [
+          {"key": "player.btn_alarm", "widget": "button"},
+          {"key": "player.btn_beep", "widget": "button"},
+          {"key": "player.stop", "widget": "button"}
+        ]
+      }
+    ]
+  }
+}

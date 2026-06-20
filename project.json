@@ -8,7 +8,8 @@
     "simple_thermo",
     "abs_test",
     "display",
-    "presence"
+    "presence",
+    "player"
   ],
   "system": {
     "device_name": "ModESP",

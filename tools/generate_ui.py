@@ -460,7 +460,7 @@ class ManifestLoader:
 # ═══════════════════════════════════════════════════════════════
 
 # Допустимі категорії та hardware types для драйверів
-VALID_DRIVER_CATEGORIES = {"sensor", "actuator", "io", "display"}
+VALID_DRIVER_CATEGORIES = {"sensor", "actuator", "io", "display", "audio"}
 VALID_HARDWARE_TYPES = {
     "gpio_output", "gpio_input", "onewire_bus",
     "adc_channel", "pwm_channel", "i2c_bus",
@@ -469,8 +469,9 @@ VALID_HARDWARE_TYPES = {
     "ble",
 }
 # Категорії, що мають компільований driver-компонент у drivers/ (Kconfig toggle +
-# register-all). Решта (display) — лише маніфест для валідації bindings + UI;
-# код backend-у живе у своєму модулі (modules/display, CONFIG_MODESP_DISPLAY_*).
+# register-all). Решта (display/audio) — лише маніфест для валідації bindings + UI;
+# код backend-у живе у своєму модулі (modules/display CONFIG_MODESP_DISPLAY_*,
+# modules/player CONFIG_MODESP_AUDIO_*).
 DRIVER_COMPONENT_CATEGORIES = {"sensor", "actuator", "io"}
 VALID_KEY_RE = re.compile(r'^[a-z0-9_]+$')
 
