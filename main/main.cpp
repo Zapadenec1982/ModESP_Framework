@@ -57,6 +57,11 @@
   #include "modesp/net/mqtt_service.h"
 #endif
 
+// BLE transport service (optional, compile-time Kconfig toggle — menu "ModESP BLE")
+#if defined(CONFIG_MODESP_BLE_ENABLE)
+  #include "modesp/ble/ble_service.h"
+#endif
+
 // Module includes + instances + registration (auto-generated from project.json)
 #include "module_includes.h"
 
@@ -103,6 +108,11 @@ static modesp::scenario::ContinuousRegistry scenario_continuous;
 static modesp::AwsIotService   cloud_service;
 #else
 static modesp::MqttService     cloud_service;
+#endif
+
+// BLE transport (optional — single NimBLE host owner)
+#if defined(CONFIG_MODESP_BLE_ENABLE)
+static modesp::BleService      ble_service;
 #endif
 
 // Module instances (auto-generated from project.json)
@@ -198,6 +208,15 @@ extern "C" void app_main(void)
     app.modules().register_module(wifi_service);
     cloud_service.set_state(&app.state());
     app.modules().register_module(cloud_service);
+
+    // BLE transport (optional) — after Wi-Fi so NimBLE host inits after the Wi-Fi
+    // stack (coexist init order, docs/ble/ipixel_nimble_spec.md §2.5).
+#if defined(CONFIG_MODESP_BLE_ENABLE)
+#if defined(CONFIG_MODESP_BLE_PROVISIONING)
+    ble_service.set_wifi(&wifi_service);   // provisioning: save creds + trigger reconnect
+#endif
+    app.modules().register_module(ble_service);
+#endif
 
     // ── Step 5: Initialize HAL (GPIO setup) ──
     if (!hal.init(board_cfg)) {

@@ -11,5 +11,8 @@
   ],
   "i2s_buses": [
     {"id": "i2s_0", "bclk": 15, "ws": 16, "dout": 7, "sd": 17, "sample_rate_hz": 16000, "label": "MAX98357A аларм-сигналізатор (SD=GPIO17 hardware-mute)"}
+  ],
+  "ble_devices": [
+    {"id": "xiaomi_room", "mac": "a4:c1:38:b4:dc:11", "format": "auto", "label": "Xiaomi LYWSD03MMC (pvvx/BTHome) — temp/hum/battery"}
   ]
 }

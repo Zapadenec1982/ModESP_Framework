@@ -3,6 +3,9 @@
   "bindings": [
     {"hardware": "disp_0", "driver": "amt630a", "role": "display_main", "module": "display"},
     {"hardware": "i2s_0", "driver": "max98357a", "role": "alarm_sound", "module": "equipment",
-     "settings": {"tone_hz": 2000, "volume": 70, "pattern": 1}}
+     "settings": {"tone_hz": 2000, "volume": 70, "pattern": 1}},
+    {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_temp",  "module": "equipment", "address": "temperature"},
+    {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_humid", "module": "equipment", "address": "humidity"},
+    {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_batt",  "module": "equipment", "address": "battery"}
   ]
 }

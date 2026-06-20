@@ -1,0 +1,33 @@
+{
+  "manifest_version": 1,
+  "driver": "ble_xiaomi_th",
+  "description": "Xiaomi LYWSD03MMC (pvvx/ATC/BTHome) BLE-observer темп/вологість/батарея",
+  "category": "sensor",
+  "hardware_type": "ble",
+  "requires_address": true,
+  "multiple_per_bus": true,
+  "provides": {"type": "float", "description": "температура °C / вологість % / батарея % залежно від address-каналу"},
+  "_address_channels": {
+    "_note": "Поле 'address' у bindings обирає величину; один MAC (board.json ble_devices) живить кілька ролей.",
+    "temperature": "температура, °C",
+    "humidity": "вологість, %",
+    "battery": "заряд батареї, %"
+  },
+  "settings": [
+    {"key": "stale_ms", "type": "int", "default": 60000, "min": 5000, "max": 600000, "step": 1000, "unit": "мс", "description": "Без adv-кадру довше — датчик несправний", "persist": true}
+  ],
+  "ui": {
+    "page": "Налаштування датчиків",
+    "page_id": "driver_settings",
+    "access_level": "service",
+    "cards": [
+      {
+        "title": "BLE Xiaomi: {{hardware_id}}",
+        "instance_per_binding": true,
+        "widgets": [
+          {"setting": "stale_ms", "widget": "number_input"}
+        ]
+      }
+    ]
+  }
+}

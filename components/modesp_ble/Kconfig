@@ -1,0 +1,42 @@
+menu "ModESP BLE"
+
+    config MODESP_BLE_ENABLE
+        bool "Enable BLE (NimBLE) support"
+        default n
+        select BT_ENABLED
+        select ESP_COEX_SW_COEXIST_ENABLE if ESP_WIFI_ENABLED
+        help
+            Master switch for the modesp_ble component (single NimBLE host owner).
+            Pulls in the Bluetooth stack + Wi-Fi/BLE software coexistence.
+
+            The NimBLE host (vs Bluedroid), core pinning and link buffers are set in
+            sdkconfig.defaults.esp32s3 — those symbols are inert unless this option
+            selects BT_ENABLED, so non-BLE builds are unaffected.
+
+            Sub-features below compile independently (granular flash cost per board).
+
+    config MODESP_BLE_PROVISIONING
+        bool "BLE Wi-Fi/cloud provisioning (GATT)"
+        depends on MODESP_BLE_ENABLE
+        default n
+        help
+            GATT service to write Wi-Fi credentials / cloud config into NVS from a
+            phone during headless setup. Reuses wifi_service reconnect.
+
+    config MODESP_BLE_GATT_SERVER
+        bool "BLE telemetry/control GATT server (SharedState mirror)"
+        depends on MODESP_BLE_ENABLE
+        default n
+        help
+            GATT server exposing selected SharedState keys for local read (telemetry)
+            and write (setpoints) without Wi-Fi. Manifest-driven key selection.
+
+    config MODESP_BLE_CENTRAL
+        bool "BLE central (scan external sensors / connect devices)"
+        depends on MODESP_BLE_ENABLE
+        default n
+        help
+            Passive-scan observer (pvvx Xiaomi, BTHome, HolyIOT beacons) + optional
+            connect/GATT (iPixel LED panel). Feeds BLE drivers (hardware_type "ble").
+
+endmenu
