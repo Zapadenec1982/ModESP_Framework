@@ -1,0 +1,39 @@
+{
+  "manifest_version": 1,
+  "driver": "ld2410b",
+  "description": "HLK-LD2410B 24GHz mmWave радар присутності (UART 256000)",
+  "category": "sensor",
+  "hardware_type": "uart_bus",
+  "requires_address": false,
+  "multiple_per_bus": true,
+  "provides": {"type": "float", "description": "presence 0/1, або дистанція (см) / енергія (0-100) залежно від address-каналу"},
+  "_address_channels": {
+    "_note": "Поле 'address' у bindings обирає, яку величину віддає read(). Один фізичний LD2410b (одна UART-шина) може живити кілька ролей з різними address.",
+    "": "presence — є ціль (0/1), default",
+    "presence": "є ціль рух+статика (0/1)",
+    "moving": "дистанція рухомої цілі, см",
+    "static": "дистанція статичної цілі, см",
+    "detect": "дистанція виявлення, см",
+    "moving_energy": "енергія рухомої цілі, 0-100",
+    "static_energy": "енергія статичної цілі, 0-100"
+  },
+  "settings": [
+    {"key": "presence_hold_ms", "type": "int", "default": 2000, "min": 0,   "max": 30000, "step": 100, "unit": "мс", "description": "Утримання 'присутній' після зникнення цілі (анти-флап)", "persist": true},
+    {"key": "timeout_ms",       "type": "int", "default": 2000, "min": 200, "max": 10000, "step": 100, "unit": "мс", "description": "Без кадру довше — датчик несправний", "persist": true}
+  ],
+  "ui": {
+    "page": "Налаштування датчиків",
+    "page_id": "driver_settings",
+    "access_level": "service",
+    "cards": [
+      {
+        "title": "LD2410b: {{hardware_id}}",
+        "instance_per_binding": true,
+        "widgets": [
+          {"setting": "presence_hold_ms", "widget": "number_input"},
+          {"setting": "timeout_ms",       "widget": "number_input"}
+        ]
+      }
+    ]
+  }
+}

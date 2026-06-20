@@ -53,16 +53,25 @@ public:
     /// Find an expander input config by hardware ID (e.g. "din_1")
     I2CExpanderInputConfig*    find_expander_input(etl::string_view id);
 
+    /// Find a UART bus resource by hardware ID (e.g. "uart_1").
+    /// HAL owns the installed UART driver; callers read via uart_read_bytes(port).
+    UartBusResource*           find_uart_bus(etl::string_view id);
+
     /// Find an I2S bus config by hardware ID (e.g. "i2s_0").
     /// HAL holds only pins/sample-rate/SD; the audio driver creates the I2S
     /// channel and owns its DMA buffers + feeder task (mirrors ADC ownership).
     I2SBusResource*            find_i2s_bus(etl::string_view id);
+
+    /// Find a BLE-observer device config by hardware ID (e.g. "ble_xiaomi_bthome").
+    /// HAL holds only the MAC; modesp_ble (BleCentral) owns decode/cache.
+    BleDeviceConfig*           find_ble_device(etl::string_view id);
 
     size_t gpio_output_count()  const { return gpio_output_count_; }
     size_t onewire_count()      const { return onewire_count_; }
     size_t gpio_input_count()   const { return gpio_input_count_; }
     size_t adc_count()          const { return adc_count_; }
     size_t i2c_expander_count() const { return i2c_expander_count_; }
+    size_t uart_count()         const { return uart_count_; }
     size_t i2s_count()          const { return i2s_count_; }
 
 private:
@@ -75,7 +84,9 @@ private:
     etl::vector<I2CExpanderOutputConfig, MAX_EXPANDER_IOS> expander_outputs_;
     etl::vector<I2CExpanderInputConfig, MAX_EXPANDER_IOS>  expander_inputs_;
     etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>        i2c_displays_;
+    etl::array<UartBusResource, MAX_UART_BUSES>           uart_buses_;
     etl::array<I2SBusResource, MAX_I2S_BUSES>            i2s_buses_;
+    etl::vector<BleDeviceConfig, MAX_BLE_DEVICES>        ble_devices_;
 
     size_t gpio_output_count_  = 0;
     size_t onewire_count_      = 0;
@@ -83,6 +94,7 @@ private:
     size_t adc_count_          = 0;
     size_t i2c_bus_count_      = 0;
     size_t i2c_expander_count_ = 0;
+    size_t uart_count_         = 0;
     size_t i2s_count_          = 0;
 
     bool init_gpio_outputs(const BoardConfig& config);
@@ -91,6 +103,7 @@ private:
     bool init_adc(const BoardConfig& config);
     bool init_i2c(const BoardConfig& config);
     bool init_i2c_expanders(const BoardConfig& config);
+    bool init_uart(const BoardConfig& config);
     bool init_i2s(const BoardConfig& config);
 };
 

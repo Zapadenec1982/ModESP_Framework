@@ -412,6 +412,84 @@ bool ConfigService::parse_board_json() {
                 }
             }
             i = j;
+        } else if (jsoneq(buf, &tokens[i], "uart_buses")) {
+            if (tokens[i + 1].type != JSMN_ARRAY) {
+                ESP_LOGE(TAG, "board.json: 'uart_buses' is not array");
+                return false;
+            }
+            int arr_size = tokens[i + 1].size;
+            int j = i + 2;
+
+            for (int elem = 0; elem < arr_size; elem++) {
+                if (tokens[j].type != JSMN_OBJECT) {
+                    ESP_LOGE(TAG, "board.json: uart_bus entry is not object");
+                    return false;
+                }
+                int obj_keys = tokens[j].size;
+                j++;
+
+                UartBusConfig cfg = {};
+                for (int k = 0; k < obj_keys; k++) {
+                    if (jsoneq(buf, &tokens[j], "id")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.id = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "port")) {
+                        cfg.port = tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "tx")) {
+                        cfg.tx = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "rx")) {
+                        cfg.rx = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "baud")) {
+                        cfg.baud_rate = (uint32_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "rx_buffer")) {
+                        cfg.rx_buffer = (uint16_t)tok_to_int(buf, &tokens[j + 1]);
+                    }
+                    j += 2;
+                }
+                if (!board_config_.uart_buses.full()) {
+                    board_config_.uart_buses.push_back(cfg);
+                }
+            }
+            i = j;
+        } else if (jsoneq(buf, &tokens[i], "i2s_buses")) {
+            if (tokens[i + 1].type != JSMN_ARRAY) {
+                ESP_LOGE(TAG, "board.json: 'i2s_buses' is not array");
+                return false;
+            }
+            int arr_size = tokens[i + 1].size;
+            int j = i + 2;
+
+            for (int elem = 0; elem < arr_size; elem++) {
+                if (tokens[j].type != JSMN_OBJECT) {
+                    ESP_LOGE(TAG, "board.json: i2s_bus entry is not object");
+                    return false;
+                }
+                int obj_keys = tokens[j].size;
+                j++;
+
+                I2SBusConfig cfg = {};   // defaults: sd=-1, sample_rate_hz=16000
+                for (int k = 0; k < obj_keys; k++) {
+                    if (jsoneq(buf, &tokens[j], "id")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.id = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "bclk")) {
+                        cfg.bclk = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "ws")) {
+                        cfg.ws = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "dout")) {
+                        cfg.dout = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "sd")) {
+                        cfg.sd = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "sample_rate_hz")) {
+                        cfg.sample_rate_hz = (uint32_t)tok_to_int(buf, &tokens[j + 1]);
+                    }
+                    j += 2;
+                }
+                if (!board_config_.i2s_buses.full()) {
+                    board_config_.i2s_buses.push_back(cfg);
+                }
+            }
+            i = j;
         } else if (jsoneq(buf, &tokens[i], "i2c_expanders")) {
             if (tokens[i + 1].type != JSMN_ARRAY) {
                 ESP_LOGE(TAG, "board.json: 'i2c_expanders' is not array");
@@ -568,9 +646,9 @@ bool ConfigService::parse_board_json() {
                 }
             }
             i = j;
-        } else if (jsoneq(buf, &tokens[i], "i2s_buses")) {
+        } else if (jsoneq(buf, &tokens[i], "ble_devices")) {
             if (tokens[i + 1].type != JSMN_ARRAY) {
-                ESP_LOGE(TAG, "board.json: 'i2s_buses' is not array");
+                ESP_LOGE(TAG, "board.json: 'ble_devices' is not array");
                 return false;
             }
             int arr_size = tokens[i + 1].size;
@@ -578,32 +656,25 @@ bool ConfigService::parse_board_json() {
 
             for (int elem = 0; elem < arr_size; elem++) {
                 if (tokens[j].type != JSMN_OBJECT) {
-                    ESP_LOGE(TAG, "board.json: i2s_bus entry is not object");
+                    ESP_LOGE(TAG, "board.json: ble_device entry is not object");
                     return false;
                 }
                 int obj_keys = tokens[j].size;
                 j++;
 
-                I2SBusConfig cfg = {};   // defaults: sd=-1, sample_rate_hz=16000
+                BleDeviceConfig cfg = {};
                 for (int k = 0; k < obj_keys; k++) {
                     if (jsoneq(buf, &tokens[j], "id")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.id = tmp;
-                    } else if (jsoneq(buf, &tokens[j], "bclk")) {
-                        cfg.bclk = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
-                    } else if (jsoneq(buf, &tokens[j], "ws")) {
-                        cfg.ws = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
-                    } else if (jsoneq(buf, &tokens[j], "dout")) {
-                        cfg.dout = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
-                    } else if (jsoneq(buf, &tokens[j], "sd")) {
-                        cfg.sd = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
-                    } else if (jsoneq(buf, &tokens[j], "sample_rate_hz")) {
-                        cfg.sample_rate_hz = (uint32_t)tok_to_int(buf, &tokens[j + 1]);
+                    } else if (jsoneq(buf, &tokens[j], "mac")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.mac = tmp;
                     }
                     j += 2;
                 }
-                if (!board_config_.i2s_buses.full()) {
-                    board_config_.i2s_buses.push_back(cfg);
+                if (!board_config_.ble_devices.full()) {
+                    board_config_.ble_devices.push_back(cfg);
                 }
             }
             i = j;

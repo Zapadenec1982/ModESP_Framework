@@ -34,8 +34,10 @@ static constexpr size_t MAX_ACTUATORS      = 8;
 static constexpr size_t MAX_I2C_BUSES      = 2;
 static constexpr size_t MAX_I2C_EXPANDERS  = 4;
 static constexpr size_t MAX_I2C_DISPLAYS   = 2;
+static constexpr size_t MAX_UART_BUSES     = 2;   // UART0 — консоль; лишаються 1/2
 static constexpr size_t MAX_I2S_BUSES      = 1;   // I2S TX (аудіо: MAX98357A тощо)
 static constexpr size_t MAX_EXPANDER_IOS   = 16;   // Outputs + Inputs через expanders
+static constexpr size_t MAX_BLE_DEVICES    = 8;    // BLE-observer broadcast sensors
 static constexpr size_t MAX_BINDING_SETTINGS = 6;  // per-binding driver settings
 
 // ═══════════════════════════════════════════════════════════════
@@ -116,10 +118,23 @@ struct I2CDisplayConfig {
     uint8_t rows;
 };
 
-/// I²S-шина (аудіо-вихід: MAX98357A Class-D amp тощо). HAL зберігає лише конфіг
-/// (піни + sample_rate + SD-пін) — фактичний I2S-канал створює драйвер, бо handle
-/// (i2s_chan_handle_t) разом із DMA-буферами та фоновим audio-таском належить
-/// драйверу (як ADC oneshot). HAL лишається без залежності від driver/i2s_std.h.
+/// UART-шина (серійний потоковий пристрій: радар присутності, PM-сенсор тощо).
+/// HAL встановлює драйвер UART і володіє портом; driver лише читає байти.
+/// port: номер периферії UART (0 — консоль, тож лишаються 1/2).
+struct UartBusConfig {
+    HalId      id;                     // "uart_1" (hardware_id для bindings)
+    int        port      = 1;          // UART_NUM_1 / UART_NUM_2
+    gpio_num_t tx        = GPIO_NUM_NC; // MCU TX → пристрій RX (-1 якщо не підключено)
+    gpio_num_t rx        = GPIO_NUM_NC; // MCU RX ← пристрій TX
+    uint32_t   baud_rate = 256000;     // LD2410 за замовчуванням 256000 8N1
+    uint16_t   rx_buffer = 256;        // RX ring buffer (мін. 256 > HW FIFO)
+};
+
+/// I²S-шина (аудіо-вихід: MAX98357A Class-D amp тощо). На відміну від UART,
+/// HAL зберігає лише конфіг (піни + sample_rate + SD-пін) — фактичний I2S-канал
+/// створює драйвер, бо handle (i2s_chan_handle_t) разом із DMA-буферами та
+/// фоновим audio-таском належить драйверу (як ADC oneshot). HAL лишається без
+/// залежності від driver/i2s_std.h.
 struct I2SBusConfig {
     HalId      id;                       // "i2s_0" (hardware_id для bindings)
     gpio_num_t bclk           = GPIO_NUM_NC;  // bit clock (BCLK/SCK)
@@ -127,6 +142,14 @@ struct I2SBusConfig {
     gpio_num_t dout           = GPIO_NUM_NC;  // serial data → DIN підсилювача
     gpio_num_t sd             = GPIO_NUM_NC;  // SD/shutdown (hardware-mute), -1 якщо підтягнутий
     uint32_t   sample_rate_hz = 16000;        // частота дискретизації (аларм-тони: 16k достатньо)
+};
+
+/// BLE-observer device (broadcast sensor: Xiaomi pvvx/ATC/BTHome тощо). HAL зберігає
+/// лише identity (MAC) — config-only, як I2CDisplayConfig. Декод/кеш живе у modesp_ble
+/// (BleCentral), а ble_* драйвер читає його через hardware_type "ble".
+struct BleDeviceConfig {
+    HalId           id;      // "ble_xiaomi_bthome" (hardware_id для bindings)
+    etl::string<18> mac;     // "a4:c1:38:b4:dc:11"
 };
 
 struct BoardConfig {
@@ -141,7 +164,9 @@ struct BoardConfig {
     etl::vector<I2CExpanderOutputConfig, MAX_EXPANDER_IOS>        expander_outputs;
     etl::vector<I2CExpanderInputConfig, MAX_EXPANDER_IOS>         expander_inputs;
     etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>               i2c_displays;
+    etl::vector<UartBusConfig, MAX_UART_BUSES>                   uart_buses;
     etl::vector<I2SBusConfig, MAX_I2S_BUSES>                     i2s_buses;
+    etl::vector<BleDeviceConfig, MAX_BLE_DEVICES>               ble_devices;
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -228,6 +253,13 @@ struct I2CExpanderResource {
     bool write_state();
     /// Прочитати всі 8 входів з PCF8574 (один I2C byte read)
     bool read_state(uint8_t& input_byte);
+};
+
+struct UartBusResource {
+    HalId    id;
+    int      port      = 1;        // uart_port_t (зберігаємо як int — без важкого include)
+    uint32_t baud_rate = 256000;
+    bool     initialized = false;
 };
 
 /// I²S-ресурс: лише конфіг (піни + sample_rate + SD). Канал створює драйвер —

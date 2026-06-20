@@ -9,6 +9,7 @@
 #include "modesp/hal/hal.h"
 #include "esp_log.h"
 #include "esp_adc/adc_oneshot.h"
+#include "driver/uart.h"
 
 static const char* TAG = "HAL";
 
@@ -49,6 +50,14 @@ bool HAL::init(const BoardConfig& config) {
         }
     }
 
+    // UART buses (тільки якщо є в config)
+    if (!config.uart_buses.empty()) {
+        if (!init_uart(config)) {
+            ESP_LOGE(TAG, "UART init failed");
+            return false;
+        }
+    }
+
     // I2S buses (тільки якщо є в config) — HAL лише зберігає конфіг, канал
     // створює аудіо-драйвер (як ADC oneshot).
     if (!config.i2s_buses.empty()) {
@@ -58,10 +67,19 @@ bool HAL::init(const BoardConfig& config) {
         }
     }
 
-    ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_exp, %d i2s",
+    // BLE-observer devices: config-only (MAC). modesp_ble (BleCentral) owns the
+    // decode/cache; the ble_* driver reads it via find_ble_device(). No HW init.
+    ble_devices_.clear();
+    for (const auto& c : config.ble_devices) {
+        if (ble_devices_.full()) break;
+        ble_devices_.push_back(c);
+        ESP_LOGI(TAG, "  BLE device '%s' mac=%s", c.id.c_str(), c.mac.c_str());
+    }
+
+    ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_exp, %d uart, %d i2s",
              (int)gpio_output_count_, (int)onewire_count_,
              (int)gpio_input_count_, (int)adc_count_, (int)i2c_expander_count_,
-             (int)i2s_count_);
+             (int)uart_count_, (int)i2s_count_);
     return true;
 }
 
@@ -454,6 +472,80 @@ I2CExpanderInputConfig* HAL::find_expander_input(etl::string_view id) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// UART bus init — HAL installs the driver and owns the port.
+// Drivers read frames via uart_read_bytes((uart_port_t)res->port, ...).
+// ═══════════════════════════════════════════════════════════════
+
+bool HAL::init_uart(const BoardConfig& config) {
+    uart_count_ = 0;
+
+    for (const auto& cfg : config.uart_buses) {
+        if (uart_count_ >= MAX_UART_BUSES) {
+            ESP_LOGW(TAG, "UART bus limit reached (%d)", (int)MAX_UART_BUSES);
+            break;
+        }
+
+        uart_port_t port = (uart_port_t)cfg.port;
+
+        uart_config_t uc = {};
+        uc.baud_rate  = (int)cfg.baud_rate;
+        uc.data_bits  = UART_DATA_8_BITS;
+        uc.parity     = UART_PARITY_DISABLE;
+        uc.stop_bits  = UART_STOP_BITS_1;
+        uc.flow_ctrl  = UART_HW_FLOWCTRL_DISABLE;
+        uc.source_clk = UART_SCLK_DEFAULT;
+
+        esp_err_t err = uart_param_config(port, &uc);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "UART '%s' param config failed: %s",
+                     cfg.id.c_str(), esp_err_to_name(err));
+            return false;
+        }
+
+        // GPIO_NUM_NC (-1) == UART_PIN_NO_CHANGE — TX опційний (read-only пристрій)
+        err = uart_set_pin(port, cfg.tx, cfg.rx,
+                           UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "UART '%s' set_pin failed: %s",
+                     cfg.id.c_str(), esp_err_to_name(err));
+            return false;
+        }
+
+        // RX ring buffer мусить бути > HW FIFO (128); board.json не може занизити.
+        int rx_buf = cfg.rx_buffer < 256 ? 256 : cfg.rx_buffer;
+        err = uart_driver_install(port, rx_buf, 0, 0, nullptr, 0);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "UART '%s' driver install failed: %s",
+                     cfg.id.c_str(), esp_err_to_name(err));
+            return false;
+        }
+
+        auto& res = uart_buses_[uart_count_];
+        res.id = cfg.id;
+        res.port = cfg.port;
+        res.baud_rate = cfg.baud_rate;
+        res.initialized = true;
+        uart_count_++;
+
+        ESP_LOGI(TAG, "  UART '%s' port=%d TX=%d RX=%d @ %lu baud",
+                 cfg.id.c_str(), cfg.port, (int)cfg.tx, (int)cfg.rx,
+                 (unsigned long)cfg.baud_rate);
+    }
+
+    return true;
+}
+
+UartBusResource* HAL::find_uart_bus(etl::string_view id) {
+    for (size_t i = 0; i < uart_count_; i++) {
+        if (uart_buses_[i].id.size() == id.size() &&
+            etl::string_view(uart_buses_[i].id.c_str(), uart_buses_[i].id.size()) == id) {
+            return &uart_buses_[i];
+        }
+    }
+    return nullptr;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // I2S bus init — HAL stores config only; the audio driver creates the
 // i2s_chan_handle_t (DMA + feeder task belong to the driver, like ADC oneshot).
 // ═══════════════════════════════════════════════════════════════
@@ -483,6 +575,16 @@ bool HAL::init_i2s(const BoardConfig& config) {
     }
 
     return true;
+}
+
+BleDeviceConfig* HAL::find_ble_device(etl::string_view id) {
+    for (auto& cfg : ble_devices_) {
+        if (cfg.id.size() == id.size() &&
+            etl::string_view(cfg.id.c_str(), cfg.id.size()) == id) {
+            return &cfg;
+        }
+    }
+    return nullptr;
 }
 
 I2SBusResource* HAL::find_i2s_bus(etl::string_view id) {

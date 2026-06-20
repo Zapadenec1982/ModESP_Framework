@@ -25,12 +25,15 @@
 
 namespace modesp {
 
+// Capacity = усі зареєстровані модулі: системні сервіси + scenario engine +
+// бізнес-модулі (project.json) + http/ws. Кожен модуль також займає один
+// bus-router, тож MODESP_MAX_BUS_ROUTERS мусить бути ≥ MODESP_MAX_MODULES.
 #ifndef MODESP_MAX_MODULES
-#define MODESP_MAX_MODULES 16
+#define MODESP_MAX_MODULES 24
 #endif
 
 #ifndef MODESP_MAX_BUS_ROUTERS
-#define MODESP_MAX_BUS_ROUTERS 24
+#define MODESP_MAX_BUS_ROUTERS 32
 #endif
 
 // ═══════════════════════════════════════════════════════════════

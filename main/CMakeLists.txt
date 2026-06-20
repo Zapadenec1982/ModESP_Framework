@@ -4,7 +4,7 @@
 idf_component_register(
     SRCS "main.cpp" "scenario_persist.cpp"
     INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/generated"
-    PRIV_REQUIRES modesp_core modesp_services modesp_hal modesp_net modesp_scenario equipment datalogger simple_thermo display
+    PRIV_REQUIRES modesp_core modesp_services modesp_hal modesp_net modesp_scenario equipment datalogger simple_thermo display presence
 )
 
 # Cloud backend: compile-time Kconfig choice
@@ -14,4 +14,10 @@ if(CONFIG_MODESP_CLOUD_AWS)
 else()
     idf_component_get_property(main_lib ${COMPONENT_NAME} COMPONENT_LIB)
     target_link_libraries(${main_lib} PRIVATE idf::modesp_mqtt)
+endif()
+
+# BLE transport: optional, compile-time Kconfig toggle (menu "ModESP BLE")
+if(CONFIG_MODESP_BLE_ENABLE)
+    idf_component_get_property(main_lib ${COMPONENT_NAME} COMPONENT_LIB)
+    target_link_libraries(${main_lib} PRIVATE idf::modesp_ble)
 endif()

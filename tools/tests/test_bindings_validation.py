@@ -37,6 +37,9 @@ def _drivers():
         "digital_input": {"driver": "digital_input", "category": "sensor",
                           "hardware_type": "gpio_input",
                           "requires_address": False, "multiple_per_bus": False},
+        "ld2410b":       {"driver": "ld2410b", "category": "sensor",
+                          "hardware_type": "uart_bus",
+                          "requires_address": False, "multiple_per_bus": True},
         # synthetic driver to exercise requires_address:true (invariant f)
         "addr_sensor":   {"driver": "addr_sensor", "category": "sensor",
                           "hardware_type": "onewire_bus",
@@ -63,6 +66,14 @@ def _kc868a6_board():
         "expander_inputs":  [{"id": f"din_{i}"} for i in range(1, 7)],
         "onewire_buses": [{"id": "ow_1"}, {"id": "ow_2"}],
         "adc_channels": [{"id": f"adc_{i}"} for i in range(1, 5)],
+    }
+
+
+def _uart_board():
+    return {
+        "board": "uart_test",
+        "uart_buses": [{"id": "uart_1"}, {"id": "uart_2"}],
+        "onewire_buses": [{"id": "ow_1"}],
     }
 
 
@@ -188,6 +199,47 @@ class TestInvariants:
         b = _b([{"hardware": "ow_1"}])  # no driver/role/module
         errors, _ = _run(_dev_board(), b)
         assert any("missing required field" in e for e in errors)
+
+
+# ── UART bus / LD2410b multi-channel ──────────────────────────────────
+
+class TestUartBus:
+    def test_single_presence_binding_valid(self):
+        # No address → presence channel; requires_address is False → OK.
+        b = _b([
+            {"hardware": "uart_1", "driver": "ld2410b", "role": "presence", "module": "equipment"},
+        ])
+        errors, _ = _run(_uart_board(), b)
+        assert errors == []
+
+    def test_multi_channel_distinct_addresses_valid(self):
+        # One physical sensor (one UART) feeding several roles via address channels.
+        b = _b([
+            {"hardware": "uart_1", "driver": "ld2410b", "role": "presence",
+             "module": "equipment", "address": "presence"},
+            {"hardware": "uart_1", "driver": "ld2410b", "role": "move_dist",
+             "module": "equipment", "address": "moving"},
+            {"hardware": "uart_1", "driver": "ld2410b", "role": "still_dist",
+             "module": "equipment", "address": "static"},
+        ])
+        errors, _ = _run(_uart_board(), b)
+        assert errors == []
+
+    def test_multi_channel_missing_address(self):
+        # multiple_per_bus reuse requires a distinct address on each binding.
+        b = _b([
+            {"hardware": "uart_1", "driver": "ld2410b", "role": "a",
+             "module": "equipment", "address": "presence"},
+            {"hardware": "uart_1", "driver": "ld2410b", "role": "b", "module": "equipment"},
+        ])
+        errors, _ = _run(_uart_board(), b)
+        assert any("distinct 'address'" in e for e in errors)
+
+    def test_hardware_type_mismatch(self):
+        # ld2410b (uart_bus) bound to ow_1 (onewire_bus).
+        b = _b([{"hardware": "ow_1", "driver": "ld2410b", "role": "presence", "module": "equipment"}])
+        errors, _ = _run(_uart_board(), b)
+        assert any("hardware_type" in e and "ld2410b" in e for e in errors)
 
 
 # ── unused_drivers helper ─────────────────────────────────────────────

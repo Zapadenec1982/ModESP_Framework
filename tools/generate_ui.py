@@ -465,7 +465,8 @@ VALID_HARDWARE_TYPES = {
     "gpio_output", "gpio_input", "onewire_bus",
     "adc_channel", "pwm_channel", "i2c_bus",
     "i2c_expander_output", "i2c_expander_input",
-    "i2c_display", "i2s_bus",
+    "i2c_display", "uart_bus", "i2s_bus",
+    "ble",
 }
 # Категорії, що мають компільований driver-компонент у drivers/ (Kconfig toggle +
 # register-all). Решта (display) — лише маніфест для валідації bindings + UI;
@@ -622,7 +623,9 @@ BOARD_SECTION_TO_HW_TYPE = {
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
     "i2c_displays": "i2c_display",
+    "uart_buses": "uart_bus",
     "i2s_buses": "i2s_bus",
+    "ble_devices": "ble",
 }
 
 
@@ -750,6 +753,12 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings):
                 continue
             hw_type[hw_id] = htype
             hw_section[hw_id] = section
+            # BLE devices are identified by MAC (board entry 'mac' field).
+            if htype == "ble":
+                mac = entry.get("mac", "")
+                if not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
+                    errors.append(
+                        f"[board] ble_devices '{hw_id}' has invalid/missing 'mac': '{mac}'")
 
     valid_ids = ", ".join(sorted(hw_type)) or "(none)"
     hw_usage = {}             # hw_id -> [(role, driver, address)]

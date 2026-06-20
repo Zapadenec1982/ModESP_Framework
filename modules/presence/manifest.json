@@ -1,0 +1,83 @@
+{
+  "manifest_version": 1,
+  "module": "presence",
+  "version": "1.0.0",
+  "description": "Присутність (LD2410b mmWave радар) — індикація + налаштування через веб",
+  "priority": 2,
+
+  "_inputs_note": "Читає equipment.<role>, які публікує EquipmentModule з прив'язаного драйвера ld2410b. Очікувані ролі у bindings: 'presence' (обовʼязково), опційно 'move_distance' (address=moving) та 'still_distance' (address=static) для класифікації рух/статика + зонного гейтингу.",
+
+  "display": {
+    "main_value": {"key": "presence.state"},
+    "menu_label": "Присутність",
+    "menu_items": [
+      {"label": "Стан", "key": "presence.state"},
+      {"label": "Дист. руху", "key": "presence.moving_distance"},
+      {"label": "Дист. статики", "key": "presence.static_distance"},
+      {"label": "Утримання", "key": "presence.hold_sec"},
+      {"label": "Детекція", "key": "presence.enabled"}
+    ]
+  },
+
+  "state": {
+    "presence.detected":        {"type": "bool",   "access": "read", "on_label": "Є", "off_label": "Немає", "description": "Присутність виявлено"},
+    "presence.state":           {"type": "string", "access": "read", "description": "Стан присутності"},
+    "presence.moving_distance": {"type": "float",  "access": "read", "unit": "см", "description": "Дистанція рухомої цілі"},
+    "presence.static_distance": {"type": "float",  "access": "read", "unit": "см", "description": "Дистанція статичної цілі"},
+    "presence.idle_sec":        {"type": "int",    "access": "read", "unit": "с", "description": "Час без присутності"},
+    "presence.sensor_ok":       {"type": "bool",   "access": "read", "on_label": "OK", "off_label": "Немає звʼязку", "description": "Датчик справний"},
+
+    "presence.enabled":      {"type": "bool", "access": "readwrite", "default": true, "persist": true, "mqtt_subscribe": true,
+                              "on_label": "Увімк", "off_label": "Вимк", "description": "Детекція присутності"},
+    "presence.hold_sec":     {"type": "int",  "access": "readwrite", "default": 5,   "min": 0, "max": 300, "step": 1,  "unit": "с",  "persist": true, "mqtt_subscribe": true,
+                              "description": "Утримання присутності після зникнення цілі"},
+    "presence.max_distance": {"type": "int",  "access": "readwrite", "default": 600, "min": 0, "max": 800, "step": 10, "unit": "см", "persist": true, "mqtt_subscribe": true,
+                              "description": "Ігнорувати цілі далі (0 = вимк; потрібен канал дистанції)"}
+  },
+
+  "mqtt": {
+    "publish": ["presence.detected", "presence.state", "presence.moving_distance", "presence.idle_sec"],
+    "subscribe": ["presence.enabled", "presence.hold_sec", "presence.max_distance"]
+  },
+
+  "loggable": {
+    "events": {
+      "presence.detected": {
+        "id": 40,
+        "edge": "both",
+        "label_on": "Присутність",
+        "label_off": "Немає присутності"
+      }
+    }
+  },
+
+  "ui": {
+    "page": "Присутність",
+    "icon": "user",
+    "cards": [
+      {
+        "title": "Стан",
+        "subtitle": "Присутність, дистанції",
+        "layout": "single",
+        "widgets": [
+          {"key": "presence.detected",        "widget": "indicator"},
+          {"key": "presence.state",           "widget": "status_text"},
+          {"key": "presence.moving_distance", "widget": "value"},
+          {"key": "presence.static_distance", "widget": "value"},
+          {"key": "presence.idle_sec",        "widget": "value"},
+          {"key": "presence.sensor_ok",       "widget": "indicator"}
+        ]
+      },
+      {
+        "title": "Налаштування",
+        "subtitle": "Детекція, утримання, зона",
+        "layout": "single",
+        "widgets": [
+          {"key": "presence.enabled",      "widget": "toggle"},
+          {"key": "presence.hold_sec",     "widget": "number_input"},
+          {"key": "presence.max_distance", "widget": "slider"}
+        ]
+      }
+    ]
+  }
+}
