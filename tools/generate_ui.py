@@ -754,12 +754,16 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings):
                 continue
             hw_type[hw_id] = htype
             hw_section[hw_id] = section
-            # BLE devices are identified by MAC (board entry 'mac' field).
+            # BLE devices: observers identified by MAC, connect devices (panels) by adv 'name'.
             if htype == "ble":
                 mac = entry.get("mac", "")
-                if not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
+                name = entry.get("name", "")
+                if mac and not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
                     errors.append(
-                        f"[board] ble_devices '{hw_id}' has invalid/missing 'mac': '{mac}'")
+                        f"[board] ble_devices '{hw_id}' has invalid 'mac': '{mac}'")
+                if not mac and not name:
+                    errors.append(
+                        f"[board] ble_devices '{hw_id}' needs 'mac' (observer) or 'name' (connect device)")
 
     valid_ids = ", ".join(sorted(hw_type)) or "(none)"
     hw_usage = {}             # hw_id -> [(role, driver, address)]
@@ -1520,6 +1524,20 @@ class UIJsonGenerator:
 #  C++ Header Generators
 # ═══════════════════════════════════════════════════════════════
 
+def _meta_float(v, key, field, fallback=0.0):
+    """Coerce a numeric meta field to float; non-numeric (e.g. string-typed state
+    with a non-numeric/empty default) → fallback. The float slots are meaningless
+    for string/bool keys, so this is safe — and keeps one bad entry from crashing
+    the whole generator."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        import sys as _sys
+        print(f"  WARN: state '{key}' has non-numeric {field}={v!r} → using {fallback}",
+              file=_sys.stderr)
+        return fallback
+
+
 class StateMetaGenerator:
     """Generates generated/state_meta.h — constexpr metadata for API validation."""
 
@@ -1581,10 +1599,10 @@ class StateMetaGenerator:
                     max_v = float(max(values))
                     step_v = 1.0
                 else:
-                    min_v = float(info.get("min", 0.0))
-                    max_v = float(info.get("max", 0.0))
-                    step_v = float(info.get("step", 1.0))
-                default_v = float(info.get("default", 0.0))
+                    min_v = _meta_float(info.get("min", 0.0), key, "min")
+                    max_v = _meta_float(info.get("max", 0.0), key, "max")
+                    step_v = _meta_float(info.get("step", 1.0), key, "step", 1.0)
+                default_v = _meta_float(info.get("default", 0.0), key, "default")
                 lines.append(
                     f'    {{"{key}", "{stype}", {writable}, {persist}, '
                     f'{min_v}f, {max_v}f, {step_v}f, {default_v}f}},')

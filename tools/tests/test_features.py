@@ -219,9 +219,9 @@ class TestFeatureResolverRealData:
         resolver = FeatureResolver(real_bindings, equipment)
         expected = {b["role"] for b in real_bindings["bindings"]}
         assert resolver.bound_roles == expected
-        # air_temp + actuator_1 — generic roles present on any reference board (dev, kc868a6)
-        assert "air_temp" in resolver.bound_roles
-        assert "actuator_1" in resolver.bound_roles
+        # active board binds at least one role (board-agnostic — не прив'язуємось до
+        # конкретних ролей конкретної плати; data/ може містити будь-яку активну плату)
+        assert len(resolver.bound_roles) > 0
 
     def test_equipment_roles_from_real_manifest(self, real_bindings, equipment):
         """all_equipment_roles == ролі з equipment.requires."""
@@ -243,10 +243,14 @@ class TestFeatureResolverRealData:
                                                           real_board, equipment):
         """board.json + bindings.json реально узгоджені: усі hardware id з bindings
         існують на платі (sanity — підсистема працює з цією парою файлів)."""
+        # Збираємо hardware id з УСІХ груп плати (будь-який list-of-objects з 'id') —
+        # future-proof: i2c_buses/i2c_displays/i2s_buses/ble_devices/onewire/expanders тощо.
         hw_ids = set()
-        for grp in ("expander_outputs", "expander_inputs"):
-            hw_ids |= {x["id"] for x in real_board.get(grp, [])}
-        hw_ids |= {x["id"] for x in real_board.get("onewire_buses", [])}
+        for val in real_board.values():
+            if isinstance(val, list):
+                for x in val:
+                    if isinstance(x, dict) and "id" in x:
+                        hw_ids.add(x["id"])
         for b in real_bindings["bindings"]:
             assert b["hardware"] in hw_ids, f"{b['hardware']} not on board"
         # резолвер будується без помилок

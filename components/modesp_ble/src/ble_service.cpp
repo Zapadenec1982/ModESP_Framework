@@ -53,7 +53,14 @@
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 #include "esp_timer.h"
+#include "esp_rom_crc.h"
+#include "freertos/semphr.h"
+#include "host/ble_gap.h"
+#include "host/ble_gatt.h"
+#include "host/ble_uuid.h"
 #include "modesp/ble/ble_central.h"
+#include "modesp/ble/ble_panel.h"
+#include "panel_font_data.h"          // generated: PANEL_FONT 8x16 LSB-first + panel_font_index()
 #endif
 
 static const char* TAG = "modesp_ble";
@@ -103,6 +110,10 @@ static int gatt_ctrl_cb(uint16_t /*conn*/, uint16_t /*attr*/,
     }
 }
 
+// NimBLE GATT tables use partial designated initializers (remaining fields are
+// intentionally zero) — silence -Wmissing-field-initializers for these definitions.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 static const struct ble_gatt_chr_def s_ctrl_chrs[] = {
     {
         .uuid       = &CHR_TELEMETRY_UUID.u,
@@ -122,6 +133,7 @@ static const struct ble_gatt_svc_def s_ctrl_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = &SVC_UUID.u, .characteristics = s_ctrl_chrs },
     { 0 }
 };
+#pragma GCC diagnostic pop
 #endif // CONFIG_MODESP_BLE_GATT_SERVER
 
 #if defined(CONFIG_MODESP_BLE_PROVISIONING)
@@ -164,6 +176,8 @@ static int gatt_prov_cb(uint16_t /*conn*/, uint16_t /*attr*/,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 static const struct ble_gatt_chr_def s_prov_chrs[] = {
     {
         .uuid      = &CHR_PROV_UUID.u,
@@ -177,6 +191,7 @@ static const struct ble_gatt_svc_def s_prov_svcs[] = {
     { .type = BLE_GATT_SVC_TYPE_PRIMARY, .uuid = &PROV_SVC_UUID.u, .characteristics = s_prov_chrs },
     { 0 }
 };
+#pragma GCC diagnostic pop
 #endif // CONFIG_MODESP_BLE_PROVISIONING
 
 BleService::BleService()
@@ -597,12 +612,257 @@ static void log_raw(const uint8_t* mac, int8_t rssi, uint16_t uuid,
              is_new ? "[NEW]" : "     ", MODESP_MAC_ARG(mac), uuid, len, hex, rssi);
 }
 
+// ── start_observer_scan: shared passive-scan starter (sensors + panel name-match).
+// Used by BleService::start_scan() and resumed by BlePanel after (dis)connect. ──
+static void start_observer_scan() {
+    uint8_t own_addr_type;
+    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
+    struct ble_gap_disc_params dp;
+    memset(&dp, 0, sizeof(dp));
+    dp.passive = 1; dp.filter_duplicates = 0; dp.itvl = 160; dp.window = 48;
+    dp.filter_policy = 0; dp.limited = 0;
+    int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &dp, &BleService::gap_scan_event, nullptr);
+    if (rc == 0 || rc == BLE_HS_EALREADY)   // EALREADY: scan already running (coexists w/ panel link) — fine
+        ESP_LOGI(TAG, "BLE observer scan running");
+    else
+        ESP_LOGE(TAG, "ble_gap_disc rc=%d", rc);
+}
+
+// ── BlePanel: central-CONNECT link to one iPixel/LED_BLE panel (docs/ble/panel_protocol.md) ──
+// The panel exposes its service+chars as FULL 128-bit base-derived UUIDs
+// (0000faXX-0000-1000-8000-00805f9b34fb) and its firmware does NOT expand a 16-bit
+// discovery request to match them (HW-confirmed: 16-bit disc → "service 0xFA00 not
+// found"). Query with the 128-bit form — exactly what the working OSS (bleak/go-ipxl) use.
+// BLE_UUID128_INIT takes the 16 bytes little-endian (LSB first); byte[12] carries the
+// 16-bit value's low byte (0x00/0x02/0x03), byte[13]=0xfa.
+#define PANEL_UUID128(lo) BLE_UUID128_INIT( \
+    0xfb,0x34,0x9b,0x5f, 0x80,0x00, 0x00,0x80, 0x00,0x10, 0x00,0x00, (lo),0xfa,0x00,0x00)
+[[maybe_unused]] static const ble_uuid128_t PANEL_SVC_UUID = PANEL_UUID128(0x00);  // 0000fa00- (doc; disc is char-wide now)
+static const ble_uuid128_t PANEL_WR_UUID  = PANEL_UUID128(0x02);   // 0000fa02-... (write)
+static const ble_uuid128_t PANEL_NT_UUID  = PANEL_UUID128(0x03);   // 0000fa03-... (notify)
+
+BlePanel& BlePanel::instance() { static BlePanel s; return s; }
+
+void BlePanel::set_target(const char* prefix) {
+    if (!prefix) { name_len_ = 0; return; }
+    size_t n = strlen(prefix);
+    if (n >= sizeof(name_)) n = sizeof(name_) - 1;
+    memcpy(name_, prefix, n); name_[n] = '\0'; name_len_ = (uint8_t)n;
+    ESP_LOGI(TAG, "panel target name='%s'", name_);
+}
+
+bool BlePanel::name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const {
+    if (name_len_ == 0 || !adv_name || adv_name_len < name_len_) return false;
+    return memcmp(adv_name, name_, name_len_) == 0;
+}
+
+// Serialized write-WITH-response. pypixelcolor writes every 244-byte chunk with
+// response=True and relies on the BLE write-response for flow control (no sleeps) —
+// the panel drops back-to-back no-response writes. We mirror that by BLOCKING here
+// until the GATT write completes: one outstanding write at a time → no GATTC-proc-pool
+// exhaustion, no dropped frames. MUST be called from the driver task, never the NimBLE
+// host task (the wait below would deadlock against the callback that releases it).
+static SemaphoreHandle_t s_panel_write_sem = nullptr;
+static int panel_on_write_done(uint16_t /*conn*/, const struct ble_gatt_error* /*err*/,
+                               struct ble_gatt_attr* /*attr*/, void* /*arg*/) {
+    if (s_panel_write_sem) xSemaphoreGive(s_panel_write_sem);
+    return 0;
+}
+
+bool BlePanel::write_cmd(const uint8_t* data, uint16_t len, bool with_response) {
+    if (state_ != State::READY || conn_handle_ == 0xFFFF || write_handle_ == 0) return false;
+    // fa02 advertises both WRITE (0x08) and WRITE_NO_RSP (0x04). No-response is the fast
+    // fire-and-forget path (caller opts out of flow control); with-response blocks below.
+    if (!(with_response && (write_props_ & 0x08 /*WRITE*/)))
+        return ble_gattc_write_no_rsp_flat(conn_handle_, write_handle_, data, len) == 0;
+
+    if (!s_panel_write_sem) {
+        s_panel_write_sem = xSemaphoreCreateBinary();
+        if (!s_panel_write_sem) return false;
+    }
+    xSemaphoreTake(s_panel_write_sem, 0);   // drain any stale completion
+    if (ble_gattc_write_flat(conn_handle_, write_handle_, data, len, &panel_on_write_done, NULL) != 0)
+        return false;
+    return xSemaphoreTake(s_panel_write_sem, pdMS_TO_TICKS(3000)) == pdTRUE;  // flow control: wait for completion
+}
+
+void BlePanel::reset_link() {
+    state_ = State::IDLE;
+    conn_handle_ = 0xFFFF;
+    write_handle_ = 0; notify_handle_ = 0;
+    svc_start_ = 0; svc_end_ = 0;
+    start_observer_scan();   // resume scanning (re-find panel + keep sensors)
+}
+
+void BlePanel::on_scan_hit(const void* addr) {
+    if (state_ != State::IDLE) return;
+    if (cooldown_until_us_ != 0 && esp_timer_get_time() < cooldown_until_us_) return;  // back off after a failed discovery
+    state_ = State::CONNECTING;
+    ble_gap_disc_cancel();   // must stop the observer scan before connecting
+    uint8_t own_addr_type;
+    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) { reset_link(); return; }
+    int rc = ble_gap_connect(own_addr_type, static_cast<const ble_addr_t*>(addr),
+                             30000, NULL, &BlePanel::gap_event, NULL);
+    if (rc != 0) { ESP_LOGE(TAG, "panel ble_gap_connect rc=%d", rc); reset_link(); }
+    else         ESP_LOGI(TAG, "panel connecting to '%s'...", name_);
+}
+
+int BlePanel::gap_event(struct ble_gap_event* event, void* /*arg*/) {
+    BlePanel& p = instance();
+    switch (event->type) {
+    case BLE_GAP_EVENT_CONNECT:
+        if (event->connect.status == 0) {
+            p.conn_handle_ = event->connect.conn_handle;
+            p.state_ = State::DISCOVERING;
+            ESP_LOGI(TAG, "panel connected (handle=%u), enumerating all characteristics...", p.conn_handle_);
+            ble_gattc_exchange_mtu(p.conn_handle_, NULL, NULL);
+            // Discover ALL characteristics (1..0xffff) and match fa02/fa03 wherever they
+            // live — robust to the panel's actual service layout (16- or 128-bit UUIDs).
+            p.write_handle_ = 0; p.notify_handle_ = 0;
+            ble_gattc_disc_all_chrs(p.conn_handle_, 1, 0xffff, &BlePanel::on_chr, NULL);
+        } else {
+            ESP_LOGW(TAG, "panel connect failed (status=%d)", event->connect.status);
+            p.reset_link();
+        }
+        return 0;
+    case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGW(TAG, "panel disconnected (reason=%d)", event->disconnect.reason);
+        p.reset_link();
+        return 0;
+    case BLE_GAP_EVENT_NOTIFY_RX:
+        return 0;   // fa03 ACKs — consumed in Increment 2 (image/text)
+    default:
+        return 0;
+    }
+}
+
+// Match a characteristic UUID to the panel's write(fa02)/notify(fa03) role, handling
+// both 16-bit and 128-bit base-derived forms. Returns 0xFA02 / 0xFA03 / 0.
+static uint16_t panel_chr_match(const ble_uuid_t* u) {
+    if (u->type == BLE_UUID_TYPE_16) {
+        uint16_t v = ble_uuid_u16(u);
+        if (v == 0xFA02 || v == 0xFA03) return v;
+    } else if (u->type == BLE_UUID_TYPE_128) {
+        if (ble_uuid_cmp(u, &PANEL_WR_UUID.u) == 0) return 0xFA02;
+        if (ble_uuid_cmp(u, &PANEL_NT_UUID.u) == 0) return 0xFA03;
+    }
+    return 0;
+}
+
+int BlePanel::on_chr(uint16_t conn, const struct ble_gatt_error* err,
+                     const struct ble_gatt_chr* chr, void* /*arg*/) {
+    BlePanel& p = instance();
+    if (err->status == 0 && chr) {
+        char ub[BLE_UUID_STR_LEN];
+        ble_uuid_to_str(&chr->uuid.u, ub);
+        ESP_LOGI(TAG, "panel chr def=%u val=%u props=0x%02x uuid=%s",
+                 chr->def_handle, chr->val_handle, chr->properties, ub);
+        uint16_t m = panel_chr_match(&chr->uuid.u);
+        if      (m == 0xFA02) { p.write_handle_ = chr->val_handle; p.write_props_ = chr->properties; }
+        else if (m == 0xFA03) p.notify_handle_ = chr->val_handle;
+    } else if (err->status == BLE_HS_EDONE) {
+        if (p.write_handle_ == 0) {
+            ESP_LOGE(TAG, "panel: fa02 write char not found among chrs (see uuids above) — back off 15s");
+            p.cooldown_until_us_ = esp_timer_get_time() + 15000000;   // avoid hammering reconnect
+            if (ble_gap_terminate(conn, 0x13) != 0) p.reset_link();
+            return 0;
+        }
+        if (p.notify_handle_ != 0) {
+            ble_gattc_disc_all_dscs(conn, p.notify_handle_, 0xffff, &BlePanel::on_dsc, NULL);
+        } else {
+            p.state_ = State::READY;   // write-only is enough for control
+            ESP_LOGI(TAG, "panel READY (fa02 write=%u; no fa03 notify)", p.write_handle_);
+            start_observer_scan();
+        }
+    } else {
+        ESP_LOGW(TAG, "panel on_chr err=%d — terminating link", err->status);
+        if (ble_gap_terminate(conn, 0x13) != 0) p.reset_link();
+    }
+    return 0;
+}
+
+int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
+                     uint16_t /*chr_val_handle*/, const struct ble_gatt_dsc* dsc, void* /*arg*/) {
+    BlePanel& p = instance();
+    if (err->status == 0 && dsc) {
+        if (ble_uuid_u16(&dsc->uuid.u) == 0x2902) {                  // CCCD
+            static const uint8_t cccd_on[2] = {0x01, 0x00};         // enable notifications
+            ble_gattc_write_flat(conn, dsc->handle, cccd_on, sizeof(cccd_on), NULL, NULL);
+        }
+    } else if (err->status == BLE_HS_EDONE) {
+        p.state_ = State::READY;
+        ESP_LOGI(TAG, "panel READY (fa02 write + fa03 notify)");
+        start_observer_scan();   // resume sensor observation alongside the connection
+    } else {
+        ESP_LOGW(TAG, "panel on_dsc err=%d — terminating link", err->status);
+        if (ble_gap_terminate(conn, 0x13) != 0) p.reset_link();
+    }
+    return 0;
+}
+
+void BlePanel::show_text(const char* s) {
+    if (state_ != State::READY || s == nullptr) return;
+    using namespace modesp::panel;
+
+    int n = 0;
+    while (s[n] && n < 16) n++;                     // up to 16 chars (8px each)
+    const uint8_t R = 0xFF, G = 0xFF, B = 0xFF;     // white
+
+    // payload: [num_chars][3 rsv][anim/speed/rainbow 3][fg RGB 3][bg_en][bg RGB 3] + glyph blocks
+    uint8_t payload[400];
+    size_t pl = 0;
+    payload[pl++] = static_cast<uint8_t>(n);
+    payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // reserved
+    payload[pl++] = 0; payload[pl++] = 0x32; payload[pl++] = 0;    // anim=0(fixed) speed=0x32 rainbow=0
+    payload[pl++] = R; payload[pl++] = G; payload[pl++] = B;       // fg RGB
+    payload[pl++] = 0;                                             // bg_enable=0
+    payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // bg RGB
+    for (int i = 0; i < n; i++) {
+        uint8_t idx = panel_font_index(static_cast<uint8_t>(s[i]));
+        payload[pl++] = 0x00;                                     // glyph block type: char 16x8
+        payload[pl++] = R; payload[pl++] = G; payload[pl++] = B;  // per-char color
+        for (int row = 0; row < PANEL_FONT_H; row++)
+            payload[pl++] = PANEL_FONT[idx * PANEL_FONT_H + row];
+    }
+
+    uint32_t crc = esp_rom_crc32_le(0, payload, pl);
+
+    // frame: [total_len u16][00 01][has_next 00][payload_size u32][crc u32][00][slot 0x65] + payload
+    uint8_t frame[420];
+    size_t fl = 0;
+    uint16_t total = static_cast<uint16_t>(pl + 15);
+    frame[fl++] = total & 0xFF;          frame[fl++] = (total >> 8) & 0xFF;
+    frame[fl++] = 0x00;                  frame[fl++] = 0x01;       // text type
+    frame[fl++] = 0x00;                                           // has_next (single frame)
+    frame[fl++] = pl & 0xFF;  frame[fl++] = (pl >> 8) & 0xFF;  frame[fl++] = (pl >> 16) & 0xFF;  frame[fl++] = (pl >> 24) & 0xFF;
+    frame[fl++] = crc & 0xFF; frame[fl++] = (crc >> 8) & 0xFF; frame[fl++] = (crc >> 16) & 0xFF; frame[fl++] = (crc >> 24) & 0xFF;
+    frame[fl++] = 0x00;                  frame[fl++] = 0x65;       // 0x00, slot
+    memcpy(frame + fl, payload, pl);     fl += pl;
+
+    // chunked (244 B) with-response, serialized (write_cmd blocks per chunk)
+    for (size_t off = 0; off < fl; off += 244) {
+        size_t clen = (fl - off < 244) ? (fl - off) : 244;
+        write_cmd(frame + off, static_cast<uint16_t>(clen), /*with_response=*/true);
+    }
+    ESP_LOGI(TAG, "panel show_text '%s' (%d chars, %u-byte frame)", s, n, (unsigned)fl);
+}
+
 int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
     if (event->type != BLE_GAP_EVENT_DISC) return 0;
     const struct ble_gap_disc_desc* d = &event->disc;
 
     struct ble_hs_adv_fields fields;
     if (ble_hs_adv_parse_fields(&fields, d->data, d->length_data) != 0) return 0;
+
+    // Panel (CONNECT device) advertises a NAME and no service-data: match the name
+    // BEFORE the sensor service-data early-return below.
+    if (BlePanel::instance().target_set() && !BlePanel::instance().is_connected() &&
+        fields.name != NULL &&
+        BlePanel::instance().name_matches(fields.name, fields.name_len)) {
+        BlePanel::instance().on_scan_hit(&d->addr);
+        return 0;
+    }
+
     if (fields.svc_data_uuid16 == NULL || fields.svc_data_uuid16_len < 3) return 0;
 
     const uint8_t* sd   = fields.svc_data_uuid16;
@@ -645,21 +905,7 @@ int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
 }
 
 void BleService::start_scan() {
-    uint8_t own_addr_type;
-    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
-
-    struct ble_gap_disc_params dp;
-    memset(&dp, 0, sizeof(dp));
-    dp.passive           = 1;   // observer, no SCAN_REQ
-    dp.filter_duplicates = 0;   // sensor payloads change per-advert — want every report
-    dp.itvl              = 160; // 160 * 0.625ms = 100 ms
-    dp.window            = 48;  //  48 * 0.625ms =  30 ms (30% duty, Wi-Fi/BLE coex)
-    dp.filter_policy     = 0;
-    dp.limited           = 0;
-
-    int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &dp, &BleService::gap_scan_event, this);
-    if (rc != 0) ESP_LOGE(TAG, "ble_gap_disc rc=%d", rc);
-    else         ESP_LOGI(TAG, "BLE central passive scan started (observer)");
+    start_observer_scan();   // shared starter; BlePanel resumes it after (dis)connect
 }
 
 #endif // CONFIG_MODESP_BLE_CENTRAL

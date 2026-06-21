@@ -670,6 +670,9 @@ bool ConfigService::parse_board_json() {
                     } else if (jsoneq(buf, &tokens[j], "mac")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.mac = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "name")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.name = tmp;
                     }
                     j += 2;
                 }

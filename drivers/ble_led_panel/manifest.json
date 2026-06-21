@@ -1,0 +1,27 @@
+{
+  "manifest_version": 1,
+  "driver": "ble_led_panel",
+  "description": "iPixel Color / LED_BLE 16x64 BLE LED-матриця (NimBLE central-connect)",
+  "category": "actuator",
+  "hardware_type": "ble",
+  "requires_address": false,
+  "multiple_per_bus": false,
+  "provides": {"type": "bool", "description": "екран ON/OFF; set_value = яскравість 0..1"},
+  "settings": [
+    {"key": "brightness", "type": "int", "default": 80, "min": 5, "max": 100, "step": 5, "unit": "%", "description": "Яскравість панелі", "persist": true}
+  ],
+  "ui": {
+    "page": "Налаштування датчиків",
+    "page_id": "driver_settings",
+    "access_level": "service",
+    "cards": [
+      {
+        "title": "LED-панель: {{hardware_id}}",
+        "instance_per_binding": true,
+        "widgets": [
+          {"setting": "brightness", "widget": "slider"}
+        ]
+      }
+    ]
+  }
+}

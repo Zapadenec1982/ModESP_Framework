@@ -1,0 +1,15 @@
+{
+  "manifest_version": 1,
+  "module": "panel",
+  "version": "1.0.0",
+  "description": "LED-панель: показує equipment.room_temp на iPixel BLE-панелі",
+  "priority": 3,
+
+  "state": {
+    "panel.text": {
+      "type": "string",
+      "access": "read",
+      "description": "Поточний текст на LED-панелі"
+    }
+  }
+}

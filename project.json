@@ -9,7 +9,8 @@
     "abs_test",
     "display",
     "presence",
-    "player"
+    "player",
+    "panel"
   ],
   "system": {
     "device_name": "ModESP",

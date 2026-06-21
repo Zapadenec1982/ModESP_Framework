@@ -57,6 +57,12 @@ public:
     void on_gatt_disconnect();
 #endif
 
+#if defined(CONFIG_MODESP_BLE_CENTRAL)
+    // NimBLE GAP scan callback (C-ABI). PUBLIC so the file-static observer-scan
+    // starter (start_observer_scan) and BlePanel can pass it to ble_gap_disc.
+    static int gap_scan_event(struct ble_gap_event* event, void* arg);
+#endif
+
 private:
     void start_advertising();
     static int gap_event(struct ble_gap_event* event, void* arg);
@@ -79,8 +85,7 @@ private:
 #endif
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
-    void start_scan();                                       // passive observer scan
-    static int gap_scan_event(struct ble_gap_event* event, void* arg);
+    void start_scan();                                       // passive observer scan (member; calls start_observer_scan)
 #endif
 };
 

@@ -5,6 +5,8 @@
     {"hardware": "i2s_0", "driver": "max98357a", "role": "audio_main", "module": "player"},
     {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_temp",  "module": "equipment", "address": "temperature"},
     {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_humid", "module": "equipment", "address": "humidity"},
-    {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_batt",  "module": "equipment", "address": "battery"}
+    {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_batt",  "module": "equipment", "address": "battery"},
+    {"hardware": "led_panel",   "driver": "ble_led_panel", "role": "panel",      "module": "equipment"},
+    {"hardware": "uart_1",      "driver": "ld2410b",       "role": "presence",   "module": "equipment"}
   ]
 }

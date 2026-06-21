@@ -149,7 +149,8 @@ struct I2SBusConfig {
 /// (BleCentral), а ble_* драйвер читає його через hardware_type "ble".
 struct BleDeviceConfig {
     HalId           id;      // "ble_xiaomi_bthome" (hardware_id для bindings)
-    etl::string<18> mac;     // "a4:c1:38:b4:dc:11"
+    etl::string<18> mac;     // observer (broadcast sensor): "a4:c1:38:b4:dc:11"; empty for connect panels
+    etl::string<24> name;    // connect device (panel) adv-name prefix; empty for sensors
 };
 
 struct BoardConfig {

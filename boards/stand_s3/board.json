@@ -12,7 +12,11 @@
   "i2s_buses": [
     {"id": "i2s_0", "bclk": 15, "ws": 16, "dout": 7, "sd": 17, "sample_rate_hz": 16000, "label": "MAX98357A аларм-сигналізатор (SD=GPIO17 hardware-mute)"}
   ],
+  "uart_buses": [
+    {"id": "uart_1", "port": 1, "rx": 18, "tx": 8, "baud": 256000, "label": "LD2410B mmWave радар присутності (RX=18←sensorTX, TX=8→sensorRX опц.)"}
+  ],
   "ble_devices": [
-    {"id": "xiaomi_room", "mac": "a4:c1:38:b4:dc:11", "format": "auto", "label": "Xiaomi LYWSD03MMC (pvvx/BTHome) — temp/hum/battery"}
+    {"id": "xiaomi_room", "mac": "a4:c1:38:b4:dc:11", "format": "auto", "label": "Xiaomi LYWSD03MMC (pvvx/BTHome) — temp/hum/battery"},
+    {"id": "led_panel", "name": "LED_BLE_E6C5EBE2", "label": "iPixel Color 16x64 LED matrix (connect device)"}
   ]
 }
