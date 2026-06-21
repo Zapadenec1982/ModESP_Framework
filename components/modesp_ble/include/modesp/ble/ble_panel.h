@@ -45,10 +45,11 @@ public:
     /// if not connected. Safe to call from any task (NimBLE locks internally).
     bool write_cmd(const uint8_t* data, uint16_t len, bool with_response);
 
-    /// Render a short ASCII string as a native iPixel text frame and send it
-    /// (glyph blocks + CRC32, chunked with-response). No-op if not connected.
-    /// Blocking (serialized writes) — call from a normal task, not the host task.
-    void show_text(const char* s);
+    /// Render a short ASCII string as a native iPixel text frame in fg colour (r,g,b,
+    /// default white). NON-BLOCKING: enqueues to a background render task (latest-wins),
+    /// so the caller (e.g. the panel module on the main loop) never stalls on BLE I/O.
+    /// No-op if the string is null; a frame queued while disconnected is dropped.
+    void show_text(const char* s, uint8_t r = 255, uint8_t g = 255, uint8_t b = 255);
 
     // ── called from modesp_ble scan/host internals (NimBLE host task) ──
     bool name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const;
@@ -59,6 +60,8 @@ private:
     enum class State : uint8_t { IDLE, CONNECTING, DISCOVERING, READY };
 
     void reset_link();                             // back to IDLE, resume observer scan
+    void render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b);  // build frame + chunked send
+    static void render_task_fn(void* arg);         // background render task (drains the latest-text queue)
     // GATT-client discovery callbacks (static members → access privates via instance()).
     static int on_chr(uint16_t conn, const struct ble_gatt_error* err,
                       const struct ble_gatt_chr* chr, void* arg);   // disc-all-chrs: log + match fa02/fa03

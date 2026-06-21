@@ -55,6 +55,8 @@
 #include "esp_timer.h"
 #include "esp_rom_crc.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_uuid.h"
@@ -660,9 +662,16 @@ bool BlePanel::name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const
 // response=True and relies on the BLE write-response for flow control (no sleeps) —
 // the panel drops back-to-back no-response writes. We mirror that by BLOCKING here
 // until the GATT write completes: one outstanding write at a time → no GATTC-proc-pool
-// exhaustion, no dropped frames. MUST be called from the driver task, never the NimBLE
-// host task (the wait below would deadlock against the callback that releases it).
-static SemaphoreHandle_t s_panel_write_sem = nullptr;
+// exhaustion, no dropped frames. Never call from the NimBLE host task (the wait below
+// would deadlock against the callback that releases it).
+//
+// With-response is reached from TWO tasks: the panel_render task (text frames) and the
+// driver's control writes (power/brightness) on the main loop. The completion semaphore
+// below carries no caller identity, so a mutex serializes them — without it, one task's
+// drain (take,0) can steal the other's completion give → false 3 s timeouts + two
+// outstanding writes on one handle (the very flow-control breakage this design prevents).
+static SemaphoreHandle_t s_panel_write_sem   = nullptr;
+static SemaphoreHandle_t s_panel_write_mutex = nullptr;
 static int panel_on_write_done(uint16_t /*conn*/, const struct ble_gatt_error* /*err*/,
                                struct ble_gatt_attr* /*attr*/, void* /*arg*/) {
     if (s_panel_write_sem) xSemaphoreGive(s_panel_write_sem);
@@ -676,14 +685,22 @@ bool BlePanel::write_cmd(const uint8_t* data, uint16_t len, bool with_response) 
     if (!(with_response && (write_props_ & 0x08 /*WRITE*/)))
         return ble_gattc_write_no_rsp_flat(conn_handle_, write_handle_, data, len) == 0;
 
-    if (!s_panel_write_sem) {
-        s_panel_write_sem = xSemaphoreCreateBinary();
-        if (!s_panel_write_sem) return false;
+    // Both primitives are first created by the driver's connect-edge write on the main loop
+    // (which runs before the render task's first frame), so there is no creation race.
+    if (!s_panel_write_mutex) s_panel_write_mutex = xSemaphoreCreateMutex();
+    if (!s_panel_write_sem)   s_panel_write_sem   = xSemaphoreCreateBinary();
+    if (!s_panel_write_mutex || !s_panel_write_sem) return false;
+
+    xSemaphoreTake(s_panel_write_mutex, portMAX_DELAY);
+    bool ok = false;
+    // Re-check under the lock: the link may have dropped while we waited for the mutex.
+    if (state_ == State::READY && conn_handle_ != 0xFFFF && write_handle_ != 0) {
+        xSemaphoreTake(s_panel_write_sem, 0);   // drain any stale completion
+        if (ble_gattc_write_flat(conn_handle_, write_handle_, data, len, &panel_on_write_done, NULL) == 0)
+            ok = (xSemaphoreTake(s_panel_write_sem, pdMS_TO_TICKS(3000)) == pdTRUE);  // flow control
     }
-    xSemaphoreTake(s_panel_write_sem, 0);   // drain any stale completion
-    if (ble_gattc_write_flat(conn_handle_, write_handle_, data, len, &panel_on_write_done, NULL) != 0)
-        return false;
-    return xSemaphoreTake(s_panel_write_sem, pdMS_TO_TICKS(3000)) == pdTRUE;  // flow control: wait for completion
+    xSemaphoreGive(s_panel_write_mutex);
+    return ok;
 }
 
 void BlePanel::reset_link() {
@@ -800,16 +817,27 @@ int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
     return 0;
 }
 
-void BlePanel::show_text(const char* s) {
+// ── Background render task ────────────────────────────────────────────────────
+// show_text() enqueues (latest-wins, non-blocking) so the 100 Hz main loop never
+// stalls on BLE; this task does the blocking chunked with-response sends.
+namespace {
+struct PanelMsg { char text[24]; uint8_t rgb[3]; };
+QueueHandle_t s_panel_queue       = nullptr;   // length 1 → xQueueOverwrite (newest wins)
+TaskHandle_t  s_panel_render_task = nullptr;
+}
+
+void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b) {
     if (state_ != State::READY || s == nullptr) return;
     using namespace modesp::panel;
 
     int n = 0;
     while (s[n] && n < 16) n++;                     // up to 16 chars (8px each)
-    const uint8_t R = 0xFF, G = 0xFF, B = 0xFF;     // white
+    const uint8_t R = r, G = g, B = b;
 
     // payload: [num_chars][3 rsv][anim/speed/rainbow 3][fg RGB 3][bg_en][bg RGB 3] + glyph blocks
-    uint8_t payload[400];
+    // static: render_text_blocking runs only on the single panel_render task, so these large
+    // buffers live off the 4 KB task stack and are not re-created per call.
+    static uint8_t payload[400];
     size_t pl = 0;
     payload[pl++] = static_cast<uint8_t>(n);
     payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // reserved
@@ -828,7 +856,7 @@ void BlePanel::show_text(const char* s) {
     uint32_t crc = esp_rom_crc32_le(0, payload, pl);
 
     // frame: [total_len u16][00 01][has_next 00][payload_size u32][crc u32][00][slot 0x65] + payload
-    uint8_t frame[420];
+    static uint8_t frame[420];   // static for the same single-task reason as payload[] above
     size_t fl = 0;
     uint16_t total = static_cast<uint16_t>(pl + 15);
     frame[fl++] = total & 0xFF;          frame[fl++] = (total >> 8) & 0xFF;
@@ -842,9 +870,41 @@ void BlePanel::show_text(const char* s) {
     // chunked (244 B) with-response, serialized (write_cmd blocks per chunk)
     for (size_t off = 0; off < fl; off += 244) {
         size_t clen = (fl - off < 244) ? (fl - off) : 244;
-        write_cmd(frame + off, static_cast<uint16_t>(clen), /*with_response=*/true);
+        if (!write_cmd(frame + off, static_cast<uint16_t>(clen), /*with_response=*/true))
+            return;   // link dropped mid-send — abort; the next show_text retries
     }
-    ESP_LOGI(TAG, "panel show_text '%s' (%d chars, %u-byte frame)", s, n, (unsigned)fl);
+    ESP_LOGI(TAG, "panel show_text '%s' (%d chars, rgb=%02x%02x%02x, %u-byte frame)",
+             s, n, R, G, B, (unsigned)fl);
+}
+
+void BlePanel::render_task_fn(void* arg) {
+    auto* self = static_cast<BlePanel*>(arg);
+    PanelMsg m;
+    for (;;) {
+        if (xQueueReceive(s_panel_queue, &m, portMAX_DELAY) == pdTRUE)
+            self->render_text_blocking(m.text, m.rgb[0], m.rgb[1], m.rgb[2]);
+    }
+}
+
+void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b) {
+    if (s == nullptr) return;
+    if (!s_panel_queue) {
+        s_panel_queue = xQueueCreate(1, sizeof(PanelMsg));
+        if (!s_panel_queue) return;
+        if (xTaskCreate(&BlePanel::render_task_fn, "panel_render", 4096, this, 4,
+                        &s_panel_render_task) != pdPASS) {
+            vQueueDelete(s_panel_queue);   // retry on a later call rather than drop frames forever
+            s_panel_queue = nullptr;
+            ESP_LOGE(TAG, "panel render task create failed");
+            return;
+        }
+    }
+    PanelMsg m{};
+    size_t i = 0;
+    for (; s[i] && i < sizeof(m.text) - 1; i++) m.text[i] = s[i];
+    m.text[i] = '\0';
+    m.rgb[0] = r; m.rgb[1] = g; m.rgb[2] = b;
+    xQueueOverwrite(s_panel_queue, &m);            // latest-wins, non-blocking
 }
 
 int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {

@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "module": "panel",
   "version": "1.0.0",
-  "description": "LED-панель: показує equipment.room_temp на iPixel BLE-панелі",
+  "description": "LED-панель: ротація equipment.room_temp/room_humid/presence (health-gated, кольори за порогами) на iPixel BLE-панелі",
   "priority": 3,
 
   "state": {
