@@ -53,6 +53,22 @@ public:
     void show_text(const char* s, uint8_t r = 255, uint8_t g = 255, uint8_t b = 255,
                    uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
 
+    /// ── DIY pixel graphics (sparse: bars / gauges / blits — dense frames need form C/PNG) ──
+    /// Build a frame between draw_begin() and draw_show(); the panel runs in DIY mode and the
+    /// frame replaces text. Main-loop only (single producer); draw_show() enqueues a value
+    /// snapshot to the same non-blocking render task. Geometry 64×16; pixels clipped if out of range.
+    void draw_begin();
+    void set_pixel(uint8_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b);
+    void draw_hline(uint8_t x, uint8_t y, uint8_t w, uint8_t r, uint8_t g, uint8_t b);
+    void draw_vline(uint8_t x, uint8_t y, uint8_t h, uint8_t r, uint8_t g, uint8_t b);
+    void draw_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h,
+                   uint8_t r, uint8_t g, uint8_t b, bool fill);
+    void draw_bar(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t pct,
+                  uint8_t fr, uint8_t fg, uint8_t fb, uint8_t br, uint8_t bg, uint8_t bb);
+    void blit(uint8_t x0, uint8_t y0, uint8_t w, uint8_t h, const uint8_t* bmp1bpp,
+              uint8_t r, uint8_t g, uint8_t b);
+    void draw_show();
+
     // ── called from modesp_ble scan/host internals (NimBLE host task) ──
     bool name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const;
     void on_scan_hit(const void* addr);            // ble_addr_t* — begin connect
@@ -64,7 +80,9 @@ private:
     void reset_link();                             // back to IDLE, resume observer scan
     void render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b,
                               uint8_t anim, uint8_t speed, uint8_t rainbow);  // build frame + chunked send
-    static void render_task_fn(void* arg);         // background render task (drains the latest-text queue)
+    void render_draw_blocking(const uint8_t* cmds, uint16_t len);  // DIY-enter + clear + packed pixels
+    bool ensure_render_task();                     // lazy queue + task creation (first show_text/draw_show)
+    static void render_task_fn(void* arg);         // background render task (drains the latest-frame queue)
     // GATT-client discovery callbacks (static members → access privates via instance()).
     static int on_chr(uint16_t conn, const struct ble_gatt_error* err,
                       const struct ble_gatt_chr* chr, void* arg);   // disc-all-chrs: log + match fa02/fa03

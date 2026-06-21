@@ -671,11 +671,26 @@ bool BlePanel::name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const
 // drain (take,0) can steal the other's completion give → false 3 s timeouts + two
 // outstanding writes on one handle (the very flow-control breakage this design prevents).
 static SemaphoreHandle_t s_panel_write_sem   = nullptr;
-static SemaphoreHandle_t s_panel_write_mutex = nullptr;
+static SemaphoreHandle_t s_panel_write_mutex = nullptr;   // RECURSIVE — a whole frame holds it across N writes
 static int panel_on_write_done(uint16_t /*conn*/, const struct ble_gatt_error* /*err*/,
                                struct ble_gatt_attr* /*attr*/, void* /*arg*/) {
     if (s_panel_write_sem) xSemaphoreGive(s_panel_write_sem);
     return 0;
+}
+
+// Hold the recursive write mutex across a WHOLE multi-command frame so the render task's
+// text/DIY frame (enter+clear+pixels, or header+payload chunks) is atomic against the
+// driver's power/brightness control writes on the main loop — interleaving a control write
+// mid-frame corrupts the in-progress frame. write_cmd takes it recursively per command; the
+// outer frame lock keeps it held the whole time. False if allocation failed.
+static bool panel_write_lock() {
+    if (!s_panel_write_mutex) s_panel_write_mutex = xSemaphoreCreateRecursiveMutex();
+    if (!s_panel_write_sem)   s_panel_write_sem   = xSemaphoreCreateBinary();
+    if (!s_panel_write_mutex || !s_panel_write_sem) return false;
+    return xSemaphoreTakeRecursive(s_panel_write_mutex, portMAX_DELAY) == pdTRUE;
+}
+static void panel_write_unlock() {
+    if (s_panel_write_mutex) xSemaphoreGiveRecursive(s_panel_write_mutex);
 }
 
 bool BlePanel::write_cmd(const uint8_t* data, uint16_t len, bool with_response) {
@@ -685,13 +700,7 @@ bool BlePanel::write_cmd(const uint8_t* data, uint16_t len, bool with_response) 
     if (!(with_response && (write_props_ & 0x08 /*WRITE*/)))
         return ble_gattc_write_no_rsp_flat(conn_handle_, write_handle_, data, len) == 0;
 
-    // Both primitives are first created by the driver's connect-edge write on the main loop
-    // (which runs before the render task's first frame), so there is no creation race.
-    if (!s_panel_write_mutex) s_panel_write_mutex = xSemaphoreCreateMutex();
-    if (!s_panel_write_sem)   s_panel_write_sem   = xSemaphoreCreateBinary();
-    if (!s_panel_write_mutex || !s_panel_write_sem) return false;
-
-    xSemaphoreTake(s_panel_write_mutex, portMAX_DELAY);
+    if (!panel_write_lock()) return false;   // recursive: a multi-command frame may already hold it
     bool ok = false;
     // Re-check under the lock: the link may have dropped while we waited for the mutex.
     if (state_ == State::READY && conn_handle_ != 0xFFFF && write_handle_ != 0) {
@@ -699,7 +708,7 @@ bool BlePanel::write_cmd(const uint8_t* data, uint16_t len, bool with_response) 
         if (ble_gattc_write_flat(conn_handle_, write_handle_, data, len, &panel_on_write_done, NULL) == 0)
             ok = (xSemaphoreTake(s_panel_write_sem, pdMS_TO_TICKS(3000)) == pdTRUE);  // flow control
     }
-    xSemaphoreGive(s_panel_write_mutex);
+    panel_write_unlock();
     return ok;
 }
 
@@ -821,9 +830,22 @@ int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
 // show_text() enqueues (latest-wins, non-blocking) so the 100 Hz main loop never
 // stalls on BLE; this task does the blocking chunked with-response sends.
 namespace {
-struct PanelMsg { char text[24]; uint8_t rgb[3]; uint8_t anim; uint8_t speed; uint8_t rainbow; };
+// Sparse DIY graphics: up to ~256 packed 10-byte set-pixel commands. Dense/photo frames go
+// via the PNG path (form C) — DIY has NO protocol batch command (10 bytes per pixel).
+static constexpr uint16_t PANEL_DRAW_CAP = 2560;
+enum { PANEL_KIND_TEXT = 0, PANEL_KIND_DRAW = 1 };
+struct PanelMsg {
+    uint8_t  kind;                                            // PANEL_KIND_TEXT | PANEL_KIND_DRAW
+    char     text[24]; uint8_t rgb[3], anim, speed, rainbow;  // text variant
+    uint16_t draw_len; uint8_t draw[PANEL_DRAW_CAP];          // draw variant: packed BLE commands
+};
 QueueHandle_t s_panel_queue       = nullptr;   // length 1 → xQueueOverwrite (newest wins)
 TaskHandle_t  s_panel_render_task = nullptr;
+// Producer-side build buffer — show_text + draw_*() run only on the main loop (never
+// concurrently), and xQueueOverwrite copies it by value, so the render task reads its own
+// snapshot (no shared-buffer race). ~2.6 KB BSS.
+PanelMsg s_build;
+bool s_draw_truncated = false;   // set when a draw_* call exceeded PANEL_DRAW_CAP (sparse-only)
 }
 
 void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b,
@@ -868,21 +890,129 @@ void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t
     frame[fl++] = 0x00;                  frame[fl++] = 0x65;       // 0x00, slot
     memcpy(frame + fl, payload, pl);     fl += pl;
 
-    // chunked (244 B) with-response, serialized (write_cmd blocks per chunk)
-    for (size_t off = 0; off < fl; off += 244) {
+    // chunked (244 B) with-response; the whole frame holds the write lock so a driver control
+    // write can't interleave between chunks and corrupt the panel's frame reassembly.
+    if (!panel_write_lock()) return;
+    bool ok = true;
+    for (size_t off = 0; off < fl && ok; off += 244) {
         size_t clen = (fl - off < 244) ? (fl - off) : 244;
-        if (!write_cmd(frame + off, static_cast<uint16_t>(clen), /*with_response=*/true))
-            return;   // link dropped mid-send — abort; the next show_text retries
+        ok = write_cmd(frame + off, static_cast<uint16_t>(clen), /*with_response=*/true);
     }
+    panel_write_unlock();
+    if (!ok) return;   // link dropped mid-send — abort; the next show_text retries
     ESP_LOGI(TAG, "panel show_text '%s' (%d chars, rgb=%02x%02x%02x, %u-byte frame)",
              s, n, R, G, B, (unsigned)fl);
 }
 
+// Lazy one-time creation of the render queue + task (first show_text/draw_show, always from
+// the main loop → no creation race). False if allocation failed.
+bool BlePanel::ensure_render_task() {
+    if (s_panel_queue) return true;
+    s_panel_queue = xQueueCreate(1, sizeof(PanelMsg));
+    if (!s_panel_queue) return false;
+    if (xTaskCreate(&BlePanel::render_task_fn, "panel_render", 4096, this, 4,
+                    &s_panel_render_task) != pdPASS) {
+        vQueueDelete(s_panel_queue);
+        s_panel_queue = nullptr;
+        ESP_LOGE(TAG, "panel render task create failed");
+        return false;
+    }
+    return true;
+}
+
+// Send a packed DIY frame: DIY-enter + clear, then the set-pixel command stream chunked at
+// 240 B (24 whole 10-byte commands per PDU — never splits a command). Runs on the render task.
+void BlePanel::render_draw_blocking(const uint8_t* cmds, uint16_t len) {
+    if (state_ != State::READY || cmds == nullptr || len == 0) return;
+    static const uint8_t CLEAR[]     = {0x04, 0x00, 0x03, 0x80};
+    static const uint8_t DIY_ENTER[] = {0x05, 0x00, 0x04, 0x01, 0x01};
+    // Whole frame held under the recursive write lock → atomic vs the driver's control writes.
+    // Order CLEAR → DIY-enter → pixels matches the only HW-confirmed sequence (push_display_test).
+    // NOTE: packing 24 independent 10-byte set-pixel commands per 240-byte write is INFERRED from
+    // the text path, NOT HW-confirmed for DIY — if only the first pixel of each write renders, fall
+    // back to one write_cmd per 10-byte command (as push_display_test does). Primary HW gate for Inc 2.
+    if (!panel_write_lock()) return;
+    bool ok = write_cmd(CLEAR, sizeof(CLEAR), true) && write_cmd(DIY_ENTER, sizeof(DIY_ENTER), true);
+    for (uint16_t off = 0; off < len && ok; off += 240) {   // 240 = 24 * 10 (whole commands)
+        uint16_t clen = (len - off < 240) ? static_cast<uint16_t>(len - off) : 240;
+        ok = write_cmd(cmds + off, clen, true);
+    }
+    panel_write_unlock();
+    if (!ok) return;
+    ESP_LOGI(TAG, "panel draw %u px (%u-byte stream)", (unsigned)(len / 10), (unsigned)len);
+}
+
+// ── DIY draw API (producer side, main loop) ───────────────────────────────────
+// draw_begin() → set_pixel/draw_*()… → draw_show(). Builds into s_build (single producer),
+// then draw_show() enqueues a value snapshot. Geometry 64×16; out-of-range pixels clipped.
+void BlePanel::draw_begin() {
+    s_build.kind = PANEL_KIND_DRAW;
+    s_build.draw_len = 0;
+    s_draw_truncated = false;
+}
+
+void BlePanel::set_pixel(uint8_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b) {
+    if (x >= 64 || y >= 16) return;                       // clip to the 64×16 panel
+    if (s_build.draw_len + 10 > PANEL_DRAW_CAP) { s_draw_truncated = true; return; }  // sparse-only cap (dense → PNG)
+    uint8_t* p = s_build.draw + s_build.draw_len;
+    p[0] = 0x0A; p[1] = 0x00; p[2] = 0x05; p[3] = 0x01; p[4] = 0x00;   // set-pixel opcode
+    p[5] = r; p[6] = g; p[7] = b; p[8] = x; p[9] = y;
+    s_build.draw_len += 10;
+}
+
+void BlePanel::draw_hline(uint8_t x, uint8_t y, uint8_t w, uint8_t r, uint8_t g, uint8_t b) {
+    for (uint8_t i = 0; i < w; i++) set_pixel(x + i, y, r, g, b);
+}
+
+void BlePanel::draw_vline(uint8_t x, uint8_t y, uint8_t h, uint8_t r, uint8_t g, uint8_t b) {
+    for (uint8_t i = 0; i < h; i++) set_pixel(x, y + i, r, g, b);
+}
+
+void BlePanel::draw_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h,
+                         uint8_t r, uint8_t g, uint8_t b, bool fill) {
+    if (w == 0 || h == 0) return;   // degenerate: no-op (else y+h-1 / x+w-1 would draw a stray edge)
+    if (fill) { for (uint8_t j = 0; j < h; j++) draw_hline(x, y + j, w, r, g, b); return; }
+    draw_hline(x, y, w, r, g, b); draw_hline(x, y + h - 1, w, r, g, b);
+    draw_vline(x, y, h, r, g, b); draw_vline(x + w - 1, y, h, r, g, b);
+}
+
+void BlePanel::draw_bar(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t pct,
+                        uint8_t fr, uint8_t fg, uint8_t fb, uint8_t br, uint8_t bg, uint8_t bb) {
+    if (pct > 100) pct = 100;
+    uint8_t lit = static_cast<uint8_t>((pct * w + 50) / 100);   // rounded lit columns
+    for (uint8_t col = 0; col < w; col++) {
+        bool on = col < lit;
+        draw_vline(x + col, y, h, on ? fr : br, on ? fg : bg, on ? fb : bb);
+    }
+}
+
+void BlePanel::blit(uint8_t x0, uint8_t y0, uint8_t w, uint8_t h,
+                    const uint8_t* bmp, uint8_t r, uint8_t g, uint8_t b) {
+    // bmp: h rows × ceil(w/8) bytes, LSB-first (bit0 = leftmost) — same order as panel_font_data.
+    uint8_t bpr = (w + 7) / 8;
+    for (uint8_t row = 0; row < h; row++)
+        for (uint8_t col = 0; col < w; col++)
+            if (bmp[row * bpr + (col >> 3)] & (1 << (col & 7)))
+                set_pixel(x0 + col, y0 + row, r, g, b);
+}
+
+void BlePanel::draw_show() {
+    if (s_build.kind != PANEL_KIND_DRAW || s_build.draw_len == 0) return;
+    if (s_draw_truncated)
+        ESP_LOGW(TAG, "panel draw truncated at %u px (PANEL_DRAW_CAP) — use PNG for dense frames",
+                 (unsigned)(PANEL_DRAW_CAP / 10));
+    if (!ensure_render_task()) return;
+    xQueueOverwrite(s_panel_queue, &s_build);   // value snapshot → render task
+}
+
 void BlePanel::render_task_fn(void* arg) {
     auto* self = static_cast<BlePanel*>(arg);
-    PanelMsg m;
+    static PanelMsg m;   // static (single consumer) — ~2.6 KB off the 4 KB task stack
     for (;;) {
-        if (xQueueReceive(s_panel_queue, &m, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(s_panel_queue, &m, portMAX_DELAY) != pdTRUE) continue;
+        if (m.kind == PANEL_KIND_DRAW)
+            self->render_draw_blocking(m.draw, m.draw_len);
+        else
             self->render_text_blocking(m.text, m.rgb[0], m.rgb[1], m.rgb[2], m.anim, m.speed, m.rainbow);
     }
 }
@@ -890,24 +1020,14 @@ void BlePanel::render_task_fn(void* arg) {
 void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
                          uint8_t anim, uint8_t speed, uint8_t rainbow) {
     if (s == nullptr) return;
-    if (!s_panel_queue) {
-        s_panel_queue = xQueueCreate(1, sizeof(PanelMsg));
-        if (!s_panel_queue) return;
-        if (xTaskCreate(&BlePanel::render_task_fn, "panel_render", 4096, this, 4,
-                        &s_panel_render_task) != pdPASS) {
-            vQueueDelete(s_panel_queue);   // retry on a later call rather than drop frames forever
-            s_panel_queue = nullptr;
-            ESP_LOGE(TAG, "panel render task create failed");
-            return;
-        }
-    }
-    PanelMsg m{};
+    if (!ensure_render_task()) return;
+    s_build.kind = PANEL_KIND_TEXT;
     size_t i = 0;
-    for (; s[i] && i < sizeof(m.text) - 1; i++) m.text[i] = s[i];
-    m.text[i] = '\0';
-    m.rgb[0] = r; m.rgb[1] = g; m.rgb[2] = b;
-    m.anim = anim; m.speed = speed; m.rainbow = rainbow;
-    xQueueOverwrite(s_panel_queue, &m);            // latest-wins, non-blocking
+    for (; s[i] && i < sizeof(s_build.text) - 1; i++) s_build.text[i] = s[i];
+    s_build.text[i] = '\0';
+    s_build.rgb[0] = r; s_build.rgb[1] = g; s_build.rgb[2] = b;
+    s_build.anim = anim; s_build.speed = speed; s_build.rainbow = rainbow;
+    xQueueOverwrite(s_panel_queue, &s_build);      // latest-wins, non-blocking
 }
 
 int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
