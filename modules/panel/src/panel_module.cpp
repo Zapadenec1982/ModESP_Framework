@@ -25,6 +25,12 @@ static constexpr uint8_t kPresenceAnim = 0;   // static
 static constexpr uint8_t kSpeed        = 80;  // 0..100 — for scroll/blink/breathe/drop
 static constexpr uint8_t kRainbow      = 0;   // 0 off · 1..9 colour-cycle (overrides threshold colour)
 
+// Panel-font private-use icon bytes (hand-authored pictographs in tools/gen_osd_font.py PANEL_ICONS;
+// show_text renders them inline as ordinary glyphs). Emitted as a leading char in each readout.
+static constexpr char ICON_THERMO = static_cast<char>(0x80);
+static constexpr char ICON_DROP   = static_cast<char>(0x81);
+static constexpr char ICON_PERSON = static_cast<char>(0x82);
+
 PanelModule::PanelModule()
     : BaseModule("panel", modesp::ModulePriority::LOW)
 {}
@@ -79,7 +85,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
     if (t > -100.0f && read_bool("equipment.room_temp_ok", false) && (seen_temp_ || std::fabs(t) >= 0.05f)) {
         seen_temp_ = true;
         Entry& x = e[n++];
-        snprintf(x.buf, sizeof(x.buf), "%.1fC", t);
+        snprintf(x.buf, sizeof(x.buf), "%c%.1fC", ICON_THERMO, t);   // [thermo]29.7C
         if      (t < 18.0f) { x.r = 80;  x.g = 140; x.b = 255; }   // cold    → blue
         else if (t > 27.0f) { x.r = 255; x.g = 70;  x.b = 40;  }   // warm    → red
         else                { x.r = 60;  x.g = 220; x.b = 80;  }   // comfort → green
@@ -90,19 +96,20 @@ void PanelModule::on_update(uint32_t dt_ms) {
     float h = read_float("equipment.room_humid", -1000.0f);
     if (h > -100.0f && read_bool("equipment.room_humid_ok", false) && h > 0.05f) {
         Entry& x = e[n++];
-        snprintf(x.buf, sizeof(x.buf), "%.0f%%", h);
+        snprintf(x.buf, sizeof(x.buf), "%c%.0f%%", ICON_DROP, h);   // [drop]65%
         if      (h < 30.0f) { x.r = 255; x.g = 150; x.b = 40;  }   // dry   → orange
         else if (h > 60.0f) { x.r = 80;  x.g = 140; x.b = 255; }   // humid → blue
         else                { x.r = 60;  x.g = 220; x.b = 80;  }   // ok    → green
         x.anim = kHumidAnim;
     }
 
-    // ── presence ── require health so a never-seen/dead radar drops the slot (no fake "AWAY")
-    float p = read_float("equipment.presence", -1000.0f);
-    if (p > -100.0f && read_bool("equipment.presence_ok", false)) {
+    // ── presence ── use the GATED occupancy presence.detected (honours
+    // presence.max_distance + hold_sec), NOT raw equipment.presence (full range).
+    // presence.sensor_ok gates the slot so a never-seen/dead radar drops it (no fake "AWAY").
+    if (read_bool("presence.sensor_ok", false)) {
         Entry& x = e[n++];
-        if (p > 0.5f) { snprintf(x.buf, sizeof(x.buf), "HERE"); x.r = 60; x.g = 220; x.b = 80; }
-        else          { snprintf(x.buf, sizeof(x.buf), "AWAY"); x.r = 90; x.g = 90;  x.b = 90; }
+        if (read_bool("presence.detected", false)) { snprintf(x.buf, sizeof(x.buf), "%cHERE", ICON_PERSON); x.r = 60; x.g = 220; x.b = 80; }
+        else { snprintf(x.buf, sizeof(x.buf), "%cAWAY", ICON_PERSON); x.r = 90; x.g = 90;  x.b = 90; }
         x.anim = kPresenceAnim;
     }
 
@@ -117,8 +124,10 @@ void PanelModule::on_update(uint32_t dt_ms) {
         shown_[sizeof(shown_) - 1] = '\0';
         shown_rgb_[0] = r; shown_rgb_[1] = g; shown_rgb_[2] = b;
         panel.show_text(buf, r, g, b, anim, kSpeed, kRainbow);
-        state_set("panel.text", buf);
-        ESP_LOGI(TAG, "panel <- '%s' (rgb=%02x%02x%02x)", buf, r, g, b);
+        // panel.text state + log: drop the leading icon byte so the value stays valid ASCII/UTF-8
+        const char* clean = (static_cast<uint8_t>(buf[0]) >= 0x80) ? buf + 1 : buf;
+        state_set("panel.text", clean);
+        ESP_LOGI(TAG, "panel <- '%s' (rgb=%02x%02x%02x)", clean, r, g, b);
     }
 #else
     (void)dt_ms;
