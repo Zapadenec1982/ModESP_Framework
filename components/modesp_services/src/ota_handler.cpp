@@ -15,7 +15,15 @@
 #include "esp_crt_bundle.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
+// SHA-256 over the streaming download (mbedtls_sha256_* used below). IDF v6.0
+// (mbedtls 4.x) removed the public mbedtls/sha256.h; the legacy API now lives in
+// mbedtls/private/sha256.h. The context is used opaquely here (no private field
+// access), so including it directly is safe. IDF v5.5 keeps the public header.
+#if defined(MBEDTLS_MAJOR_VERSION) && MBEDTLS_MAJOR_VERSION >= 4
+#include "mbedtls/private/sha256.h"
+#else
 #include "mbedtls/sha256.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 

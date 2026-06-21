@@ -14,8 +14,12 @@ include("${_modesp_root}/generated/drivers.cmake")   # MODESP_ALL_DRIVERS
 idf_component_register(
     SRCS "src/hal.cpp" "src/driver_manager.cpp" "src/driver_registry.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES modesp_core driver
-    PRIV_REQUIRES ${MODESP_ALL_DRIVERS} esp_adc esp_driver_i2c
+    # PUBLIC header hal_types.h includes driver/gpio.h + driver/i2c_master.h, so the
+    # components providing them must be PUBLIC REQUIRES (propagated to dependents).
+    # In IDF v6.0 the legacy 'driver' umbrella no longer re-exports these transitively
+    # — list esp_driver_gpio / esp_driver_i2c explicitly (valid on v5.2+ and v6.x).
+    REQUIRES modesp_core driver esp_driver_gpio esp_driver_i2c esp_driver_uart
+    PRIV_REQUIRES ${MODESP_ALL_DRIVERS} esp_adc
 )
 
 # Generated driver_register_all.h (modesp_register_all_drivers())

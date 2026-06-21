@@ -4,5 +4,5 @@ idf_component_register(
     SRCS "src/at7456e.cpp"
          "src/amt630a.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES driver esp_rom esp_driver_i2c
+    REQUIRES driver esp_rom esp_driver_i2c esp_driver_gpio
 )
