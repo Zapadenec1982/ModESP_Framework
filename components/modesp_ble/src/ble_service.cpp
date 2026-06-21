@@ -927,19 +927,18 @@ void BlePanel::render_draw_blocking(const uint8_t* cmds, uint16_t len) {
     static const uint8_t CLEAR[]     = {0x04, 0x00, 0x03, 0x80};
     static const uint8_t DIY_ENTER[] = {0x05, 0x00, 0x04, 0x01, 0x01};
     // Whole frame held under the recursive write lock → atomic vs the driver's control writes.
-    // Order CLEAR → DIY-enter → pixels matches the only HW-confirmed sequence (push_display_test).
-    // NOTE: packing 24 independent 10-byte set-pixel commands per 240-byte write is INFERRED from
-    // the text path, NOT HW-confirmed for DIY — if only the first pixel of each write renders, fall
-    // back to one write_cmd per 10-byte command (as push_display_test does). Primary HW gate for Inc 2.
+    // Order CLEAR → DIY-enter → pixels matches the HW-confirmed sequence (push_display_test).
+    // ONE set-pixel command PER write, with-response: HW proved the panel renders only the FIRST
+    // command of a packed multi-command PDU (only ~every 7th pixel lit when ~7 commands packed per
+    // PDU) — so packing is out. Reliable (push_display_test) but ~one BLE round-trip per pixel, so
+    // keep DIY frames SPARSE; dense frames belong on the PNG path (form C).
     if (!panel_write_lock()) return;
     bool ok = write_cmd(CLEAR, sizeof(CLEAR), true) && write_cmd(DIY_ENTER, sizeof(DIY_ENTER), true);
-    for (uint16_t off = 0; off < len && ok; off += 240) {   // 240 = 24 * 10 (whole commands)
-        uint16_t clen = (len - off < 240) ? static_cast<uint16_t>(len - off) : 240;
-        ok = write_cmd(cmds + off, clen, true);
-    }
+    for (uint16_t off = 0; off + 10 <= len && ok; off += 10)
+        ok = write_cmd(cmds + off, 10, true);
     panel_write_unlock();
     if (!ok) return;
-    ESP_LOGI(TAG, "panel draw %u px (%u-byte stream)", (unsigned)(len / 10), (unsigned)len);
+    ESP_LOGI(TAG, "panel draw %u px", (unsigned)(len / 10));
 }
 
 // ── DIY draw API (producer side, main loop) ───────────────────────────────────

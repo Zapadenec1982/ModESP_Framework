@@ -68,7 +68,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
 
     // ── DIY gauge demo (Form B) ── set true to draw a temperature bar (0..40°C) via DIY pixels
     // instead of the text readout. Validates the DIY path + multi-command-per-PDU packing.
-    static constexpr bool kDrawGauge = false;
+    static constexpr bool kDrawGauge = true;   // ← DIY gauge demo ON (validates the pixel path)
     if (kDrawGauge) {
         eval_ms_ += dt_ms;
         if (eval_ms_ < 500) return;
@@ -86,7 +86,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         else if (t > 27.0f) { fr = 255; fg = 70;  fb = 40;  }
         else                { fr = 60;  fg = 220; fb = 80;  }
         panel.draw_begin();
-        panel.draw_bar(2, 6, 60, 4, static_cast<uint8_t>(pct), fr, fg, fb, 25, 25, 25);
+        panel.draw_bar(2, 7, 60, 2, static_cast<uint8_t>(pct), fr, fg, fb, 25, 25, 25);  // 120 px (sparse: 1 write/px)
         panel.draw_show();
         ESP_LOGI(TAG, "panel gauge: %.1fC -> %d%%", t, pct);
         return;
