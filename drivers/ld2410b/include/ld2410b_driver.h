@@ -55,7 +55,9 @@ public:
     /// owner == true → this instance pumps the UART in update(); others are views.
     void configure(const char* role, Ld2410Port* port, Channel channel, bool owner);
 
-    /// Apply per-binding settings (presence_hold_ms, timeout_ms); absent → defaults.
+    /// Apply per-binding settings (absence_s, max_cm, move_sens, still_sens,
+    /// timeout_ms); absent → defaults. Sensor-config values are pushed to the
+    /// radar at init() by the owner instance.
     void apply_settings(const modesp::Binding& b);
 
     // ── ISensorDriver interface ──
@@ -72,10 +74,13 @@ private:
     Channel     channel_  = Channel::PRESENCE;
     bool        owner_    = false;
 
-    uint32_t timeout_ms_       = 2000;   // no fresh frame → unhealthy
-    uint32_t presence_hold_ms_ = 2000;   // hold "present" after target lost
+    uint32_t timeout_ms_ = 2000;   // no fresh frame → unhealthy
 
-    // Presence hold timer (per instance; maintained every update())
-    uint32_t since_present_ms_ = 0;
-    bool     present_held_     = false;
+    // Sensor config — pushed to the radar once at init() by the owner instance.
+    // The radar itself holds "present" for absence_s after the target leaves and
+    // gates detection to max_gate, so the driver needs no presence-hold of its own.
+    uint32_t absence_s_  = 1;       // radar "no-one duration" (s) — reaction speed
+    uint16_t max_gate_   = 8;       // max distance gate (×0.75 m); derived from max_cm
+    uint8_t  move_sens_  = 0;       // moving sensitivity 0-100 (0 = leave default)
+    uint8_t  still_sens_ = 0;       // static sensitivity 0-100 (0 = leave default)
 };

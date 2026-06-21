@@ -6,15 +6,73 @@ set(EXTRA_COMPONENT_DIRS
     "modules"
 )
 
-# ── Board selection: читаємо з sdkconfig (menuconfig) ──
-set(_BOARD_DIR "dev")
+# ── Board selection ───────────────────────────────────────────────────────────
+# The firmware name, board.json copy, and code generation below all need the board
+# BEFORE project()/Kconfig confgen runs, so we mirror confgen's OWN resolution order.
+# This matters because `idf.py set-target <t>` renames sdkconfig away before its
+# configure pass — and the following `idf.py build` won't re-configure — so this pass
+# must already pick the right board, in one shot:
+#   1. sdkconfig exists → it is the resolved config; read CONFIG_MODESP_BOARD_DIR.
+#   2. no sdkconfig yet  → read the same defaults confgen will apply:
+#                          sdkconfig.defaults then sdkconfig.defaults.<target>
+#                          (target overlay wins), deriving the board dir from the
+#                          selected choice symbol (CONFIG_MODESP_BOARD_<X>=y → <x>),
+#                          matching main/Kconfig.projbuild.
+# Silently defaulting to "dev" when sdkconfig was merely absent was a footgun: it
+# shipped a dev-GPIO binary onto an S3 board. The post-project guard below backstops
+# any drift between this bootstrap and the authoritative Kconfig value.
+set(_BOARD_DIR "")
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/sdkconfig")
-    file(STRINGS "${CMAKE_SOURCE_DIR}/sdkconfig" _sdkconfig_lines)
+    file(STRINGS "${CMAKE_SOURCE_DIR}/sdkconfig" _sdkconfig_lines
+         REGEX "^CONFIG_MODESP_BOARD_DIR=")
     foreach(_line ${_sdkconfig_lines})
         if(_line MATCHES "^CONFIG_MODESP_BOARD_DIR=\"(.+)\"$")
             set(_BOARD_DIR "${CMAKE_MATCH_1}")
         endif()
     endforeach()
+else()
+    # No sdkconfig yet (fresh checkout, `idf.py set-target`, or someone deleted it to
+    # force a defaults re-apply). Resolve from the defaults overlay exactly as confgen
+    # will, rather than guessing the wrong board.
+    set(_IDF_TARGET "")
+    if(DEFINED IDF_TARGET)
+        set(_IDF_TARGET "${IDF_TARGET}")
+    elseif(DEFINED ENV{IDF_TARGET})
+        set(_IDF_TARGET "$ENV{IDF_TARGET}")
+    endif()
+
+    set(_defaults_files "${CMAKE_SOURCE_DIR}/sdkconfig.defaults")
+    if(_IDF_TARGET)
+        list(APPEND _defaults_files
+             "${CMAKE_SOURCE_DIR}/sdkconfig.defaults.${_IDF_TARGET}")
+    endif()
+
+    foreach(_defaults_file ${_defaults_files})
+        if(EXISTS "${_defaults_file}")
+            file(STRINGS "${_defaults_file}" _board_lines
+                 REGEX "^CONFIG_MODESP_BOARD_[A-Z0-9_]+=y$")
+            foreach(_line ${_board_lines})
+                if(_line MATCHES "^CONFIG_MODESP_BOARD_([A-Z0-9_]+)=y$")
+                    string(TOLOWER "${CMAKE_MATCH_1}" _BOARD_DIR)
+                endif()
+            endforeach()
+        endif()
+    endforeach()
+
+    if(_BOARD_DIR)
+        message(STATUS "ModESP board: resolved '${_BOARD_DIR}' from sdkconfig.defaults"
+                       " (no sdkconfig yet, target='${_IDF_TARGET}')")
+    endif()
+endif()
+
+if(NOT _BOARD_DIR)
+    set(_BOARD_DIR "dev")
+    message(WARNING
+        "ModESP: could not determine the target board from sdkconfig or "
+        "sdkconfig.defaults — falling back to '${_BOARD_DIR}'. If that is not "
+        "intended, run 'idf.py set-target <target>' to regenerate sdkconfig from "
+        "the defaults, then rebuild.")
 endif()
 
 set(_BOARD_PATH "${CMAKE_SOURCE_DIR}/boards/${_BOARD_DIR}")
@@ -24,6 +82,15 @@ endif()
 file(COPY "${_BOARD_PATH}/board.json" DESTINATION "${CMAKE_SOURCE_DIR}/data")
 file(COPY "${_BOARD_PATH}/bindings.json" DESTINATION "${CMAKE_SOURCE_DIR}/data")
 message(STATUS "ModESP board: ${_BOARD_DIR}")
+
+# Re-run CMake configure (which re-copies the two files above into data/) whenever
+# the active board's board.json/bindings.json change. Without this, editing them does
+# NOT refresh data/ — file(COPY) only runs at configure time and these are not tracked
+# as configure inputs — so the LittleFS data image keeps the STALE hardware map and the
+# device boots the old config until a manual `idf.py reconfigure`/fullclean.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${_BOARD_PATH}/board.json"
+    "${_BOARD_PATH}/bindings.json")
 
 # ── Pre-build: generate UI schema and C++ headers from module manifests ──
 find_package(Python3 COMPONENTS Interpreter QUIET)
@@ -75,5 +142,28 @@ set(PROJECT_VER "1.0.1")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(modesp_${_BOARD_NAME})
 
-# Generate LittleFS image from data/ directory and flash to "data" partition
-littlefs_create_partition_image(data data FLASH_IN_PROJECT)
+# ── Board-selection guard ─────────────────────────────────────────────────────
+# CONFIG_MODESP_BOARD_DIR is the authoritative board, resolved by Kconfig/confgen
+# during project() above (it reflects sdkconfig plus any sdkconfig.defaults.<target>
+# overlay). Everything board-specific — the firmware name, data/board.json, and the
+# generated headers — was emitted earlier from the PRE-project _BOARD_DIR bootstrap.
+# If the two disagree, those artifacts were built for the wrong board (e.g. a stale or
+# just-created sdkconfig), so fail loudly instead of silently shipping them. By now
+# confgen has written a correct sdkconfig, so a single re-run resolves the mismatch.
+if(DEFINED CONFIG_MODESP_BOARD_DIR AND
+   NOT "${CONFIG_MODESP_BOARD_DIR}" STREQUAL "${_BOARD_DIR}")
+    message(FATAL_ERROR
+        "ModESP board mismatch: build artifacts (firmware 'modesp_${_BOARD_NAME}', "
+        "data/board.json, generated headers) were produced for board '${_BOARD_DIR}', "
+        "but Kconfig resolved CONFIG_MODESP_BOARD_DIR='${CONFIG_MODESP_BOARD_DIR}'. "
+        "sdkconfig is now up to date — re-run 'idf.py build' so the resolved board is used.")
+endif()
+
+# Generate LittleFS image from data/ directory and flash to "data" partition.
+# DEPENDS on the active board's config copies (refreshed by file(COPY) above on
+# every reconfigure) so data.bin is regenerated when board.json/bindings.json
+# change — otherwise the image keeps a stale hardware map and the device boots the
+# old config until a manual `Remove-Item build/data.bin` / fullclean.
+littlefs_create_partition_image(data data FLASH_IN_PROJECT
+    DEPENDS "${CMAKE_SOURCE_DIR}/data/board.json"
+            "${CMAKE_SOURCE_DIR}/data/bindings.json")

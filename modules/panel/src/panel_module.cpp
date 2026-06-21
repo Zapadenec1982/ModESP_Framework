@@ -66,6 +66,32 @@ void PanelModule::on_update(uint32_t dt_ms) {
         return;
     }
 
+    // ── DIY gauge demo (Form B) ── set true to draw a temperature bar (0..40°C) via DIY pixels
+    // instead of the text readout. Validates the DIY path + multi-command-per-PDU packing.
+    static constexpr bool kDrawGauge = false;
+    if (kDrawGauge) {
+        eval_ms_ += dt_ms;
+        if (eval_ms_ < 500) return;
+        eval_ms_ = 0;
+        float t = read_float("equipment.room_temp", -1000.0f);
+        if (t <= -100.0f || !read_bool("equipment.room_temp_ok", false)) return;
+        int pct = static_cast<int>(t / 40.0f * 100.0f);   // 0..40°C → 0..100%
+        if (pct < 0) pct = 0;
+        if (pct > 100) pct = 100;
+        static int s_last_pct = -1;
+        if (pct == s_last_pct) return;                    // redraw only when the level changes
+        s_last_pct = pct;
+        uint8_t fr, fg, fb;
+        if      (t < 18.0f) { fr = 80;  fg = 140; fb = 255; }
+        else if (t > 27.0f) { fr = 255; fg = 70;  fb = 40;  }
+        else                { fr = 60;  fg = 220; fb = 80;  }
+        panel.draw_begin();
+        panel.draw_bar(2, 6, 60, 4, static_cast<uint8_t>(pct), fr, fg, fb, 25, 25, 25);
+        panel.draw_show();
+        ESP_LOGI(TAG, "panel gauge: %.1fC -> %d%%", t, pct);
+        return;
+    }
+
     // Re-evaluate at ~4 Hz (cheap — show_text() is now non-blocking and we de-dupe);
     // advance the rotation slot every 4 s.
     eval_ms_ += dt_ms;

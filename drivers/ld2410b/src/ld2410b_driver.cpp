@@ -22,9 +22,36 @@
 #include "modesp/hal/hal_types.h"   // complete modesp::Binding for apply_settings()
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <cstring>
 
 static const char* TAG = "LD2410b";
+
+// ═══════════════════════════════════════════════════════════════
+// LD2410 command protocol (config frames FD FC FB FA … 04 03 02 01).
+// Used once at init to set absence duration, max distance gate and sensitivities
+// — needs MCU TX wired to the sensor RX (board.json uart tx pin).
+// ═══════════════════════════════════════════════════════════════
+static void ld2410_put_u32(uint8_t* p, uint32_t v) {
+    p[0] = v & 0xFF;        p[1] = (v >> 8)  & 0xFF;
+    p[2] = (v >> 16) & 0xFF; p[3] = (v >> 24) & 0xFF;
+}
+
+/// Send one command frame and block until the bytes are on the wire.
+static void ld2410_send_cmd(uart_port_t port, uint16_t cmd,
+                            const uint8_t* data, uint16_t dlen) {
+    uint8_t f[40];
+    uint16_t n = 0;
+    f[n++] = 0xFD; f[n++] = 0xFC; f[n++] = 0xFB; f[n++] = 0xFA;  // header
+    uint16_t len = 2 + dlen;                                     // cmd word + data
+    f[n++] = len & 0xFF; f[n++] = (len >> 8) & 0xFF;
+    f[n++] = cmd & 0xFF; f[n++] = (cmd >> 8) & 0xFF;
+    for (uint16_t i = 0; i < dlen; i++) f[n++] = data[i];
+    f[n++] = 0x04; f[n++] = 0x03; f[n++] = 0x02; f[n++] = 0x01;  // footer
+    uart_write_bytes(port, f, n);
+    uart_wait_tx_done(port, pdMS_TO_TICKS(100));
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Decoded frame (common fields shared by basic + engineering modes)
@@ -69,6 +96,43 @@ public:
     }
 
     const Ld2410Frame& latest() const { return latest_; }
+
+    /// Push config to the radar once (owner instance, at init). Needs MCU TX wired
+    /// to the sensor RX. All config commands must sit between enable(0xFF) and
+    /// end(0xFE). Best-effort: ACK frames are flushed, not verified.
+    void configure_sensor(uint16_t max_gate, uint32_t absence_s,
+                          uint8_t move_sens, uint8_t still_sens) {
+        uart_flush_input(port_);
+
+        const uint8_t enable[2] = {0x01, 0x00};
+        ld2410_send_cmd(port_, 0x00FF, enable, 2);      // enter config mode
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // 0x0060: max moving gate, max static gate, no-one (absence) duration.
+        // Each parameter is a 2-byte word id followed by a 4-byte LE value.
+        uint8_t v[18] = {0};
+        v[0]  = 0x00; v[1]  = 0x00; ld2410_put_u32(&v[2],  max_gate);
+        v[6]  = 0x01; v[7]  = 0x00; ld2410_put_u32(&v[8],  max_gate);
+        v[12] = 0x02; v[13] = 0x00; ld2410_put_u32(&v[14], absence_s);
+        ld2410_send_cmd(port_, 0x0060, v, 18);
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // 0x0064: per-gate sensitivity (gate word 0xFFFF = all gates). Skip if both 0.
+        if (move_sens > 0 || still_sens > 0) {
+            uint8_t s[18] = {0};
+            s[0]  = 0x00; s[1]  = 0x00; s[2] = 0xFF; s[3] = 0xFF;   // gate = all
+            s[6]  = 0x01; s[7]  = 0x00; ld2410_put_u32(&s[8],  move_sens  ? move_sens  : 50);
+            s[12] = 0x02; s[13] = 0x00; ld2410_put_u32(&s[14], still_sens ? still_sens : 50);
+            ld2410_send_cmd(port_, 0x0064, s, 18);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        ld2410_send_cmd(port_, 0x00FE, nullptr, 0);     // exit config mode
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        uart_flush_input(port_);
+        len_ = 0;   // drop any ACK bytes left in the parse buffer
+    }
 
 private:
     void scan() {
@@ -165,8 +229,18 @@ void Ld2410bDriver::configure(const char* role, Ld2410Port* port,
 }
 
 void Ld2410bDriver::apply_settings(const modesp::Binding& b) {
-    presence_hold_ms_ = (uint32_t)b.setting_or("presence_hold_ms", (float)presence_hold_ms_);
-    timeout_ms_       = (uint32_t)b.setting_or("timeout_ms", (float)timeout_ms_);
+    timeout_ms_ = (uint32_t)b.setting_or("timeout_ms", (float)timeout_ms_);
+    absence_s_  = (uint32_t)b.setting_or("absence_s", (float)absence_s_);
+    move_sens_  = (uint8_t)b.setting_or("move_sens", (float)move_sens_);
+    still_sens_ = (uint8_t)b.setting_or("still_sens", (float)still_sens_);
+
+    // max_cm → gate index. Each gate ≈ 0.75 m; gate 1 (~75 cm) is the closest the
+    // radar's max-gate supports, gate 8 (~6 m) the farthest.
+    uint32_t max_cm = (uint32_t)b.setting_or("max_cm", 600.0f);
+    uint32_t gate = (max_cm + 37) / 75;     // round to nearest gate
+    if (gate < 1) gate = 1;
+    if (gate > 8) gate = 8;
+    max_gate_ = (uint16_t)gate;
 }
 
 bool Ld2410bDriver::init() {
@@ -174,38 +248,33 @@ bool Ld2410bDriver::init() {
         ESP_LOGE(TAG, "[%s] No UART port bound", role_.c_str());
         return false;
     }
-    ESP_LOGI(TAG, "[%s] Initialized (channel=%d, %s, hold=%lu ms, timeout=%lu ms)",
+    // The owner pushes config to the radar (needs MCU TX → sensor RX). If TX is not
+    // wired the commands are simply ignored and the radar keeps its factory config —
+    // reading still works either way.
+    if (owner_) {
+        ESP_LOGI(TAG, "[%s] Configuring radar: max_gate=%u (~%u cm), absence=%lu s, sens m/s=%u/%u",
+                 role_.c_str(), max_gate_, (unsigned)(max_gate_ * 75),
+                 (unsigned long)absence_s_, move_sens_, still_sens_);
+        port_->configure_sensor(max_gate_, absence_s_, move_sens_, still_sens_);
+    }
+    ESP_LOGI(TAG, "[%s] Initialized (channel=%d, %s, timeout=%lu ms)",
              role_.c_str(), (int)channel_, owner_ ? "owner" : "view",
-             (unsigned long)presence_hold_ms_, (unsigned long)timeout_ms_);
+             (unsigned long)timeout_ms_);
     return true;
 }
 
 void Ld2410bDriver::update(uint32_t dt_ms) {
     if (!port_) return;
-
-    // Only the owner instance drains the UART; views read the shared frame.
+    // Only the owner instance drains the UART; views read the shared frame. The
+    // radar itself holds presence for absence_s, so there's no driver-side hold.
     if (owner_) port_->pump(dt_ms);
-
-    // Presence hold timer — maintained for every instance (cheap, per-channel).
-    bool raw_present = port_->fresh(timeout_ms_) && (port_->latest().state != 0);
-    if (raw_present) {
-        since_present_ms_ = 0;
-        present_held_ = true;
-    } else {
-        if (since_present_ms_ < presence_hold_ms_) {
-            since_present_ms_ += dt_ms;
-        }
-        if (since_present_ms_ >= presence_hold_ms_) {
-            present_held_ = false;
-        }
-    }
 }
 
 bool Ld2410bDriver::read(float& value) {
     if (!port_ || !port_->fresh(timeout_ms_)) return false;
     const Ld2410Frame& f = port_->latest();
     switch (channel_) {
-        case Channel::PRESENCE:      value = present_held_ ? 1.0f : 0.0f; break;
+        case Channel::PRESENCE:      value = (f.state != 0) ? 1.0f : 0.0f; break;
         case Channel::MOVING_DIST:   value = (float)f.moving_cm; break;
         case Channel::STATIC_DIST:   value = (float)f.static_cm; break;
         case Channel::DETECT_DIST:   value = (float)f.detect_cm; break;

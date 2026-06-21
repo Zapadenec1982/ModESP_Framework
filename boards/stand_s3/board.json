@@ -10,10 +10,10 @@
     {"id": "disp_0", "bus": "i2c_0", "chip": "amt630a", "cols": 20, "rows": 10, "label": "AMT630A OSD/TFT (ZCD-630A-4.3D)"}
   ],
   "i2s_buses": [
-    {"id": "i2s_0", "bclk": 15, "ws": 16, "dout": 7, "sd": 17, "sample_rate_hz": 16000, "label": "MAX98357A аларм-сигналізатор (SD=GPIO17 hardware-mute)"}
+    {"id": "i2s_0", "bclk": 15, "ws": 16, "dout": 7, "sd": 8, "sample_rate_hz": 16000, "label": "MAX98357A аларм-сигналізатор (SD=GPIO8 hardware-mute; було 17, звільнено під U1TX)"}
   ],
   "uart_buses": [
-    {"id": "uart_1", "port": 1, "rx": 18, "tx": 8, "baud": 256000, "label": "LD2410B mmWave радар присутності (RX=18←sensorTX, TX=8→sensorRX опц.)"}
+    {"id": "uart_1", "port": 1, "rx": 18, "tx": 17, "baud": 256000, "label": "LD2410B радар: RX=18=U1RX ← sensor TX; TX=17=U1TX → sensor RX (опц., для команд конфігу)"}
   ],
   "ble_devices": [
     {"id": "xiaomi_room", "mac": "a4:c1:38:b4:dc:11", "format": "auto", "label": "Xiaomi LYWSD03MMC (pvvx/BTHome) — temp/hum/battery"},
