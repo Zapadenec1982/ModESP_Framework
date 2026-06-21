@@ -13,6 +13,7 @@
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 #include "modesp/ble/ble_panel.h"
+#include "panel_test_image.h"   // solid-red 64x16 PNG for the image-path validation flag
 #endif
 
 static const char* TAG = "Panel";
@@ -46,7 +47,21 @@ bool PanelModule::on_init() {
 void PanelModule::on_update(uint32_t dt_ms) {
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
     auto& panel = modesp::BlePanel::instance();
-    if (!panel.is_connected()) { shown_[0] = '\0'; return; }
+    if (!panel.is_connected()) { shown_[0] = '\0'; img_test_sent_ = false; return; }
+
+    // ── PNG image-path validation ── set true + flash: upload a solid-red 64×16 PNG once on
+    // connect. EXPECT the whole panel to turn red. De-risks the form-C frame format / display
+    // semantics before real images. Set false to restore the clock/temp/humidity readout.
+    static constexpr bool kImageTest = true;
+    if (kImageTest) {
+        if (!img_test_sent_) {
+            img_test_sent_ = true;
+            panel.show_image(PANEL_TEST_RED_PNG, PANEL_TEST_RED_PNG_LEN, /*slot=*/1);
+            ESP_LOGI(TAG, "IMAGE TEST: sent solid-red 64x16 PNG (%u B, slot 1)",
+                     (unsigned)PANEL_TEST_RED_PNG_LEN);
+        }
+        return;
+    }
 
     // ── DIAGNOSTIC anim sweep ─────────────────────────────────────────────────────────────
     // Flip to true, rebuild (recompiles ONLY this file — no menuconfig, no sdkconfig.h churn),
