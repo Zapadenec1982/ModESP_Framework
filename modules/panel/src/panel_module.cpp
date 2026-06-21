@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <ctime>
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 #include "modesp/ble/ble_panel.h"
@@ -30,6 +31,7 @@ static constexpr uint8_t kRainbow      = 0;   // 0 off · 1..9 colour-cycle (ove
 static constexpr char ICON_THERMO = static_cast<char>(0x80);
 static constexpr char ICON_DROP   = static_cast<char>(0x81);
 static constexpr char ICON_PERSON = static_cast<char>(0x82);
+static constexpr char ICON_CLOCK  = static_cast<char>(0x85);
 
 PanelModule::PanelModule()
     : BaseModule("panel", modesp::ModulePriority::LOW)
@@ -37,7 +39,7 @@ PanelModule::PanelModule()
 
 bool PanelModule::on_init() {
     state_set("panel.text", "");
-    ESP_LOGI(TAG, "Panel content module — rotates temp/humidity/presence on the LED panel");
+    ESP_LOGI(TAG, "Panel content module — rotates clock/temperature/humidity on the LED panel");
     return true;
 }
 
@@ -76,8 +78,19 @@ void PanelModule::on_update(uint32_t dt_ms) {
 
     // Collect the fields that currently have data, each with its own colour.
     struct Entry { char buf[24]; uint8_t r, g, b; uint8_t anim; };
-    Entry e[3];
+    Entry e[4];   // clock + temp + humidity + presence
     int n = 0;
+
+    // ── clock ── HH:MM once SNTP has set the wall clock (skip the 1970 pre-sync time)
+    time_t now = time(nullptr);
+    if (now > 1600000000) {   // ~2020-09 → time is synced
+        struct tm tmv;
+        localtime_r(&now, &tmv);
+        Entry& x = e[n++];
+        snprintf(x.buf, sizeof(x.buf), "%c%02d:%02d", ICON_CLOCK, tmv.tm_hour, tmv.tm_min);
+        x.r = 180; x.g = 200; x.b = 255;   // soft blue-white
+        x.anim = 0;
+    }
 
     // ── temperature ── gate on health (drop stale/dead sensor) AND skip the 0.00 voltage-only
     //                   frame until a real reading lands (room_temp_ok can be true for it).
