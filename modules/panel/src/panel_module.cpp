@@ -16,6 +16,15 @@
 
 static const char* TAG = "Panel";
 
+// ── Per-field display effect (HW-confirmed anim mapping 2026-06-21; edit + rebuild this file) ──
+//   anim: 0 static · 1 scroll→← · 2 scroll←→ · 3 ↑ · 4 ↓ · 5 blink · 6 breathe · 7 drop-in
+//   Default static: the readout is short and must stay glanceable. rainbow overrides colour.
+static constexpr uint8_t kTempAnim     = 7;   // drop-in: temp "assembles" each time it rotates in
+static constexpr uint8_t kHumidAnim    = 0;   // static — readable
+static constexpr uint8_t kPresenceAnim = 0;   // static
+static constexpr uint8_t kSpeed        = 80;  // 0..100 — for scroll/blink/breathe/drop
+static constexpr uint8_t kRainbow      = 0;   // 0 off · 1..9 colour-cycle (overrides threshold colour)
+
 PanelModule::PanelModule()
     : BaseModule("panel", modesp::ModulePriority::LOW)
 {}
@@ -31,6 +40,26 @@ void PanelModule::on_update(uint32_t dt_ms) {
     auto& panel = modesp::BlePanel::instance();
     if (!panel.is_connected()) { shown_[0] = '\0'; return; }
 
+    // ── DIAGNOSTIC anim sweep ─────────────────────────────────────────────────────────────
+    // Flip to true, rebuild (recompiles ONLY this file — no menuconfig, no sdkconfig.h churn),
+    // flash: the panel cycles the native animation byte 0..7 (~6 s each), labelled
+    // "ANIM0".."ANIM7" in green (rainbow off) so each effect is identifiable. Set back to false
+    // and rebuild for normal sensor rotation.
+    static constexpr bool kAnimSweep = false;
+    if (kAnimSweep) {
+        eval_ms_ += dt_ms;
+        if (eval_ms_ < 6000) return;
+        eval_ms_ = 0;
+        uint8_t anim = static_cast<uint8_t>(rot_ % 8);
+        rot_++;
+        char tbuf[12];
+        snprintf(tbuf, sizeof(tbuf), "ANIM%u", static_cast<unsigned>(anim));
+        panel.show_text(tbuf, 0, 255, 0, anim, /*speed=*/80, /*rainbow=*/0);
+        ESP_LOGI(TAG, "ANIM TEST: animation=%u speed=80 rainbow=0 -> '%s'",
+                 static_cast<unsigned>(anim), tbuf);
+        return;
+    }
+
     // Re-evaluate at ~4 Hz (cheap — show_text() is now non-blocking and we de-dupe);
     // advance the rotation slot every 4 s.
     eval_ms_ += dt_ms;
@@ -40,7 +69,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
     if (rotate_ms_ >= 4000) { rotate_ms_ = 0; rot_++; }
 
     // Collect the fields that currently have data, each with its own colour.
-    struct Entry { char buf[24]; uint8_t r, g, b; };
+    struct Entry { char buf[24]; uint8_t r, g, b; uint8_t anim; };
     Entry e[3];
     int n = 0;
 
@@ -54,6 +83,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         if      (t < 18.0f) { x.r = 80;  x.g = 140; x.b = 255; }   // cold    → blue
         else if (t > 27.0f) { x.r = 255; x.g = 70;  x.b = 40;  }   // warm    → red
         else                { x.r = 60;  x.g = 220; x.b = 80;  }   // comfort → green
+        x.anim = kTempAnim;
     }
 
     // ── humidity ──
@@ -64,6 +94,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         if      (h < 30.0f) { x.r = 255; x.g = 150; x.b = 40;  }   // dry   → orange
         else if (h > 60.0f) { x.r = 80;  x.g = 140; x.b = 255; }   // humid → blue
         else                { x.r = 60;  x.g = 220; x.b = 80;  }   // ok    → green
+        x.anim = kHumidAnim;
     }
 
     // ── presence ── require health so a never-seen/dead radar drops the slot (no fake "AWAY")
@@ -72,11 +103,12 @@ void PanelModule::on_update(uint32_t dt_ms) {
         Entry& x = e[n++];
         if (p > 0.5f) { snprintf(x.buf, sizeof(x.buf), "HERE"); x.r = 60; x.g = 220; x.b = 80; }
         else          { snprintf(x.buf, sizeof(x.buf), "AWAY"); x.r = 90; x.g = 90;  x.b = 90; }
+        x.anim = kPresenceAnim;
     }
 
-    const char* buf; uint8_t r, g, b;
-    if (n == 0) { buf = "ModESP"; r = g = b = 255; }               // nothing yet → white splash
-    else { const Entry& x = e[rot_ % n]; buf = x.buf; r = x.r; g = x.g; b = x.b; }
+    const char* buf; uint8_t r, g, b, anim;
+    if (n == 0) { buf = "ModESP"; r = g = b = 255; anim = 0; }     // nothing yet → white splash
+    else { const Entry& x = e[rot_ % n]; buf = x.buf; r = x.r; g = x.g; b = x.b; anim = x.anim; }
 
     // Re-push on a text OR colour change (a threshold flip can recolour the same string).
     if (strncmp(buf, shown_, sizeof(shown_)) != 0 ||
@@ -84,7 +116,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         strncpy(shown_, buf, sizeof(shown_) - 1);
         shown_[sizeof(shown_) - 1] = '\0';
         shown_rgb_[0] = r; shown_rgb_[1] = g; shown_rgb_[2] = b;
-        panel.show_text(buf, r, g, b);
+        panel.show_text(buf, r, g, b, anim, kSpeed, kRainbow);
         state_set("panel.text", buf);
         ESP_LOGI(TAG, "panel <- '%s' (rgb=%02x%02x%02x)", buf, r, g, b);
     }

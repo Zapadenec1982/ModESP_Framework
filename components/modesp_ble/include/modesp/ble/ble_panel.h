@@ -46,10 +46,12 @@ public:
     bool write_cmd(const uint8_t* data, uint16_t len, bool with_response);
 
     /// Render a short ASCII string as a native iPixel text frame in fg colour (r,g,b,
-    /// default white). NON-BLOCKING: enqueues to a background render task (latest-wins),
-    /// so the caller (e.g. the panel module on the main loop) never stalls on BLE I/O.
-    /// No-op if the string is null; a frame queued while disconnected is dropped.
-    void show_text(const char* s, uint8_t r = 255, uint8_t g = 255, uint8_t b = 255);
+    /// default white) with an optional panel-native effect: anim (0..7 — 0 static, others
+    /// scroll/blink/breathe/…), speed (0..100), rainbow (0..9 colour-cycle). The panel runs
+    /// the effect autonomously. NON-BLOCKING: enqueues to a background render task (latest-
+    /// wins), so the caller never stalls on BLE I/O. No-op if null; dropped if disconnected.
+    void show_text(const char* s, uint8_t r = 255, uint8_t g = 255, uint8_t b = 255,
+                   uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
 
     // ── called from modesp_ble scan/host internals (NimBLE host task) ──
     bool name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const;
@@ -60,7 +62,8 @@ private:
     enum class State : uint8_t { IDLE, CONNECTING, DISCOVERING, READY };
 
     void reset_link();                             // back to IDLE, resume observer scan
-    void render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b);  // build frame + chunked send
+    void render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b,
+                              uint8_t anim, uint8_t speed, uint8_t rainbow);  // build frame + chunked send
     static void render_task_fn(void* arg);         // background render task (drains the latest-text queue)
     // GATT-client discovery callbacks (static members → access privates via instance()).
     static int on_chr(uint16_t conn, const struct ble_gatt_error* err,

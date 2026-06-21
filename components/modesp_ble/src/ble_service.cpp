@@ -821,12 +821,13 @@ int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
 // show_text() enqueues (latest-wins, non-blocking) so the 100 Hz main loop never
 // stalls on BLE; this task does the blocking chunked with-response sends.
 namespace {
-struct PanelMsg { char text[24]; uint8_t rgb[3]; };
+struct PanelMsg { char text[24]; uint8_t rgb[3]; uint8_t anim; uint8_t speed; uint8_t rainbow; };
 QueueHandle_t s_panel_queue       = nullptr;   // length 1 → xQueueOverwrite (newest wins)
 TaskHandle_t  s_panel_render_task = nullptr;
 }
 
-void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b) {
+void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b,
+                                    uint8_t anim, uint8_t speed, uint8_t rainbow) {
     if (state_ != State::READY || s == nullptr) return;
     using namespace modesp::panel;
 
@@ -841,7 +842,7 @@ void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t
     size_t pl = 0;
     payload[pl++] = static_cast<uint8_t>(n);
     payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // reserved
-    payload[pl++] = 0; payload[pl++] = 0x32; payload[pl++] = 0;    // anim=0(fixed) speed=0x32 rainbow=0
+    payload[pl++] = anim; payload[pl++] = speed; payload[pl++] = rainbow;  // native effect/speed/rainbow
     payload[pl++] = R; payload[pl++] = G; payload[pl++] = B;       // fg RGB
     payload[pl++] = 0;                                             // bg_enable=0
     payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // bg RGB
@@ -882,11 +883,12 @@ void BlePanel::render_task_fn(void* arg) {
     PanelMsg m;
     for (;;) {
         if (xQueueReceive(s_panel_queue, &m, portMAX_DELAY) == pdTRUE)
-            self->render_text_blocking(m.text, m.rgb[0], m.rgb[1], m.rgb[2]);
+            self->render_text_blocking(m.text, m.rgb[0], m.rgb[1], m.rgb[2], m.anim, m.speed, m.rainbow);
     }
 }
 
-void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b) {
+void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
+                         uint8_t anim, uint8_t speed, uint8_t rainbow) {
     if (s == nullptr) return;
     if (!s_panel_queue) {
         s_panel_queue = xQueueCreate(1, sizeof(PanelMsg));
@@ -904,6 +906,7 @@ void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b) {
     for (; s[i] && i < sizeof(m.text) - 1; i++) m.text[i] = s[i];
     m.text[i] = '\0';
     m.rgb[0] = r; m.rgb[1] = g; m.rgb[2] = b;
+    m.anim = anim; m.speed = speed; m.rainbow = rainbow;
     xQueueOverwrite(s_panel_queue, &m);            // latest-wins, non-blocking
 }
 

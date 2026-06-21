@@ -108,6 +108,23 @@ glyph blocks — **NO PNG encoder needed** (the user's chosen path). Write to **
 [14..]   glyph blocks (concatenated, one per char)
 ```
 
+### animation byte — **HW-CONFIRMED on LED_BLE_E6C5EBE2 (2026-06-21)**
+Panel runs the effect autonomously. Values (`anim`, 0..7), confirmed by an on-device sweep:
+| anim | effect |
+|---|---|
+| 0 | static (no animation) |
+| 1 | scroll right → left (marquee) |
+| 2 | scroll left → right |
+| 3 | scroll bottom → top |
+| 4 | scroll top → bottom |
+| 5 | blink |
+| 6 | breathe (brightness pulse) |
+| 7 | drop-in — text assembles row-by-row, pixels falling from the top |
+
+`speed` 0..100 (default 80). `rainbow` 0..9 (0 off; 1..9 colour-cycle, overrides the fg colour
+visually). Ranges from pypixelcolor `send_text(text, rainbow_mode, animation, save_slot, speed, ...)`.
+On ESP32: `BlePanel::show_text(s, r,g,b, anim, speed, rainbow)`.
+
 ## 3.3 glyph block (per char) — pypixelcolor encoding.py / image_processing.py
 ```
 [0]      0x02         (char block; 0x09 = emoji)
