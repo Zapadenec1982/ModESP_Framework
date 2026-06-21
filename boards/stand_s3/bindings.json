@@ -6,9 +6,6 @@
     {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_temp",  "module": "equipment", "address": "temperature"},
     {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_humid", "module": "equipment", "address": "humidity"},
     {"hardware": "xiaomi_room", "driver": "ble_xiaomi_th", "role": "room_batt",  "module": "equipment", "address": "battery"},
-    {"hardware": "led_panel",   "driver": "ble_led_panel", "role": "panel",      "module": "equipment"},
-    {"hardware": "uart_1",      "driver": "ld2410b",       "role": "presence",       "module": "equipment", "address": "presence", "settings": {"absence_s": 1}},
-    {"hardware": "uart_1",      "driver": "ld2410b",       "role": "move_distance",  "module": "equipment", "address": "moving"},
-    {"hardware": "uart_1",      "driver": "ld2410b",       "role": "still_distance", "module": "equipment", "address": "static"}
+    {"hardware": "led_panel",   "driver": "ble_led_panel", "role": "panel",      "module": "equipment"}
   ]
 }
