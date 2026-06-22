@@ -2,9 +2,9 @@
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/drivers/ble_led_panel.md](../../../uk/03-framework-reference/drivers/ble_led_panel.md)
 
-`ble_led_panel` drives a Chinese **iPixel Color / LED_BLE 64×16 RGB LED matrix** over BLE. Unlike a passive sensor, this is a **connect** device: the driver owns the BLE link and the control plane through the shared `modesp_ble` host (CENTRAL role + the `BlePanel` singleton). It controls only **power** (ON/OFF) and **brightness** (0–100 %) — the displayed **content** belongs to the [`panel`](../modules/panel.md) module, decoupled through `BlePanel`.
+`ble_led_panel` drives a Chinese **iPixel Color / LED_BLE 64×16 RGB LED matrix** over BLE. Unlike a passive sensor, this is a **connect** device: the driver owns only the **BLE link target** through the shared `modesp_ble` host (CENTRAL role + the `BlePanel` singleton). Power, brightness, effect and the displayed **content** belong to the [`panel`](../modules/panel.md) module, decoupled through `BlePanel`.
 
-The driver registers as an `actuator` with `hardware_type: ble_device`. Unlike `ble_xiaomi_th` (matched by MAC), this device is matched **by advertised name**. On connect the panel is self-driving: it turns ON at the configured brightness.
+The driver registers as an `actuator` with `hardware_type: ble_device`. Unlike `ble_xiaomi_th` (matched by MAC), this device is matched **by advertised name**. Its `update()` just logs the connect edge and `set()` is a no-op — it never sends power or brightness itself.
 
 REQUIRES: the `modesp_ble` component with `CONFIG_MODESP_BLE_ENABLE` and `CONFIG_MODESP_BLE_CENTRAL` (panel connect).
 
@@ -33,7 +33,7 @@ A single binding, bound to the `equipment` module:
 
 ## Connect flow
 
-The driver owns transport and the control plane through `BlePanel`:
+The driver owns the BLE link target; the control plane (power/brightness) is written by the **module** through `BlePanel`:
 
 ```
 scan adv-name prefix "LED_BLE_"  ──▶  connect
@@ -42,14 +42,14 @@ scan adv-name prefix "LED_BLE_"  ──▶  connect
               ├─ write  char fa02   (commands)
               └─ notify char fa03
         │
-        └─▶ READY  ──▶  power ON at configured brightness (self-driving)
+        └─▶ READY  ──▶  panel module applies power + brightness
 ```
 
-Connecting pauses the BLE observer scan, then resumes it once connected.
+Connecting pauses the BLE observer scan, then resumes it once connected. The `panel` module is the single writer and re-applies power + brightness on each (re)connect (sentinel reset), so user settings survive a reconnect with no connect-edge race.
 
 ## Commands
 
-Control is a small byte protocol written to the **fa02** write characteristic. Full spec: [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
+Control is a small byte protocol written to the **fa02** write characteristic — now sent by the `panel` **module** (via `BlePanel`), not by the driver. Full spec: [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
 
 | Action | Bytes |
 |---|---|
@@ -70,7 +70,7 @@ void show_text(const char* s,
                uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
 ```
 
-The **driver** owns transport/control only (power + brightness). The **panel module** owns *what* is shown — it calls `BlePanel::show_text` with the native iPixel TEXT frame (font glyphs + icons + colour + animation). See [`panel`](../modules/panel.md) for the displayed readout, threshold colours, and the native animation modes.
+The **driver** owns the BLE link target only. The **panel module** is the single writer of power, brightness *and* what is shown — it reads `panel.power` (bool), `panel.brightness` (int %), `panel.anim` (int 0..7 effect) and `panel.rotate` (bool) from SharedState (set by the web "iPixel" tab / MQTT) and writes them through `BlePanel` via `write_cmd` / `show_text` (the native iPixel TEXT frame: font glyphs + icons + colour + animation). See [`panel`](../modules/panel.md) for the displayed readout, threshold colours, and the native animation modes.
 
 > ℹ️ **Why not richer graphics?** DIY per-pixel drawing is one BLE round-trip per pixel — too slow. Full-frame PNG upload works for static images, but on-device PNG *compression* (ROM miniz) exhausts the free heap (~64 KB) on this device, so it isn't viable. The native TEXT frame is the chosen, working path.
 

@@ -1,15 +1,71 @@
 {
   "manifest_version": 1,
   "module": "panel",
-  "version": "1.0.0",
-  "description": "LED-панель: ротація equipment.room_temp/room_humid/presence (health-gated, кольори за порогами) на iPixel BLE-панелі",
+  "version": "1.1.0",
+  "description": "LED-панель iPixel: ротація equipment.room_temp/room_humid + годинник (іконки, кольори, анімація) + веб-керування (живлення/яскравість/ефект)",
   "priority": 3,
 
   "state": {
-    "panel.text": {
-      "type": "string",
-      "access": "read",
-      "description": "Поточний текст на LED-панелі"
-    }
+    "panel.text":       {"type": "string", "access": "read",
+                         "description": "Поточний текст на LED-панелі"},
+    "panel.connected":  {"type": "bool", "access": "read",
+                         "on_label": "Підключено", "off_label": "Немає звʼязку",
+                         "description": "Звʼязок з панеллю по BLE"},
+
+    "panel.power":      {"type": "bool", "access": "readwrite", "default": true,
+                         "persist": true, "mqtt_subscribe": true,
+                         "on_label": "Увімк", "off_label": "Вимк",
+                         "description": "Живлення панелі"},
+    "panel.brightness": {"type": "int", "access": "readwrite", "default": 80,
+                         "min": 5, "max": 100, "step": 5, "unit": "%",
+                         "persist": true, "mqtt_subscribe": true,
+                         "description": "Яскравість"},
+    "panel.rotate":     {"type": "bool", "access": "readwrite", "default": true,
+                         "persist": true, "mqtt_subscribe": true,
+                         "on_label": "Авто", "off_label": "Пауза",
+                         "description": "Авто-ротація годинник/температура/вологість"},
+    "panel.anim":       {"type": "int", "access": "readwrite", "default": 0,
+                         "min": 0, "max": 7, "step": 1,
+                         "persist": true, "mqtt_subscribe": true,
+                         "description": "Ефект тексту: 0 статика · 1 скрол← · 2 скрол→ · 3 ↑ · 4 ↓ · 5 блим · 6 дих · 7 drop-in"}
+  },
+
+  "mqtt": {
+    "publish": ["panel.connected", "panel.text"],
+    "subscribe": ["panel.power", "panel.brightness", "panel.rotate", "panel.anim"]
+  },
+
+  "ui": {
+    "page": "iPixel",
+    "icon": "monitor",
+    "cards": [
+      {
+        "title": "Стан",
+        "subtitle": "Звʼязок + поточний текст",
+        "layout": "single",
+        "widgets": [
+          {"key": "panel.connected", "widget": "indicator"},
+          {"key": "panel.text", "widget": "status_text"}
+        ]
+      },
+      {
+        "title": "Керування",
+        "subtitle": "Живлення, яскравість, ротація",
+        "layout": "single",
+        "widgets": [
+          {"key": "panel.power", "widget": "toggle"},
+          {"key": "panel.brightness", "widget": "slider"},
+          {"key": "panel.rotate", "widget": "toggle"}
+        ]
+      },
+      {
+        "title": "Ефект",
+        "subtitle": "Анімація тексту (0-7)",
+        "layout": "single",
+        "widgets": [
+          {"key": "panel.anim", "widget": "slider"}
+        ]
+      }
+    ]
   }
 }

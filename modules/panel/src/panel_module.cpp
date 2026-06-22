@@ -17,14 +17,10 @@
 
 static const char* TAG = "Panel";
 
-// ── Per-field display effect (HW-confirmed anim mapping 2026-06-21; edit + rebuild this file) ──
+// Text animation effect is WEB-CONTROLLED (panel.anim, 0..7 — see manifest). Speed + rainbow fixed.
 //   anim: 0 static · 1 scroll→← · 2 scroll←→ · 3 ↑ · 4 ↓ · 5 blink · 6 breathe · 7 drop-in
-//   Default static: the readout is short and must stay glanceable. rainbow overrides colour.
-static constexpr uint8_t kTempAnim     = 7;   // drop-in: temp "assembles" each time it rotates in
-static constexpr uint8_t kHumidAnim    = 0;   // static — readable
-static constexpr uint8_t kPresenceAnim = 0;   // static
-static constexpr uint8_t kSpeed        = 80;  // 0..100 — for scroll/blink/breathe/drop
-static constexpr uint8_t kRainbow      = 0;   // 0 off · 1..9 colour-cycle (overrides threshold colour)
+static constexpr uint8_t kSpeed   = 80;  // 0..100 — for scroll/blink/breathe/drop
+static constexpr uint8_t kRainbow = 0;   // 0 off · 1..9 colour-cycle (overrides threshold colour)
 
 // Panel-font private-use icon bytes (hand-authored pictographs in tools/gen_osd_font.py PANEL_ICONS;
 // show_text renders them inline as ordinary glyphs). Emitted as a leading char in each readout.
@@ -39,14 +35,37 @@ PanelModule::PanelModule()
 
 bool PanelModule::on_init() {
     state_set("panel.text", "");
-    ESP_LOGI(TAG, "Panel content module — rotates clock/temperature/humidity on the LED panel");
+    state_set("panel.connected", false);
+    ESP_LOGI(TAG, "Panel content module — clock/temp/humidity rotation + web control (power/brightness/effect)");
     return true;
 }
 
 void PanelModule::on_update(uint32_t dt_ms) {
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
     auto& panel = modesp::BlePanel::instance();
-    if (!panel.is_connected()) { shown_[0] = '\0'; return; }
+
+    // ── Web/MQTT control: connection status + power + brightness (applied on change) ──
+    bool conn = panel.is_connected();
+    if (conn != last_connected_) { last_connected_ = conn; state_set("panel.connected", conn); }
+    if (!conn) { shown_[0] = '\0'; last_power_ = -1; last_bright_ = -1; return; }
+
+    int power = read_bool("panel.power", true) ? 1 : 0;
+    if (power != last_power_) {
+        last_power_ = power;
+        const uint8_t cmd[5] = {0x05, 0x00, 0x07, 0x01, static_cast<uint8_t>(power)};   // power ON/OFF
+        panel.write_cmd(cmd, sizeof(cmd), true);
+        ESP_LOGI(TAG, "panel power %s (web)", power ? "ON" : "OFF");
+    }
+    int bright = read_int("panel.brightness", 80);
+    if (bright < 5) bright = 5; else if (bright > 100) bright = 100;
+    if (bright != last_bright_) {
+        last_bright_ = bright;
+        const uint8_t cmd[5] = {0x05, 0x00, 0x04, 0x80, static_cast<uint8_t>(bright)};   // brightness %
+        panel.write_cmd(cmd, sizeof(cmd), true);
+        ESP_LOGI(TAG, "panel brightness %d%% (web)", bright);
+    }
+    if (power == 0 || !read_bool("panel.rotate", true)) { shown_[0] = '\0'; return; }   // off/paused → hold
+    const uint8_t web_anim = static_cast<uint8_t>(read_int("panel.anim", 0));   // web-selected text effect
 
     // ── DIAGNOSTIC anim sweep ─────────────────────────────────────────────────────────────
     // Flip to true, rebuild (recompiles ONLY this file — no menuconfig, no sdkconfig.h churn),
@@ -89,7 +108,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         Entry& x = e[n++];
         snprintf(x.buf, sizeof(x.buf), "%c%02d:%02d", ICON_CLOCK, tmv.tm_hour, tmv.tm_min);
         x.r = 180; x.g = 200; x.b = 255;   // soft blue-white
-        x.anim = 0;
+        x.anim = web_anim;
     }
 
     // ── temperature ── gate on health (drop stale/dead sensor) AND skip the 0.00 voltage-only
@@ -102,7 +121,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         if      (t < 18.0f) { x.r = 80;  x.g = 140; x.b = 255; }   // cold    → blue
         else if (t > 27.0f) { x.r = 255; x.g = 70;  x.b = 40;  }   // warm    → red
         else                { x.r = 60;  x.g = 220; x.b = 80;  }   // comfort → green
-        x.anim = kTempAnim;
+        x.anim = web_anim;
     }
 
     // ── humidity ──
@@ -113,7 +132,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         if      (h < 30.0f) { x.r = 255; x.g = 150; x.b = 40;  }   // dry   → orange
         else if (h > 60.0f) { x.r = 80;  x.g = 140; x.b = 255; }   // humid → blue
         else                { x.r = 60;  x.g = 220; x.b = 80;  }   // ok    → green
-        x.anim = kHumidAnim;
+        x.anim = web_anim;
     }
 
     // ── presence ── use the GATED occupancy presence.detected (honours
@@ -123,19 +142,20 @@ void PanelModule::on_update(uint32_t dt_ms) {
         Entry& x = e[n++];
         if (read_bool("presence.detected", false)) { snprintf(x.buf, sizeof(x.buf), "%cHERE", ICON_PERSON); x.r = 60; x.g = 220; x.b = 80; }
         else { snprintf(x.buf, sizeof(x.buf), "%cAWAY", ICON_PERSON); x.r = 90; x.g = 90;  x.b = 90; }
-        x.anim = kPresenceAnim;
+        x.anim = web_anim;
     }
 
     const char* buf; uint8_t r, g, b, anim;
     if (n == 0) { buf = "ModESP"; r = g = b = 255; anim = 0; }     // nothing yet → white splash
     else { const Entry& x = e[rot_ % n]; buf = x.buf; r = x.r; g = x.g; b = x.b; anim = x.anim; }
 
-    // Re-push on a text OR colour change (a threshold flip can recolour the same string).
+    // Re-push on a text, colour OR effect change (threshold flip / web anim change).
     if (strncmp(buf, shown_, sizeof(shown_)) != 0 ||
-        r != shown_rgb_[0] || g != shown_rgb_[1] || b != shown_rgb_[2]) {
+        r != shown_rgb_[0] || g != shown_rgb_[1] || b != shown_rgb_[2] || anim != shown_anim_) {
         strncpy(shown_, buf, sizeof(shown_) - 1);
         shown_[sizeof(shown_) - 1] = '\0';
         shown_rgb_[0] = r; shown_rgb_[1] = g; shown_rgb_[2] = b;
+        shown_anim_ = anim;
         panel.show_text(buf, r, g, b, anim, kSpeed, kRainbow);
         // panel.text state + log: drop the leading icon byte so the value stays valid ASCII/UTF-8
         const char* clean = (static_cast<uint8_t>(buf[0]) >= 0x80) ? buf + 1 : buf;

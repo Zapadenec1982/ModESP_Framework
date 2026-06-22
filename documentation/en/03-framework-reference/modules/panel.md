@@ -14,7 +14,7 @@ It rotates **three fields** every ~4 s, each health-gated (`equipment.<role>_ok`
 
 (The room temperature/humidity come from the [`ble_xiaomi_th`](../drivers/ble_xiaomi_th.md) sensor via EquipmentBase.)
 
-Module priority is **LOW**. `manifest.json` declares one read-only state key: `panel.text`. `project.json` `modules += "panel"`; `main/CMakeLists` `PRIV_REQUIRES += panel`. The feature lives on git branch `feat/ble-led-panel`.
+Module priority is **LOW**. `manifest.json` declares read state (`panel.text`, `panel.connected`) plus readwrite controls surfaced on the **iPixel** web tab (see [Web control](#web-control-the-ipixel-tab)). `project.json` `modules += "panel"`; `main/CMakeLists` `PRIV_REQUIRES += panel`. The feature lives on git branch `feat/ble-led-panel`.
 
 ## Rendering
 
@@ -62,7 +62,24 @@ The `anim` byte drives a hardware effect (HW-confirmed on `LED_BLE_E6C5EBE2`):
 | 2 | scroll left → right | 6 | breathe |
 | 3 | bottom → up | 7 | drop-in (assembles row-by-row) |
 
-`speed` is `0..100`; `rainbow` is `0..9` (colour-cycle). **Default:** temperature uses `7` (drop-in), the other fields are static.
+`speed` is `0..100`; `rainbow` is `0..9` (colour-cycle). The effect is **web-controlled** (`panel.anim`, the iPixel tab) and applies to every rotation field; default `0` (static — most glanceable).
+
+## Web control (the "iPixel" tab)
+
+`manifest.json` declares a web page **iPixel** (manifest-driven UI → the generic frontend renders it from `ui.json`, **no frontend rebuild**). The same state is also MQTT-controllable (`mqtt_subscribe`) and survives reboots (`persist`).
+
+| Key | Type / access | Widget | Purpose |
+|---|---|---|---|
+| `panel.connected` | bool · read | indicator | BLE link to the panel |
+| `panel.text` | string · read | status_text | Current text on the panel |
+| `panel.power` | bool · rw (def. ON) | toggle | Panel power (ON/OFF) |
+| `panel.brightness` | int 5..100 % · rw (def. 80) | slider | Brightness |
+| `panel.rotate` | bool · rw (def. auto) | toggle | Auto-rotation / pause (hold the frame) |
+| `panel.anim` | int 0..7 · rw (def. 0) | slider | Text effect (see the animation table) |
+
+**Single writer:** power/brightness/effect are written by *this module* through `BlePanel`. The [`ble_led_panel`](../drivers/ble_led_panel.md) driver is **no longer self-driving** — it only owns the link — so there is no two-writer race. The module re-applies power+brightness from state on each (re)connect (sentinel reset), so user settings survive a reconnect.
+
+> ℹ️ No free text: the generic frontend ships only `toggle/slider/select/...` — there is no `text_input` widget in the bundle for an arbitrary string. Content is the auto-rotation (clock/temp/humidity); the web controls power/brightness/effect/pause.
 
 ## Graphics — design history
 

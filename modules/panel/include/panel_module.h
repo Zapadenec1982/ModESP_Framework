@@ -21,8 +21,13 @@ public:
 private:
     char     shown_[24]   = {0};   // last text pushed to the panel (de-dupe)
     uint8_t  shown_rgb_[3] = {0};  // last colour pushed (de-dupe on colour-only changes)
+    uint8_t  shown_anim_  = 0;     // last effect pushed (de-dupe on web anim change)
     uint32_t eval_ms_     = 0;      // re-evaluate throttle accumulator
     uint32_t rotate_ms_   = 0;      // field-rotation timer
     uint32_t rot_         = 0;      // rotation slot (mod #available fields)
     bool     seen_temp_   = false;  // saw a real (non-zero) temperature — past the 0.00 voltage frame
+    // web/MQTT control de-dupe (sentinel -1 = unknown → re-apply on (re)connect)
+    int      last_power_  = -1;     // last panel.power sent (0/1)
+    int      last_bright_ = -1;     // last panel.brightness sent (%)
+    bool     last_connected_ = false;  // last panel.connected status published
 };

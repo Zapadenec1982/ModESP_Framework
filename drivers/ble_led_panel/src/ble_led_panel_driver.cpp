@@ -3,8 +3,10 @@
  * @brief iPixel/LED_BLE 16x64 panel actuator — control plane (Increment 1).
  *
  * Connects via modesp_ble's BlePanel (central-connect). Control commands are
- * Confirmed-by-working-code (docs/ble/panel_protocol.md §1.1). On the connection
- * edge the driver auto-sends ON + brightness so the panel is visibly validated.
+ * Confirmed-by-working-code (docs/ble/panel_protocol.md §1.1). The driver owns only
+ * the BLE link target; power / brightness / effect / text are owned by the panel
+ * MODULE (panel.power / panel.brightness / panel.anim via the web UI), giving a single
+ * writer over BlePanel and no connect-edge race.
  */
 #include "ble_led_panel_driver.h"
 #include "modesp/hal/hal_types.h"        // complete modesp::Binding for apply_settings()
@@ -33,16 +35,6 @@ void BleLedPanelDriver::apply_settings(const modesp::Binding& b) {
 bool BleLedPanelDriver::init() {
     ESP_LOGI(TAG, "[%s] init (brightness=%d%%) — connecting on scan match", role_.c_str(), brightness_);
     return true;
-}
-
-bool BleLedPanelDriver::push_power(bool on) {
-#if defined(CONFIG_MODESP_BLE_CENTRAL)
-    static const uint8_t ON_CMD[5]  = {0x05, 0x00, 0x07, 0x01, 0x01};
-    static const uint8_t OFF_CMD[5] = {0x05, 0x00, 0x07, 0x01, 0x00};
-    return modesp::BlePanel::instance().write_cmd(on ? ON_CMD : OFF_CMD, 5, /*with_response=*/true);
-#else
-    (void)on; return false;
-#endif
 }
 
 bool BleLedPanelDriver::push_brightness(int pct) {
@@ -82,30 +74,22 @@ void BleLedPanelDriver::push_display_test() {
 
 void BleLedPanelDriver::update(uint32_t /*dt_ms*/) {
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
+    // The driver owns only the BLE link target. Power, brightness, effect and text are all
+    // owned by the panel MODULE (panel.power / panel.brightness / panel.anim via the web UI),
+    // which writes them through BlePanel — so there is a single writer and no connect-edge race.
     bool ready = modesp::BlePanel::instance().is_connected();
     if (ready && !was_ready_) {
-        // Connect edge → power ON + (re)send brightness. The panel is self-driving:
-        // power follows the link; brightness is reconciled below (de-duped).
-        push_power(true);
-        sent_brightness_ = -1;            // force the brightness (re)send
-        ESP_LOGI(TAG, "[%s] panel connected → ON @ %d%% (text driven by the panel module)",
-                 role_.c_str(), brightness_);
-    }
-    if (ready && sent_brightness_ != brightness_) {
-        if (push_brightness(brightness_)) sent_brightness_ = brightness_;
-    }
-    if (!ready && was_ready_) {
-        sent_brightness_ = -1;            // disconnected → re-push on reconnect
+        ESP_LOGI(TAG, "[%s] panel connected (power/brightness/effect/text driven by the panel module)",
+                 role_.c_str());
     }
     was_ready_ = ready;
 #endif
 }
 
 bool BleLedPanelDriver::set(bool /*state*/) {
-    // Increment 1: the panel is self-driving — power follows the BLE connection
-    // (update() turns it ON on connect). EquipmentBase drives every bound actuator
-    // to its default request (false) each tick; honoring that here would force the
-    // panel OFF and flood the link. Real on/off arrives with the panel module.
+    // No-op: power is owned by the panel module (panel.power, web UI), written through
+    // BlePanel. EquipmentBase drives every bound actuator to its default request (false)
+    // each tick; honoring that here would force the panel OFF and flood the link.
     return is_healthy();
 }
 

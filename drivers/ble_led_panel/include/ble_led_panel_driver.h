@@ -37,8 +37,7 @@ public:
     bool is_healthy() const override;            // BlePanel connected
 
 private:
-    bool push_power(bool on);          // returns the BLE write result
-    bool push_brightness(int pct);
+    bool push_brightness(int pct);     // returns the BLE write result (used by set_value)
     void push_display_test();          // TEMP (Increment 1.5): clear + DIY + corner pixels
 
     etl::string<16> role_;

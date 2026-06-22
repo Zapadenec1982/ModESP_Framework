@@ -2,7 +2,7 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/modules/panel.md](../../../en/03-framework-reference/modules/panel.md)
 
-Бізнес-модуль, що володіє **тим, ЩО показує** BLE LED-панель iPixel Color / LED_BLE 64×16 RGB. **Чистий споживач SharedState** (як [`presence`](presence.md) / [`simple_thermo`](simple_thermo.md)): сам BLE не чіпає — драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) тримає лінк і control-plane (живлення/яскравість), а модуль ганяє контент через singleton `BlePanel`. Транспорт і контент розв'язані саме через `BlePanel` (фіча на гілці `feat/ble-led-panel`).
+Бізнес-модуль, що володіє **тим, ЩО показує** BLE LED-панель iPixel Color / LED_BLE 64×16 RGB. **Чистий споживач SharedState** (як [`presence`](presence.md) / [`simple_thermo`](simple_thermo.md)): сам BLE не чіпає — драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) тримає лише BLE-лінк, а цей модуль володіє і контентом, **і живленням/яскравістю/ефектом** (через singleton `BlePanel`). Транспорт і керування розв'язані саме через `BlePanel` (фіча на гілці `feat/ble-led-panel`).
 
 Модуль ротує **три поля** кожні ~4 c — настінний **ГОДИННИК** (HH:MM з локального часу SNTP), **ТЕМПЕРАТУРА** (`equipment.room_temp`) і **ВОЛОГІСТЬ** (`equipment.room_humid`). Кожне поле health-гейтнуте (`equipment.<role>_ok`), де-дублюється і переоцінюється ~4 Гц.
 
@@ -67,15 +67,24 @@ HW-підтверджено на `LED_BLE_E6C5EBE2`:
 | 6 | дихання |
 | 7 | drop-in (збирається порядково) |
 
-`speed` 0..100, `rainbow` 0..9 (циклічна зміна кольору). **Деф.:** температура — `7` (drop-in), решта — статика.
+`speed` 0..100, `rainbow` 0..9 (циклічна зміна кольору). Ефект **web-керований** (`panel.anim`, вкладка iPixel) і застосовується до всіх полів ротації; деф. `0` (статика — найчитабельніше).
 
-## Стан (read-only)
+## Веб-керування (вкладка «iPixel»)
 
-`manifest.json` оголошує один read-only state-ключ:
+`manifest.json` оголошує веб-сторінку **iPixel** (manifest-driven UI → generic frontend рендерить її з `ui.json`, **без перебілда фронтенду**) з контролями. Той самий стан керується і по MQTT (`mqtt_subscribe`), і зберігається між перезавантаженнями (`persist`).
 
-| Ключ | Опис |
-|---|---|
-| `panel.text` | Поточний відображуваний текст. |
+| Ключ | Тип / доступ | Віджет | Призначення |
+|---|---|---|---|
+| `panel.connected` | bool · read | indicator | Звʼязок з панеллю по BLE |
+| `panel.text` | string · read | status_text | Поточний текст на панелі |
+| `panel.power` | bool · rw (деф. ON) | toggle | Живлення панелі (ON/OFF) |
+| `panel.brightness` | int 5..100 % · rw (деф. 80) | slider | Яскравість |
+| `panel.rotate` | bool · rw (деф. авто) | toggle | Авто-ротація / пауза (утримати кадр) |
+| `panel.anim` | int 0..7 · rw (деф. 0) | slider | Ефект тексту (див. таблицю анімації) |
+
+**Єдиний власник:** живлення/яскравість/ефект пише цей модуль через `BlePanel` (драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) більше **не self-driving** — лише тримає лінк), тож немає гонки двох письменників. На (пере)конекті модуль перевідправляє power+brightness зі стану (sentinel-скид), тож налаштування користувача переживають реконект.
+
+> ℹ️ Вільного тексту немає: generic frontend має лише `toggle/slider/select/...` — поля для довільного рядка (`text_input`) у bundle нема. Контент — авто-ротація (годинник/темп/вологість); веб керує живленням/яскравістю/ефектом/паузою.
 
 ## Графіка (історія дизайну)
 

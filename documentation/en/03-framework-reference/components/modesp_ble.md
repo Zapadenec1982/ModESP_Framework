@@ -30,7 +30,7 @@ Targets ESP-IDF v5.5 / v6.0, NimBLE host.
 
 ## `BlePanel` API (central role)
 
-The central role is exposed as the `BlePanel` singleton — the single point through which the `ble_led_panel` driver owns the BLE link, and through which the `panel` module pushes content. This decouples **transport/control** (driver) from **displayed content** (module).
+The central role is exposed as the `BlePanel` singleton — the single point through which the `ble_led_panel` driver owns the BLE link target, and through which the `panel` module — the single writer of power, brightness, effect and content — drives the panel. This decouples **transport** (driver) from **control + displayed content** (module).
 
 ```cpp
 void set_target(const char* adv_name_prefix);  // adv-name prefix to scan & connect
@@ -51,7 +51,7 @@ A **sensor** driver (`hardware_type "ble_device"`) that reads a Xiaomi LYWSD03MM
 
 ### Panel — `ble_led_panel` (central) + `panel` module
 
-An **actuator** driver (`hardware_type "ble_device"`, a **connect** device matched by **adv-name**, not MAC) drives a Chinese iPixel Color / LED_BLE 64x16 RGB matrix. It owns the BLE link + control plane via `BlePanel` (scan adv-name prefix `"LED_BLE_"` → connect → discover write char `fa02` + notify char `fa03`, service `0x00FA` → READY) and controls power/brightness. The `panel` **module** owns *what* is shown (clock / temperature / humidity rotation, icons, threshold colours, animation), pushing it through `BlePanel::show_text`. See [drivers/ble_led_panel.md](../drivers/ble_led_panel.md) and [modules/panel.md](../modules/panel.md).
+An **actuator** driver (`hardware_type "ble_device"`, a **connect** device matched by **adv-name**, not MAC) drives a Chinese iPixel Color / LED_BLE 64x16 RGB matrix. It owns only the BLE link target via `BlePanel` (scan adv-name prefix `"LED_BLE_"` → connect → discover write char `fa02` + notify char `fa03`, service `0x00FA` → READY). The `panel` **module** is the single writer of power, brightness *and* what is shown (clock / temperature / humidity rotation, icons, threshold colours, animation), pushing it all through `BlePanel` via `write_cmd` / `show_text`. See [drivers/ble_led_panel.md](../drivers/ble_led_panel.md) and [modules/panel.md](../modules/panel.md).
 
 ## See also
 
