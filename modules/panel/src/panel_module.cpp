@@ -52,7 +52,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
     // (left half red / right half green), encode it to PNG on-device (ROM miniz) and display it.
     // EXPECT exactly that — confirms the encoder works + the orientation (left/right, top/bottom).
     // Set false to restore the clock/temperature/humidity readout.
-    static constexpr bool kImageTest = true;
+    static constexpr bool kImageTest = false;   // on-device PNG compress fails on heap (~64 KB) — off
     if (kImageTest) {
         if (!img_test_sent_) {
             img_test_sent_ = true;
