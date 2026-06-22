@@ -993,8 +993,11 @@ void BlePanel::show_rgb888(const uint8_t* rgb, uint8_t save_slot) {
     // Encode the 64×16 RGB888 framebuffer to PNG with the ROM-resident miniz encoder (zero flash):
     // a 64×16 image is tiny → fast (~ms) + a few KB transient heap, fine off the BLE path. This is
     // the practical path for rich/dynamic frames (draw in RAM, then ONE compressed upload).
+    // esp_rom miniz.h strips the zlib-API enums (MINIZ_NO_ZLIB_APIS), so pass literals: level 6
+    // (= MZ_DEFAULT_LEVEL), flip 0 (= MZ_FALSE, top scanline first). The encoder + mz_free are
+    // both ESP32-S3 ROM symbols (zero flash).
     size_t pl = 0;
-    void* png = tdefl_write_image_to_png_file_in_memory_ex(rgb, 64, 16, 3, &pl, MZ_DEFAULT_LEVEL, MZ_FALSE);
+    void* png = tdefl_write_image_to_png_file_in_memory_ex(rgb, 64, 16, 3, &pl, 6, 0);
     if (!png) { ESP_LOGW(TAG, "panel png encode failed (heap?)"); return; }
     if (pl == 0 || pl > sizeof(s_build.img)) {
         ESP_LOGW(TAG, "panel encoded png too big (%u B > %u)", (unsigned)pl, (unsigned)sizeof(s_build.img));
