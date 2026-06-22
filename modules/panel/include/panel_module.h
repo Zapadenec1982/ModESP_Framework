@@ -25,5 +25,4 @@ private:
     uint32_t rotate_ms_   = 0;      // field-rotation timer
     uint32_t rot_         = 0;      // rotation slot (mod #available fields)
     bool     seen_temp_   = false;  // saw a real (non-zero) temperature — past the 0.00 voltage frame
-    bool     img_test_sent_ = false; // image-path validation: solid-red PNG sent once this connection
 };

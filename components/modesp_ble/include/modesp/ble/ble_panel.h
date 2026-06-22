@@ -53,17 +53,6 @@ public:
     void show_text(const char* s, uint8_t r = 255, uint8_t g = 255, uint8_t b = 255,
                    uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
 
-    /// Display a full-frame PNG image (form C). The PNG must be 64×16 RGB; the bytes are
-    /// caller-owned and MUST outlive the send (static/.rodata — only a pointer is queued).
-    /// save_slot ≥ 1 persists to a gallery slot, which is then shown. NON-BLOCKING (enqueues to
-    /// the render task). UNVERIFIED on HW — validate a solid-colour frame first.
-    void show_image(const uint8_t* png, size_t len, uint8_t save_slot = 1);
-
-    /// Encode a 64×16 RGB888 framebuffer (3072 bytes, row-major, top-left pixel first) to PNG
-    /// on-device (ROM miniz, zero flash) and display it — the practical path for rich/dynamic
-    /// frames (draw in RAM, then one compressed upload). NON-BLOCKING. No-op if null / encode fails.
-    void show_rgb888(const uint8_t* rgb, uint8_t save_slot = 1);
-
     // ── called from modesp_ble scan/host internals (NimBLE host task) ──
     bool name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const;
     void on_scan_hit(const void* addr);            // ble_addr_t* — begin connect
@@ -75,8 +64,7 @@ private:
     void reset_link();                             // back to IDLE, resume observer scan
     void render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b,
                               uint8_t anim, uint8_t speed, uint8_t rainbow);  // build frame + chunked send
-    void render_image_blocking(const uint8_t* png, uint32_t len, uint8_t slot);  // build PNG frame + send + show_slot
-    bool ensure_render_task();                     // lazy queue + task creation (first show_text/show_image)
+    bool ensure_render_task();                     // lazy queue + task creation (first show_text)
     static void render_task_fn(void* arg);         // background render task (drains the latest-frame queue)
     // GATT-client discovery callbacks (static members → access privates via instance()).
     static int on_chr(uint16_t conn, const struct ble_gatt_error* err,
