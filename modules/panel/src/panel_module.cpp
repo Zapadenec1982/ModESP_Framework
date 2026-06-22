@@ -13,7 +13,6 @@
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 #include "modesp/ble/ble_panel.h"
-#include "panel_test_image.h"   // solid-red 64x16 PNG for the image-path validation flag
 #endif
 
 static const char* TAG = "Panel";
@@ -49,16 +48,24 @@ void PanelModule::on_update(uint32_t dt_ms) {
     auto& panel = modesp::BlePanel::instance();
     if (!panel.is_connected()) { shown_[0] = '\0'; img_test_sent_ = false; return; }
 
-    // ── PNG image-path validation ── set true + flash: upload a solid-red 64×16 PNG once on
-    // connect. EXPECT the whole panel to turn red. De-risks the form-C frame format / display
-    // semantics before real images. Set false to restore the clock/temp/humidity readout.
+    // ── On-device PNG-encode validation ── set true + flash: render a 64×16 RGB framebuffer
+    // (left half red / right half green), encode it to PNG on-device (ROM miniz) and display it.
+    // EXPECT exactly that — confirms the encoder works + the orientation (left/right, top/bottom).
+    // Set false to restore the clock/temperature/humidity readout.
     static constexpr bool kImageTest = true;
     if (kImageTest) {
         if (!img_test_sent_) {
             img_test_sent_ = true;
-            panel.show_image(PANEL_TEST_RED_PNG, PANEL_TEST_RED_PNG_LEN, /*slot=*/1);
-            ESP_LOGI(TAG, "IMAGE TEST: sent solid-red 64x16 PNG (%u B, slot 1)",
-                     (unsigned)PANEL_TEST_RED_PNG_LEN);
+            static uint8_t fb[64 * 16 * 3];                 // RGB888 framebuffer (row-major, top-left first)
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 64; x++) {
+                    uint8_t* p = fb + (y * 64 + x) * 3;
+                    p[0] = (x < 32) ? 255 : 0;              // R: left half
+                    p[1] = (x < 32) ? 0   : 255;            // G: right half
+                    p[2] = 0;
+                }
+            panel.show_rgb888(fb, /*slot=*/1);
+            ESP_LOGI(TAG, "IMAGE TEST: 64x16 RGB (left red / right green) -> on-device PNG");
         }
         return;
     }

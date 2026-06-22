@@ -59,6 +59,11 @@ public:
     /// the render task). UNVERIFIED on HW — validate a solid-colour frame first.
     void show_image(const uint8_t* png, size_t len, uint8_t save_slot = 1);
 
+    /// Encode a 64×16 RGB888 framebuffer (3072 bytes, row-major, top-left pixel first) to PNG
+    /// on-device (ROM miniz, zero flash) and display it — the practical path for rich/dynamic
+    /// frames (draw in RAM, then one compressed upload). NON-BLOCKING. No-op if null / encode fails.
+    void show_rgb888(const uint8_t* rgb, uint8_t save_slot = 1);
+
     // ── called from modesp_ble scan/host internals (NimBLE host task) ──
     bool name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const;
     void on_scan_hit(const void* addr);            // ble_addr_t* — begin connect

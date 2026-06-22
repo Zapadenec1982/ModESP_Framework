@@ -54,6 +54,7 @@
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 #include "esp_timer.h"
 #include "esp_rom_crc.h"
+#include "miniz.h"               // ROM-resident PNG encoder (tdefl_write_image_to_png_file_in_memory_ex)
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -834,7 +835,7 @@ enum { PANEL_KIND_TEXT = 0, PANEL_KIND_IMAGE = 1 };
 struct PanelMsg {
     uint8_t  kind;                                            // PANEL_KIND_TEXT | PANEL_KIND_IMAGE
     char     text[24]; uint8_t rgb[3], anim, speed, rainbow;  // text variant
-    const uint8_t* png; uint32_t png_len; uint8_t save_slot;  // image variant (caller-owned PNG bytes)
+    uint8_t  img[2048]; uint16_t img_len; uint8_t save_slot;  // image variant: PNG bytes copied inline
 };
 QueueHandle_t s_panel_queue       = nullptr;   // length 1 → xQueueOverwrite (newest wins)
 TaskHandle_t  s_panel_render_task = nullptr;
@@ -957,7 +958,7 @@ void BlePanel::render_task_fn(void* arg) {
     for (;;) {
         if (xQueueReceive(s_panel_queue, &m, portMAX_DELAY) != pdTRUE) continue;
         if (m.kind == PANEL_KIND_IMAGE)
-            self->render_image_blocking(m.png, m.png_len, m.save_slot);
+            self->render_image_blocking(m.img, m.img_len, m.save_slot);
         else
             self->render_text_blocking(m.text, m.rgb[0], m.rgb[1], m.rgb[2], m.anim, m.speed, m.rainbow);
     }
@@ -977,11 +978,34 @@ void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
 }
 
 void BlePanel::show_image(const uint8_t* png, size_t len, uint8_t save_slot) {
-    if (png == nullptr || len == 0) return;
+    if (png == nullptr || len == 0 || len > sizeof(s_build.img)) return;
     if (!ensure_render_task()) return;
     s_build.kind = PANEL_KIND_IMAGE;
-    s_build.png = png; s_build.png_len = static_cast<uint32_t>(len); s_build.save_slot = save_slot;
-    xQueueOverwrite(s_panel_queue, &s_build);      // pointer snapshot — png must outlive the render
+    memcpy(s_build.img, png, len);
+    s_build.img_len = static_cast<uint16_t>(len);
+    s_build.save_slot = save_slot;
+    xQueueOverwrite(s_panel_queue, &s_build);      // PNG copied inline — value snapshot
+}
+
+void BlePanel::show_rgb888(const uint8_t* rgb, uint8_t save_slot) {
+    if (rgb == nullptr) return;
+    if (!ensure_render_task()) return;
+    // Encode the 64×16 RGB888 framebuffer to PNG with the ROM-resident miniz encoder (zero flash):
+    // a 64×16 image is tiny → fast (~ms) + a few KB transient heap, fine off the BLE path. This is
+    // the practical path for rich/dynamic frames (draw in RAM, then ONE compressed upload).
+    size_t pl = 0;
+    void* png = tdefl_write_image_to_png_file_in_memory_ex(rgb, 64, 16, 3, &pl, MZ_DEFAULT_LEVEL, MZ_FALSE);
+    if (!png) { ESP_LOGW(TAG, "panel png encode failed (heap?)"); return; }
+    if (pl == 0 || pl > sizeof(s_build.img)) {
+        ESP_LOGW(TAG, "panel encoded png too big (%u B > %u)", (unsigned)pl, (unsigned)sizeof(s_build.img));
+        mz_free(png); return;
+    }
+    s_build.kind = PANEL_KIND_IMAGE;
+    memcpy(s_build.img, png, pl);
+    s_build.img_len = static_cast<uint16_t>(pl);
+    s_build.save_slot = save_slot;
+    mz_free(png);
+    xQueueOverwrite(s_panel_queue, &s_build);
 }
 
 int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
