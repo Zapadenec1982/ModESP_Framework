@@ -150,6 +150,33 @@ class TestWidgetValidation:
         validator.validate_manifest(valid_thermostat, "test")
         assert not any("incompatible" in e for e in validator.errors)
 
+    def test_text_input_string_compatible(self, validator):
+        """text_input + string readwrite — сумісно (віджет вводу тексту)."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.msg": {"type": "string", "access": "readwrite", "default": ""}},
+            "ui": {"page": "T", "cards": [
+                {"title": "C", "widgets": [{"key": "test.msg", "widget": "text_input"}]}
+            ]},
+        }
+        validator.validate_manifest(manifest, "test")
+        assert not any("incompatible" in e for e in validator.errors)
+
+    def test_text_input_non_string_incompatible(self, validator):
+        """text_input на не-string ключі — помилка сумісності."""
+        manifest = {
+            "manifest_version": 1,
+            "module": "test",
+            "state": {"test.n": {"type": "int", "access": "readwrite", "default": 0,
+                                 "min": 0, "max": 9, "step": 1}},
+            "ui": {"page": "T", "cards": [
+                {"title": "C", "widgets": [{"key": "test.n", "widget": "text_input"}]}
+            ]},
+        }
+        validator.validate_manifest(manifest, "test")
+        assert any("incompatible" in e for e in validator.errors)
+
 
 class TestMqttValidation:
     """V9-V10: MQTT keys перевірки."""

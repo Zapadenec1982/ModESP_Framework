@@ -64,8 +64,25 @@ void PanelModule::on_update(uint32_t dt_ms) {
         panel.write_cmd(cmd, sizeof(cmd), true);
         ESP_LOGI(TAG, "panel brightness %d%% (web)", bright);
     }
-    if (power == 0 || !read_bool("panel.rotate", true)) { shown_[0] = '\0'; return; }   // off/paused → hold
-    const uint8_t web_anim = static_cast<uint8_t>(read_int("panel.anim", 0));   // web-selected text effect
+    if (power == 0) { shown_[0] = '\0'; return; }                              // panel off → nothing
+    const uint8_t web_anim = static_cast<uint8_t>(read_int("panel.anim", 0));  // web-selected text effect
+
+    // ── Web message override ── a non-empty panel.message (iPixel tab text field) shows that
+    // text in white, overriding the rotation (and the rotate pause). Empty → resume rotation.
+    char msg[32];
+    if (read_string("panel.message", msg, sizeof(msg)) && msg[0] != '\0') {
+        if (strncmp(msg, shown_, sizeof(shown_)) != 0 ||
+            shown_rgb_[0] != 255 || shown_rgb_[1] != 255 || shown_rgb_[2] != 255 ||
+            web_anim != shown_anim_) {
+            strncpy(shown_, msg, sizeof(shown_) - 1); shown_[sizeof(shown_) - 1] = '\0';
+            shown_rgb_[0] = shown_rgb_[1] = shown_rgb_[2] = 255; shown_anim_ = web_anim;
+            panel.show_text(msg, 255, 255, 255, web_anim, kSpeed, kRainbow);
+            state_set("panel.text", msg);
+        }
+        return;
+    }
+
+    if (!read_bool("panel.rotate", true)) { shown_[0] = '\0'; return; }        // paused (no message) → hold
 
     // ── DIAGNOSTIC anim sweep ─────────────────────────────────────────────────────────────
     // Flip to true, rebuild (recompiles ONLY this file — no menuconfig, no sdkconfig.h churn),

@@ -76,10 +76,11 @@ The `anim` byte drives a hardware effect (HW-confirmed on `LED_BLE_E6C5EBE2`):
 | `panel.brightness` | int 5..100 % · rw (def. 80) | slider | Brightness |
 | `panel.rotate` | bool · rw (def. auto) | toggle | Auto-rotation / pause (hold the frame) |
 | `panel.anim` | int 0..7 · rw (def. 0) | slider | Text effect (see the animation table) |
+| `panel.message` | string ≤16 · rw (def. empty) | **text_input** | Custom text (empty = rotation) |
 
 **Single writer:** power/brightness/effect are written by *this module* through `BlePanel`. The [`ble_led_panel`](../drivers/ble_led_panel.md) driver is **no longer self-driving** — it only owns the link — so there is no two-writer race. The module re-applies power+brightness from state on each (re)connect (sentinel reset), so user settings survive a reconnect.
 
-> ℹ️ No free text: the generic frontend ships only `toggle/slider/select/...` — there is no `text_input` widget in the bundle for an arbitrary string. Content is the auto-rotation (clock/temp/humidity); the web controls power/brightness/effect/pause.
+> ℹ️ **Free text** comes from the `text_input` widget (added to the framework: `webui/src/components/widgets/TextInput.svelte` + `WIDGET_TYPE_COMPAT["text_input"]={string}`; bundle rebuilt with `npm run deploy`). A non-empty `panel.message` shows **instead of** the rotation (white, with the selected effect); clear the field → rotation resumes. Cap **16 chars** (`maxlength` = panel render limit; the `etl::string<32>` state holds more); POST on blur/Enter (not per keystroke).
 
 ## Graphics — design history
 

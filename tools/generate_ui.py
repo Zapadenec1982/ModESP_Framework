@@ -46,6 +46,7 @@ WIDGET_TYPE_COMPAT = {
     "toggle":       {"bool"},
     "button":       {"bool"},
     "status_text":  {"string"},
+    "text_input":   {"string"},
     "value":        {"float", "int", "bool", "string"},
     "chart":        {"float"},
 }
@@ -1107,7 +1108,7 @@ class UIJsonGenerator:
         # Widget-specific props from manifest ui section
         for prop in ("size", "color_zones", "on_label", "off_label",
                      "on_color", "off_color", "format", "label",
-                     "api_endpoint", "confirm",
+                     "api_endpoint", "confirm", "maxlength",
                      "data_source", "default_hours"):
             if prop in w:
                 widget[prop] = w[prop]

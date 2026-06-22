@@ -99,6 +99,21 @@ protected:
         const auto* ip = etl::get_if<int32_t>(&v.value());
         return ip ? *ip : def;
     }
+    // Copy a string state value into out (zero-heap). Returns false (out left "") if the
+    // key is missing or not a string. out is always NUL-terminated.
+    bool read_string(const char* key, char* out, size_t out_sz) const {
+        if (!out || out_sz == 0) return false;
+        out[0] = '\0';
+        auto v = state_get(key);
+        if (!v.has_value()) return false;
+        const auto* sp = etl::get_if<StringValue>(&v.value());
+        if (!sp) return false;
+        const char* src = sp->c_str();
+        size_t i = 0;
+        for (; src[i] && i < out_sz - 1; ++i) out[i] = src[i];
+        out[i] = '\0';
+        return true;
+    }
 
     // Перевірити чи feature активна (з features_config.h)
     bool has_feature(const char* feature_name) const {

@@ -19,7 +19,7 @@ public:
     void on_update(uint32_t dt_ms) override;
 
 private:
-    char     shown_[24]   = {0};   // last text pushed to the panel (de-dupe)
+    char     shown_[32]   = {0};   // last text pushed to the panel (de-dupe; 32 = string-state cap)
     uint8_t  shown_rgb_[3] = {0};  // last colour pushed (de-dupe on colour-only changes)
     uint8_t  shown_anim_  = 0;     // last effect pushed (de-dupe on web anim change)
     uint32_t eval_ms_     = 0;      // re-evaluate throttle accumulator

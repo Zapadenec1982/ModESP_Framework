@@ -830,7 +830,7 @@ int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
 // show_text() enqueues (latest-wins, non-blocking) so the 100 Hz main loop never
 // stalls on BLE; this task does the blocking chunked with-response sends.
 namespace {
-struct PanelMsg { char text[24]; uint8_t rgb[3]; uint8_t anim; uint8_t speed; uint8_t rainbow; };
+struct PanelMsg { char text[32]; uint8_t rgb[3]; uint8_t anim; uint8_t speed; uint8_t rainbow; };  // 32 = SharedState string cap (etl::string<32>) — fits a full panel.message
 QueueHandle_t s_panel_queue       = nullptr;   // length 1 → xQueueOverwrite (newest wins)
 TaskHandle_t  s_panel_render_task = nullptr;
 // Producer-side build buffer — show_text runs only on the main loop, and xQueueOverwrite copies

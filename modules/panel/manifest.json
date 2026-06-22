@@ -27,7 +27,10 @@
     "panel.anim":       {"type": "int", "access": "readwrite", "default": 0,
                          "min": 0, "max": 7, "step": 1,
                          "persist": true, "mqtt_subscribe": true,
-                         "description": "Ефект тексту: 0 статика · 1 скрол← · 2 скрол→ · 3 ↑ · 4 ↓ · 5 блим · 6 дих · 7 drop-in"}
+                         "description": "Ефект тексту: 0 статика · 1 скрол← · 2 скрол→ · 3 ↑ · 4 ↓ · 5 блим · 6 дих · 7 drop-in"},
+    "panel.message":    {"type": "string", "access": "readwrite", "default": "",
+                         "persist": true,
+                         "description": "Свій текст на панелі (порожнє = авто-ротація; макс. 16 символів)"}
   },
 
   "mqtt": {
@@ -64,6 +67,14 @@
         "layout": "single",
         "widgets": [
           {"key": "panel.anim", "widget": "slider"}
+        ]
+      },
+      {
+        "title": "Повідомлення",
+        "subtitle": "Свій текст на панелі (порожнє = ротація)",
+        "layout": "single",
+        "widgets": [
+          {"key": "panel.message", "widget": "text_input", "maxlength": 16}
         ]
       }
     ]
