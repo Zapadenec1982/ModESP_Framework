@@ -1,0 +1,9 @@
+## Managed dependencies for modesp_mqtt.
+## ESP-IDF 6.0 moved esp-mqtt out of the core tree into the managed component
+## espressif/mqtt (it still registers as component name `mqtt`, so the REQUIRES
+## entry in CMakeLists.txt stays unchanged). On IDF <6.0 the built-in mqtt was
+## used directly; the manager now pulls it from the registry.
+dependencies:
+  espressif/mqtt: "^1.0.0"
+  idf:
+    version: ">=5.3"

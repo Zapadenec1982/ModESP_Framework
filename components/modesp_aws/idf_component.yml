@@ -1,0 +1,9 @@
+## Managed dependencies for modesp_aws.
+## ESP-IDF 6.0 moved esp-mqtt out of the core tree into the managed component
+## espressif/mqtt (it still registers as component name `mqtt`, so the REQUIRES
+## entry in CMakeLists.txt stays unchanged). AWS IoT Core transport rides on the
+## same esp-mqtt client. On IDF <6.0 the built-in mqtt was used directly.
+dependencies:
+  espressif/mqtt: "^1.0.0"
+  idf:
+    version: ">=5.3"
