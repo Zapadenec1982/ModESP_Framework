@@ -4,6 +4,7 @@
  *        iPixel BLE LED panel, with a threshold-based colour per value.
  */
 #include "panel_module.h"
+#include "modesp/panel_text.h"    // shared text-output slots API (other modules post here)
 #include "sdkconfig.h"            // CONFIG_* must be defined before the guards below
 #include "esp_log.h"
 #include <cstdio>
@@ -53,7 +54,9 @@ PanelModule::PanelModule()
 bool PanelModule::on_init() {
     state_set("panel.text", "");
     state_set("panel.connected", false);
-    ESP_LOGI(TAG, "Panel content module — clock/temp/humidity rotation + web control (power/brightness/effect)");
+    for (int i = 0; i < modesp::panel_text::SLOTS; i++) state_set(modesp::panel_text::slot(i), "");  // text-output slots
+    ESP_LOGI(TAG, "Panel content module — clock/temp/humidity rotation + web control + %d text slots",
+             modesp::panel_text::SLOTS);
     return true;
 }
 
@@ -134,8 +137,8 @@ void PanelModule::on_update(uint32_t dt_ms) {
     if (rotate_ms_ >= 4000) { rotate_ms_ = 0; rot_++; }
 
     // Collect the fields that currently have data, each with its own colour.
-    struct Entry { char buf[24]; uint8_t r, g, b; uint8_t anim; };
-    Entry e[4];   // clock + temp + humidity + presence
+    struct Entry { char buf[32]; uint8_t r, g, b; uint8_t anim; };
+    Entry e[4 + modesp::panel_text::SLOTS];   // clock + temp + humidity + presence + text slots
     int n = 0;
 
     // ── clock ── HH:MM once SNTP has set the wall clock (skip the 1970 pre-sync time)
@@ -181,6 +184,17 @@ void PanelModule::on_update(uint32_t dt_ms) {
         if (read_bool("presence.detected", false)) { snprintf(x.buf, sizeof(x.buf), "%cHERE", ICON_PERSON); x.r = 60; x.g = 220; x.b = 80; }
         else { snprintf(x.buf, sizeof(x.buf), "%cAWAY", ICON_PERSON); x.r = 90; x.g = 90;  x.b = 90; }
         x.anim = web_anim;
+    }
+
+    // ── text slots ── any module posts here with state_set(modesp::panel_text::slot(i), "msg");
+    // non-empty slots rotate in (neutral white). See components/modesp_core/.../modesp/panel_text.h.
+    for (int i = 0; i < modesp::panel_text::SLOTS && n < static_cast<int>(sizeof(e) / sizeof(e[0])); i++) {
+        Entry& x = e[n];
+        if (read_string(modesp::panel_text::slot(i), x.buf, sizeof(x.buf)) && x.buf[0] != '\0') {
+            x.r = x.g = x.b = 255;   // module messages: neutral white
+            x.anim = web_anim;
+            n++;
+        }
     }
 
     const char* buf; uint8_t r, g, b, anim;

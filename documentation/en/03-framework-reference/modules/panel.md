@@ -83,6 +83,30 @@ The `anim` byte drives a hardware effect (HW-confirmed on `LED_BLE_E6C5EBE2`):
 
 > ℹ️ **Free text** comes from the `text_input` widget (added to the framework: `webui/src/components/widgets/TextInput.svelte` + `WIDGET_TYPE_COMPAT["text_input"]={string}`; bundle rebuilt with `npm run deploy`). A non-empty `panel.message` shows **instead of** the rotation (in `panel.color` — a native `color_picker`, default white, parsed by `parse_hex_color` in the module; with the selected effect); clear the field → rotation resumes. The colour applies to the message only; sensor readouts keep their threshold colours. Cap **31 chars** (the `etl::string<32>` SharedState ceiling; render `n<31` in `ble_service.cpp`); the panel scrolls long text with the effect; POST on blur/Enter (not per keystroke).
 
+## Text-output API (module slots)
+
+Any module can put its own text on the panel through **5 shared text slots** (`panel.slot0`..`panel.slot4`) — a thin convention over SharedState (the slots are ordinary string state keys). The API is the header [`modesp/panel_text.h`](../../../../components/modesp_core/include/modesp/panel_text.h) (in `modesp_core`, available to every module):
+
+```cpp
+#include "modesp/panel_text.h"
+// ... from inside a module method (on_update / on_init), where state_set is available:
+state_set(modesp::panel_text::slot(0), "ALARM");     // post to slot 0
+state_set(modesp::panel_text::slot(1), "DEFROST");   // slot 1
+state_set(modesp::panel_text::slot(0), "");          // clear slot 0
+```
+
+| Symbol | Meaning |
+|---|---|
+| `modesp::panel_text::SLOTS` | Number of slots (5). |
+| `modesp::panel_text::slot(i)` | SharedState key for slot `i` (0..4); out-of-range → slot 0. |
+
+- Non-empty slots **rotate on the display** (neutral white, with the current `panel.anim` effect) alongside the clock / sensor readouts. An empty (`""`) or never-written slot is not shown.
+- Up to **31 chars** (the string-state ceiling).
+- Read a slot back with `read_string(modesp::panel_text::slot(i), buf, sizeof(buf))`.
+- The panel inits the slots empty in `on_init`; the iPixel web tab has a read-only **"Слоти модулів"** card.
+
+> `state_set` is a `protected` `BaseModule` method, so the API is called **from inside a module** (not a free function). Slots are **not persisted** — they are transient runtime messages.
+
 ## Graphics — design history
 
 Richer graphics were explored and dropped. DIY per-pixel drawing is one BLE round-trip per pixel (too slow). Full-frame PNG upload works for static images, but on-device PNG *compression* (ROM miniz) exhausts the free heap (~64 KB) on this device, so it isn't viable. The native TEXT frame — font glyphs + icons + colour + animation — is the chosen, working path for the readout.

@@ -33,7 +33,13 @@
                          "description": "Свій текст на панелі (порожнє = авто-ротація; макс. 31 символ)"},
     "panel.color":      {"type": "string", "access": "readwrite", "default": "#FFFFFF",
                          "persist": true,
-                         "description": "Колір повідомлення"}
+                         "description": "Колір повідомлення"},
+
+    "panel.slot0":      {"type": "string", "access": "read", "description": "Текст-слот 0 (модулі пишуть через panel_text API)"},
+    "panel.slot1":      {"type": "string", "access": "read", "description": "Текст-слот 1 (модулі пишуть через panel_text API)"},
+    "panel.slot2":      {"type": "string", "access": "read", "description": "Текст-слот 2 (модулі пишуть через panel_text API)"},
+    "panel.slot3":      {"type": "string", "access": "read", "description": "Текст-слот 3 (модулі пишуть через panel_text API)"},
+    "panel.slot4":      {"type": "string", "access": "read", "description": "Текст-слот 4 (модулі пишуть через panel_text API)"}
   },
 
   "mqtt": {
@@ -79,6 +85,18 @@
         "widgets": [
           {"key": "panel.message", "widget": "text_input", "maxlength": 31},
           {"key": "panel.color", "widget": "color_picker"}
+        ]
+      },
+      {
+        "title": "Слоти модулів",
+        "subtitle": "Текст від інших модулів (panel_text API)",
+        "layout": "single",
+        "widgets": [
+          {"key": "panel.slot0", "widget": "status_text"},
+          {"key": "panel.slot1", "widget": "status_text"},
+          {"key": "panel.slot2", "widget": "status_text"},
+          {"key": "panel.slot3", "widget": "status_text"},
+          {"key": "panel.slot4", "widget": "status_text"}
         ]
       }
     ]
