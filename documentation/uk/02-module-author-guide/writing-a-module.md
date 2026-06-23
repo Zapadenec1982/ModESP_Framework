@@ -204,6 +204,48 @@ I (12350) MyCounter: Counter started
 У WebUI перейдіть на сторінку **Counter** (автоматично згенеровану з
 вашої секції `ui`). Віджет "seconds" оновлюється раз на секунду.
 
+## Крок 6 — Задокументуйте модуль
+
+Готовий модуль не «існує» для інших, поки не описаний. Додайте
+**двомовну** референс-сторінку — обидві мови оновлюються в одному PR:
+
+```
+documentation/uk/03-framework-reference/modules/<name>.md
+documentation/en/03-framework-reference/modules/<name>.md
+```
+
+Тримайтесь анатомії сторінки з
+[docs-style.md](../06-contributing/docs-style.md). Для модуля типовий
+каркас (зразки — [`simple_thermo.md`](../03-framework-reference/modules/simple_thermo.md)
+і [`presence.md`](../03-framework-reference/modules/presence.md)):
+
+```markdown
+# `<name>` — <однорядковий опис>
+
+> 📖 **In English:** [twin link]
+
+<2-4 абзаци: що це? чому існує? хто має читати?>
+
+## Поведінка        — що модуль робить (потік даних)
+## Ключі стану      — таблиця state-ключів з маніфесту (тип / доступ / опис)
+## WebUI / MQTT     — як налаштовується (якщо є секція ui / mqtt)
+## Типові помилки   — граблі, на які натрапить читач
+## Що далі          — 3-5 посилань, потрібних читачеві далі
+## Джерела          — посилання на manifest.json, .cpp, тести
+```
+
+Тоді **зареєструйте** сторінку в індексі —
+`documentation/{uk,en}/README.md`, таблиця «03 — Довідник фреймворку»,
+статус ✅:
+
+```markdown
+| [modules/<name>.md](03-framework-reference/modules/<name>.md) | ✅ | <однорядкове призначення>. |
+```
+
+> Двомовний паритет і розділ **Джерела** обов'язкові; биті
+> перехресні посилання провалюють рев'ю. Повні правила —
+> [docs-style.md](../06-contributing/docs-style.md).
+
 ## Довідник API BaseModule
 
 ### Конструктор

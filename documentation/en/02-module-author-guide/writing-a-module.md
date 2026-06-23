@@ -202,6 +202,47 @@ I (12350) MyCounter: Counter started
 In the WebUI navigate to the **Counter** page (auto-generated з your `ui`
 section). The "seconds" widget updates once per second.
 
+## Step 6 — Document the module
+
+A finished module does not "exist" for anyone else until it is described.
+Add a **bilingual** reference page — both languages land in the same PR:
+
+```
+documentation/uk/03-framework-reference/modules/<name>.md
+documentation/en/03-framework-reference/modules/<name>.md
+```
+
+Follow the page anatomy in
+[docs-style.md](../06-contributing/docs-style.md). The typical skeleton
+for a module (see [`simple_thermo.md`](../03-framework-reference/modules/simple_thermo.md)
+and [`presence.md`](../03-framework-reference/modules/presence.md) as samples):
+
+```markdown
+# `<name>` — <one-line summary>
+
+> 📖 **Українською:** [twin link]
+
+<2-4 paragraphs: what is it? why does it exist? who should read this?>
+
+## Behaviour        — what the module does (data flow)
+## State keys       — table of the manifest state keys (type / access / description)
+## WebUI / MQTT     — how it is configured (if it has a ui / mqtt section)
+## Common pitfalls  — bugs/confusions the reader will hit
+## Next steps       — 3-5 links the reader is likely to need next
+## Source           — links to manifest.json, .cpp, tests
+```
+
+Then **register** the page in the index —
+`documentation/{uk,en}/README.md`, the "03 — Framework reference"
+table, with status ✅:
+
+```markdown
+| [modules/<name>.md](03-framework-reference/modules/<name>.md) | ✅ | <one-line purpose>. |
+```
+
+> Bilingual parity and a **Source** section are mandatory; broken
+> cross-links fail review. Full rules — [docs-style.md](../06-contributing/docs-style.md).
+
 ## BaseModule API reference
 
 ### Constructor
