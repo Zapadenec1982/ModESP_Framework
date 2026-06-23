@@ -89,6 +89,7 @@ In order:
 | [bindings.md](04-hardware/bindings.md) | ✅ | `bindings.json` — driver-to-role mapping. |
 | [ota.md](04-hardware/ota.md) | ✅ | OTA flow, rollback, partition layout. |
 | [deployment.md](04-hardware/deployment.md) | ✅ | Flash, monitor, factory reset. |
+| [ipixel-panel.md](04-hardware/ipixel-panel.md) | ✅ | iPixel LED panel — wiring, WebUI control, slots API. |
 
 ### 05 — Tools
 

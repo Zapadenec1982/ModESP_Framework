@@ -91,6 +91,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [bindings.md](04-hardware/bindings.md) | ✅ | `bindings.json` — зіставлення драйвер↔роль. |
 | [ota.md](04-hardware/ota.md) | ✅ | Потік OTA, відкат, схема партицій. |
 | [deployment.md](04-hardware/deployment.md) | ✅ | Прошивка, монітор, заводське скидання. |
+| [ipixel-panel.md](04-hardware/ipixel-panel.md) | ✅ | iPixel LED-панель — підключення, WebUI-керування, слоти-API. |
 
 ### 05 — Інструменти
 
