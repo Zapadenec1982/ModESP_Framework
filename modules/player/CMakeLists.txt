@@ -10,9 +10,13 @@ idf_component_register(
     SRCS "src/player_module.cpp"
          "src/audio_backend_registry.cpp"
          "src/max98357a_sink.cpp"
+         "src/wav_decoder.cpp"
+         "src/mp3_decoder.cpp"
     INCLUDE_DIRS "include"
     REQUIRES modesp_core
     # modesp_hal: sink factory resolves the I²S bus via HAL::find_i2s_bus +
     # Binding/BindingTable in bind_audio. esp_driver_i2s/driver: I²S + GPIO. .cpp-only → PRIV.
-    PRIV_REQUIRES modesp_hal esp_driver_i2s driver
+    # The MP3 decoder (chmorgan/esp-libhelix-mp3) is pulled via idf_component.yml;
+    # the component manager auto-adds it to this component's requirements.
+    PRIV_REQUIRES modesp_hal esp_driver_i2s esp_driver_gpio driver
 )

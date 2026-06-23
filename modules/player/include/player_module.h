@@ -21,13 +21,14 @@
 
 #include "modesp/base_module.h"
 #include "player/audio_sink.h"
+#include "player/wav_decoder.h"
+#include "player/mp3_decoder.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "etl/string.h"
 #include <atomic>
 #include <cstdint>
-#include <cstdio>
 
 namespace modesp { struct BindingTable; class HAL; }
 
@@ -46,10 +47,10 @@ public:
 private:
     static constexpr size_t LUT_SIZE     = 256;   // sine table (power of 2)
     static constexpr size_t AUDIO_FRAMES = 240;   // mono samples per buffer
-    static constexpr size_t CLIP_NAME    = 32;
+    static constexpr size_t CLIP_NAME    = 48;
     static constexpr uint32_t TONE_RATE  = 16000; // built-in tones are 16 kHz
 
-    enum class Kind : uint8_t { Stop = 0, Tone = 1, Wav = 2 };
+    enum class Kind : uint8_t { Stop = 0, Tone = 1, Clip = 2 };
     enum Priority   : uint8_t { PRIO_NORMAL = 0, PRIO_ALARM = 1 };
 
     struct Request {
@@ -58,7 +59,7 @@ private:
         uint16_t tone_hz    = 2000;
         bool     tone_beep  = false;        // beep pattern vs solid tone
         uint32_t tone_total = 0;            // tone length in frames (0 = until stop)
-        char     clip[CLIP_NAME] = {0};     // WAV filename (no path)
+        char     clip[CLIP_NAME] = {0};     // clip filename (no path), .wav/.mp3
     };
 
     static void task_trampoline(void* arg);
@@ -72,8 +73,9 @@ private:
     bool stream_one(const Request& r);      // true ⇒ source exhausted
     void end_active();
     size_t fill_tone(int16_t* buf, size_t frames, uint16_t hz, bool gate);
-    size_t fill_wav(int16_t* buf, size_t frames);
-    bool open_wav(const char* name, uint32_t& rate_out);
+
+    /// Pick a decoder by clip extension (.mp3 → Mp3Decoder, else WavDecoder).
+    modesp::audio::IAudioDecoder* pick_decoder(const char* name);
 
     bool read_string(const char* key, char* out, size_t out_sz) const;
 
@@ -88,11 +90,13 @@ private:
     int16_t  lut_[LUT_SIZE]{};
 
     // playback-task-only streaming state
-    uint32_t cur_rate_      = TONE_RATE;
-    uint32_t phase_         = 0;             // Q16 sine phase
-    uint32_t tone_pos_      = 0;             // frames played in current tone
-    FILE*    wav_           = nullptr;
-    uint32_t wav_remaining_ = 0;             // bytes left in the data chunk
+    uint32_t cur_rate_ = TONE_RATE;
+    uint32_t phase_    = 0;                  // Q16 sine phase
+    uint32_t tone_pos_ = 0;                  // frames played in current tone
+
+    modesp::audio::WavDecoder     wav_dec_;
+    modesp::audio::Mp3Decoder     mp3_dec_;
+    modesp::audio::IAudioDecoder* dec_ = nullptr;   // active clip decoder
 
     bool initialized_ = false;
 };

@@ -1,0 +1,7 @@
+## Managed dependencies for the player module.
+## esp-libhelix-mp3 — lightweight fixed-point MP3 decoder (source, not a blob).
+## Used by src/mp3_decoder.cpp; the component manager auto-adds it to this
+## component's requirements. Only exercised when CONFIG_MODESP_AUDIO_MP3=y; the
+## linker drops the unused decoder when disabled.
+dependencies:
+  chmorgan/esp-libhelix-mp3: "^1.0.3"

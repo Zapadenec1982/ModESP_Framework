@@ -15,4 +15,13 @@ menu "ModESP Audio"
             section i2s_buses (role audio_main, module player). Pins/sample-rate —
             board.json i2s_buses. No pins in Kconfig.
 
+    config MODESP_AUDIO_MP3
+        bool "MP3 clip playback (libhelix)"
+        default y
+        help
+            Decode .mp3 clips from /data/audio/ via libhelix (esp-libhelix-mp3,
+            fixed-point source decoder). When disabled, only WAV (16-bit PCM mono)
+            clips play and .mp3 requests are rejected; the decoder code and the
+            libhelix dependency are dropped from the binary.
+
 endmenu

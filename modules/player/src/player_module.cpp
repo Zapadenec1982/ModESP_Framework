@@ -18,6 +18,7 @@
 #include "etl/variant.h"
 #include <cmath>
 #include <cstring>
+#include <cstdio>
 
 static const char* TAG = "Player";
 
@@ -169,7 +170,7 @@ PlayerModule::Request PlayerModule::make_request(const char* name) const {
         r.tone_hz = 2000; r.tone_beep = false;
         r.tone_total = TONE_RATE / 5;          // 200 ms
     } else {
-        r.kind = Kind::Wav; r.priority = PRIO_NORMAL;
+        r.kind = Kind::Clip; r.priority = PRIO_NORMAL;
         std::strncpy(r.clip, name, CLIP_NAME - 1);
     }
     return r;
@@ -226,11 +227,15 @@ void PlayerModule::playback_task() {
 
 bool PlayerModule::start_active(const Request& r) {
     uint32_t rate = TONE_RATE;
-    if (r.kind == Kind::Wav) {
-        if (!open_wav(r.clip, rate)) return false;
+    if (r.kind == Kind::Clip) {
+        char path[96];
+        bool has_dot = (std::strchr(r.clip, '.') != nullptr);
+        std::snprintf(path, sizeof(path), "/data/audio/%s%s", r.clip, has_dot ? "" : ".wav");
+        dec_ = pick_decoder(r.clip);
+        if (!dec_->open(path, rate)) { dec_ = nullptr; return false; }
     }
     if (!sink_->start(rate)) {
-        if (wav_) { fclose(wav_); wav_ = nullptr; }
+        if (dec_) { dec_->close(); dec_ = nullptr; }
         return false;
     }
     cur_rate_ = rate;
@@ -242,7 +247,6 @@ bool PlayerModule::start_active(const Request& r) {
 
 bool PlayerModule::stream_one(const Request& r) {
     int16_t buf[AUDIO_FRAMES];
-    size_t n;
 
     if (r.kind == Kind::Tone) {
         bool gate = true;
@@ -250,23 +254,37 @@ bool PlayerModule::stream_one(const Request& r) {
             const uint32_t period = (cur_rate_ * 2) / 5;   // 400 ms
             gate = (tone_pos_ % period) < (cur_rate_ / 5);  // 200 ms on
         }
-        n = fill_tone(buf, AUDIO_FRAMES, r.tone_hz, gate);
+        size_t n = fill_tone(buf, AUDIO_FRAMES, r.tone_hz, gate);
         sink_->write(buf, n, 200);
         tone_pos_ += n;
         return (r.tone_total != 0 && tone_pos_ >= r.tone_total);
     }
 
-    // WAV
-    n = fill_wav(buf, AUDIO_FRAMES);
+    // Clip (WAV/MP3) via the active decoder.
+    if (!dec_) return true;
+    size_t n = dec_->read(buf, AUDIO_FRAMES);
     if (n == 0) return true;          // EOF
+    const uint16_t vol = volume_q8_.load(std::memory_order_relaxed);
+    if (vol != 256) {
+        for (size_t i = 0; i < n; i++)
+            buf[i] = (int16_t)(((int32_t)buf[i] * vol) >> 8);
+    }
     sink_->write(buf, n, 200);
     return false;
 }
 
 void PlayerModule::end_active() {
     sink_->stop();
-    if (wav_) { fclose(wav_); wav_ = nullptr; wav_remaining_ = 0; }
+    if (dec_) { dec_->close(); dec_ = nullptr; }
     playing_.store(false, std::memory_order_relaxed);
+}
+
+modesp::audio::IAudioDecoder* PlayerModule::pick_decoder(const char* name) {
+    const char* ext = std::strrchr(name, '.');
+    if (ext && (std::strcmp(ext, ".mp3") == 0 || std::strcmp(ext, ".MP3") == 0)) {
+        return &mp3_dec_;
+    }
+    return &wav_dec_;   // default: .wav (or no extension)
 }
 
 size_t PlayerModule::fill_tone(int16_t* buf, size_t frames, uint16_t hz, bool gate) {
@@ -284,82 +302,3 @@ size_t PlayerModule::fill_tone(int16_t* buf, size_t frames, uint16_t hz, bool ga
     return frames;
 }
 
-size_t PlayerModule::fill_wav(int16_t* buf, size_t frames) {
-    if (!wav_ || wav_remaining_ == 0) return 0;
-
-    size_t want_bytes = frames * sizeof(int16_t);
-    if (want_bytes > wav_remaining_) want_bytes = wav_remaining_;
-
-    size_t got = fread(buf, 1, want_bytes, wav_);
-    wav_remaining_ -= got;
-    size_t n = got / sizeof(int16_t);
-
-    const uint16_t vol = volume_q8_.load(std::memory_order_relaxed);
-    if (vol != 256) {
-        for (size_t i = 0; i < n; i++) {
-            buf[i] = (int16_t)(((int32_t)buf[i] * vol) >> 8);
-        }
-    }
-    return n;
-}
-
-// ── Minimal WAV reader: 16-bit PCM mono only ──
-bool PlayerModule::open_wav(const char* name, uint32_t& rate_out) {
-    char path[64];
-    bool has_dot = (std::strchr(name, '.') != nullptr);
-    std::snprintf(path, sizeof(path), "/data/audio/%s%s", name, has_dot ? "" : ".wav");
-
-    FILE* f = fopen(path, "rb");
-    if (!f) {
-        ESP_LOGW(TAG, "clip not found: %s", path);
-        return false;
-    }
-
-    uint8_t hdr[12];
-    if (fread(hdr, 1, 12, f) != 12 ||
-        std::memcmp(hdr, "RIFF", 4) != 0 || std::memcmp(hdr + 8, "WAVE", 4) != 0) {
-        ESP_LOGW(TAG, "%s: not a RIFF/WAVE file", path);
-        fclose(f);
-        return false;
-    }
-
-    uint16_t fmt = 0, channels = 0, bits = 0;
-    uint32_t rate = 0, data_size = 0;
-    bool have_fmt = false, have_data = false;
-
-    uint8_t ck[8];
-    while (fread(ck, 1, 8, f) == 8) {
-        uint32_t sz = ck[4] | (ck[5] << 8) | (ck[6] << 16) | ((uint32_t)ck[7] << 24);
-        if (std::memcmp(ck, "fmt ", 4) == 0) {
-            uint8_t fb[16];
-            uint32_t rd = (sz < 16) ? sz : 16;
-            if (fread(fb, 1, rd, f) != rd) break;
-            fmt      = fb[0]  | (fb[1] << 8);
-            channels = fb[2]  | (fb[3] << 8);
-            rate     = fb[4]  | (fb[5] << 8) | (fb[6] << 16) | ((uint32_t)fb[7] << 24);
-            bits     = fb[14] | (fb[15] << 8);
-            have_fmt = true;
-            if (sz > rd) fseek(f, sz - rd, SEEK_CUR);
-        } else if (std::memcmp(ck, "data", 4) == 0) {
-            data_size = sz;
-            have_data = true;
-            break;   // PCM stream starts here
-        } else {
-            fseek(f, sz, SEEK_CUR);   // skip unknown chunk
-        }
-    }
-
-    if (!have_fmt || !have_data || fmt != 1 || bits != 16 || channels != 1) {
-        ESP_LOGW(TAG, "%s: unsupported (need PCM 16-bit mono; got fmt=%u ch=%u bits=%u)",
-                 path, fmt, channels, bits);
-        fclose(f);
-        return false;
-    }
-
-    wav_           = f;
-    wav_remaining_ = data_size;
-    rate_out       = rate ? rate : TONE_RATE;
-    ESP_LOGI(TAG, "play %s (%lu Hz, %lu bytes)", path,
-             (unsigned long)rate_out, (unsigned long)data_size);
-    return true;
-}
