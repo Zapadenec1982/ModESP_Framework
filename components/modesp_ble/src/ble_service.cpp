@@ -844,13 +844,13 @@ void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t
     using namespace modesp::panel;
 
     int n = 0;
-    while (s[n] && n < 16) n++;                     // up to 16 chars (8px each)
+    while (s[n] && n < 31) n++;                     // up to 31 chars (panel.message cap; the panel scrolls them)
     const uint8_t R = r, G = g, B = b;
 
     // payload: [num_chars][3 rsv][anim/speed/rainbow 3][fg RGB 3][bg_en][bg RGB 3] + glyph blocks
     // static: render_text_blocking runs only on the single panel_render task, so these large
     // buffers live off the 4 KB task stack and are not re-created per call.
-    static uint8_t payload[400];
+    static uint8_t payload[700];   // 14-byte header + 31*20 glyph blocks = 634
     size_t pl = 0;
     payload[pl++] = static_cast<uint8_t>(n);
     payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // reserved
@@ -869,7 +869,7 @@ void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t
     uint32_t crc = esp_rom_crc32_le(0, payload, pl);
 
     // frame: [total_len u16][00 01][has_next 00][payload_size u32][crc u32][00][slot 0x65] + payload
-    static uint8_t frame[420];   // static for the same single-task reason as payload[] above
+    static uint8_t frame[720];   // payload + 15-byte header (<=649 for 31 chars); static, same single-task reason
     size_t fl = 0;
     uint16_t total = static_cast<uint16_t>(pl + 15);
     frame[fl++] = total & 0xFF;          frame[fl++] = (total >> 8) & 0xFF;

@@ -81,11 +81,11 @@ HW-підтверджено на `LED_BLE_E6C5EBE2`:
 | `panel.brightness` | int 5..100 % · rw (деф. 80) | slider | Яскравість |
 | `panel.rotate` | bool · rw (деф. авто) | toggle | Авто-ротація / пауза (утримати кадр) |
 | `panel.anim` | int 0..7 · rw (деф. 0) | slider | Ефект тексту (див. таблицю анімації) |
-| `panel.message` | string ≤16 · rw (деф. порожнє) | **text_input** | Свій текст (порожнє = ротація) |
+| `panel.message` | string ≤31 · rw (деф. порожнє) | **text_input** | Свій текст (порожнє = ротація) |
 
 **Єдиний власник:** живлення/яскравість/ефект пише цей модуль через `BlePanel` (драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) більше **не self-driving** — лише тримає лінк), тож немає гонки двох письменників. На (пере)конекті модуль перевідправляє power+brightness зі стану (sentinel-скид), тож налаштування користувача переживають реконект.
 
-> ℹ️ **Вільний текст** дає віджет `text_input` (доданий у фреймворк: `webui/src/components/widgets/TextInput.svelte` + `WIDGET_TYPE_COMPAT["text_input"]={string}`; bundle перебілдено `npm run deploy`). Непорожнє `panel.message` показується **замість** ротації (білим, з обраним ефектом); очистити поле → ротація відновлюється. Кап **16 символів** (`maxlength` = ліміт рендера панелі; стан `etl::string<32>` тримає більше); POST на blur/Enter (не щоклавішу).
+> ℹ️ **Вільний текст** дає віджет `text_input` (доданий у фреймворк: `webui/src/components/widgets/TextInput.svelte` + `WIDGET_TYPE_COMPAT["text_input"]={string}`; bundle перебілдено `npm run deploy`). Непорожнє `panel.message` показується **замість** ротації (білим, з обраним ефектом); очистити поле → ротація відновлюється. Кап **31 символ** (стеля — `etl::string<32>` у SharedState; рендер `n<31` у `ble_service.cpp`); панель скролить довгий текст ефектом; POST на blur/Enter (не щоклавішу).
 
 ## Графіка (історія дизайну)
 
