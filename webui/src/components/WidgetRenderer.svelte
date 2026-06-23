@@ -6,6 +6,7 @@
   import StatusText from './widgets/StatusText.svelte';
   import ToggleWidget from './widgets/ToggleWidget.svelte';
   import TextInput from './widgets/TextInput.svelte';
+  import ColorPicker from './widgets/ColorPicker.svelte';
   import PasswordInput from './widgets/PasswordInput.svelte';
   import ButtonWidget from './widgets/ButtonWidget.svelte';
   import FirmwareUpload from './widgets/FirmwareUpload.svelte';
@@ -35,6 +36,7 @@
     status_text: StatusText,
     toggle: ToggleWidget,
     text_input: TextInput,
+    color_picker: ColorPicker,
     password_input: PasswordInput,
     button: ButtonWidget,
     firmware_upload: FirmwareUpload,

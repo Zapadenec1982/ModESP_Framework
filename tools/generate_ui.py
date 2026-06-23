@@ -47,6 +47,7 @@ WIDGET_TYPE_COMPAT = {
     "button":       {"bool"},
     "status_text":  {"string"},
     "text_input":   {"string"},
+    "color_picker": {"string"},
     "value":        {"float", "int", "bool", "string"},
     "chart":        {"float"},
 }

@@ -29,6 +29,23 @@ static constexpr char ICON_DROP   = static_cast<char>(0x81);
 static constexpr char ICON_PERSON = static_cast<char>(0x82);
 static constexpr char ICON_CLOCK  = static_cast<char>(0x85);
 
+// Parse "#RRGGBB" → out[3]. Returns false (out untouched) on malformed input.
+static bool parse_hex_color(const char* s, uint8_t out[3]) {
+    if (!s || s[0] != '#') return false;
+    auto hx = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    int v[6];
+    for (int i = 0; i < 6; i++) { v[i] = hx(s[1 + i]); if (v[i] < 0) return false; }
+    out[0] = static_cast<uint8_t>(v[0] * 16 + v[1]);
+    out[1] = static_cast<uint8_t>(v[2] * 16 + v[3]);
+    out[2] = static_cast<uint8_t>(v[4] * 16 + v[5]);
+    return true;
+}
+
 PanelModule::PanelModule()
     : BaseModule("panel", modesp::ModulePriority::LOW)
 {}
@@ -68,15 +85,19 @@ void PanelModule::on_update(uint32_t dt_ms) {
     const uint8_t web_anim = static_cast<uint8_t>(read_int("panel.anim", 0));  // web-selected text effect
 
     // ── Web message override ── a non-empty panel.message (iPixel tab text field) shows that
-    // text in white, overriding the rotation (and the rotate pause). Empty → resume rotation.
+    // text in panel.color (default white), overriding the rotation (and the rotate pause).
+    // Empty message → resume rotation.
     char msg[32];
     if (read_string("panel.message", msg, sizeof(msg)) && msg[0] != '\0') {
+        uint8_t mc[3] = {255, 255, 255};                 // default white
+        char colbuf[12];
+        if (read_string("panel.color", colbuf, sizeof(colbuf))) parse_hex_color(colbuf, mc);
         if (strncmp(msg, shown_, sizeof(shown_)) != 0 ||
-            shown_rgb_[0] != 255 || shown_rgb_[1] != 255 || shown_rgb_[2] != 255 ||
+            shown_rgb_[0] != mc[0] || shown_rgb_[1] != mc[1] || shown_rgb_[2] != mc[2] ||
             web_anim != shown_anim_) {
             strncpy(shown_, msg, sizeof(shown_) - 1); shown_[sizeof(shown_) - 1] = '\0';
-            shown_rgb_[0] = shown_rgb_[1] = shown_rgb_[2] = 255; shown_anim_ = web_anim;
-            panel.show_text(msg, 255, 255, 255, web_anim, kSpeed, kRainbow);
+            shown_rgb_[0] = mc[0]; shown_rgb_[1] = mc[1]; shown_rgb_[2] = mc[2]; shown_anim_ = web_anim;
+            panel.show_text(msg, mc[0], mc[1], mc[2], web_anim, kSpeed, kRainbow);
             state_set("panel.text", msg);
         }
         return;
