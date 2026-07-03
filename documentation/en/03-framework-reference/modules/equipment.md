@@ -32,7 +32,7 @@ pipeline (board.json → bindings.json → drivers → SharedState).
 ```
 
 Equipment is а **service module** (priority `HIGH` = 1, runs у Phase 2 of
-init). It's part of the framework і ships у `modules/equipment/`.
+init). The framework base (`EquipmentBase`) lives in `components/modesp_equipment/`; the demo subclass (`EquipmentModule`) and manifest ship in `modules/equipment/`.
 
 ## State keys exposed
 
@@ -271,4 +271,4 @@ all others. Stage 1.5 plans per-binding calibration overrides.
 
 - [`modules/equipment/manifest.json`](../../../../modules/equipment/manifest.json)
 - [`modules/equipment/include/equipment_module.h`](../../../../modules/equipment/include/equipment_module.h)
-- [`modules/equipment/src/equipment_base.cpp`](../../../../modules/equipment/src/equipment_base.cpp)
+- [`components/modesp_equipment/src/equipment_base.cpp`](../../../../components/modesp_equipment/src/equipment_base.cpp)

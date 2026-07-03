@@ -25,7 +25,7 @@ Equipment Manager — це модуль, який **зв'язує драйвер
    читають equipment.<role>, записують equipment.req_<role>
 ```
 
-Equipment — це **сервісний модуль** (пріоритет `HIGH` = 1, виконується у Phase 2 ініціалізації). Він є частиною фреймворку та постачається у `modules/equipment/`.
+Equipment — це **сервісний модуль** (пріоритет `HIGH` = 1, виконується у Phase 2 ініціалізації). Framework-база (`EquipmentBase`) живе у `components/modesp_equipment/`; demo-сабклас (`EquipmentModule`) і маніфест — у `modules/equipment/`.
 
 ## Опубліковані ключі стану
 
@@ -220,4 +220,4 @@ curl -u admin:modesp -X POST http://192.168.1.85/api/settings \
 
 - [`modules/equipment/manifest.json`](../../../../modules/equipment/manifest.json)
 - [`modules/equipment/include/equipment_module.h`](../../../../modules/equipment/include/equipment_module.h)
-- [`modules/equipment/src/equipment_base.cpp`](../../../../modules/equipment/src/equipment_base.cpp)
+- [`components/modesp_equipment/src/equipment_base.cpp`](../../../../components/modesp_equipment/src/equipment_base.cpp)

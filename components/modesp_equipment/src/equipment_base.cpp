@@ -165,10 +165,13 @@ bool EquipmentBase::ShortCycleGuard::apply(bool requested, uint32_t dt_ms) {
 // ═══════════════════════════════════════════════════════════════
 
 bool EquipmentBase::on_init() {
+    // State-key namespace derives from the module's own name() — the same
+    // namespace the manifest declares. A subclass named "chamber" publishes
+    // chamber.* / chamber.has_* (the generator's V20 whitelist relies on this).
     // Publish has_* capability flags for all roles
     for (size_t i = 0; i < role_count_; i++) {
         char key[48];
-        snprintf(key, sizeof(key), "equipment.has_%s", roles_[i].role);
+        snprintf(key, sizeof(key), "%s.has_%s", name(), roles_[i].role);
         state_set(key, true);
     }
 
@@ -181,19 +184,22 @@ bool EquipmentBase::on_init() {
         if (strcmp(t, "ntc") == 0) uses_ntc = true;
         if (strcmp(t, "ds18b20") == 0) uses_ds18b20 = true;
     }
-    state_set("equipment.has_ntc_driver", uses_ntc);
-    state_set("equipment.has_ds18b20_driver", uses_ds18b20);
+    char cap_key[48];
+    snprintf(cap_key, sizeof(cap_key), "%s.has_ntc_driver", name());
+    state_set(cap_key, uses_ntc);
+    snprintf(cap_key, sizeof(cap_key), "%s.has_ds18b20_driver", name());
+    state_set(cap_key, uses_ds18b20);
 
     // Initialize sensor state keys
     for (size_t i = 0; i < role_count_; i++) {
         if (roles_[i].as_sensor) {
             char key[48];
-            snprintf(key, sizeof(key), "equipment.%s", roles_[i].role);
+            snprintf(key, sizeof(key), "%s.%s", name(), roles_[i].role);
             state_set(key, 0.0f);
         }
         if (roles_[i].as_actuator) {
             char key[48];
-            snprintf(key, sizeof(key), "equipment.%s", roles_[i].role);
+            snprintf(key, sizeof(key), "%s.%s", name(), roles_[i].role);
             state_set(key, false);
         }
     }
@@ -206,8 +212,10 @@ bool EquipmentBase::on_init() {
 }
 
 void EquipmentBase::on_update(uint32_t dt_ms) {
-    // 1. Read EMA filter coefficient
-    int coeff = read_int("equipment.filter_coeff", 4);
+    // 1. Read EMA filter coefficient (<name>.filter_coeff)
+    char coeff_key[48];
+    snprintf(coeff_key, sizeof(coeff_key), "%s.filter_coeff", name());
+    int coeff = read_int(coeff_key, 4);
     ema_alpha_ = (coeff > 0) ? 1.0f / (coeff + 1) : 1.0f;
 
     // 2. Read all sensors → SharedState
@@ -269,17 +277,17 @@ void EquipmentBase::read_all_sensors() {
         // Temperature/analog sensors
         if (strcmp(r.as_sensor->type(), "digital_input") != 0) {
             float val = read_sensor_value(r.role);
-            snprintf(key, sizeof(key), "equipment.%s", r.role);
+            snprintf(key, sizeof(key), "%s.%s", name(), r.role);
             state_set(key, val);
 
-            // Health key is role-derived: role "air_temp" → equipment.air_temp_ok
-            snprintf(key, sizeof(key), "equipment.%s_ok", r.role);
+            // Health key is role-derived: role "air_temp" → <name>.air_temp_ok
+            snprintf(key, sizeof(key), "%s.%s_ok", name(), r.role);
             state_set(key, r.as_sensor->is_healthy());
         } else {
             // Digital input — read as bool
             float val = 0.0f;
             r.as_sensor->read(val);
-            snprintf(key, sizeof(key), "equipment.%s", r.role);
+            snprintf(key, sizeof(key), "%s.%s", name(), r.role);
             state_set(key, val > 0.5f);
         }
     }
@@ -306,7 +314,7 @@ void EquipmentBase::publish_all_states() {
         if (!roles_[i].as_actuator) continue;
 
         char key[48];
-        snprintf(key, sizeof(key), "equipment.%s", roles_[i].role);
+        snprintf(key, sizeof(key), "%s.%s", name(), roles_[i].role);
         bool actual = roles_[i].as_actuator->get_state();
         state_set(key, actual);
     }

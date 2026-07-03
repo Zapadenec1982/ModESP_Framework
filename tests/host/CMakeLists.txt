@@ -37,7 +37,8 @@ include_directories(
     "${ROOT}/components/modesp_core/include"                # modesp/shared_state.h, base_module.h, types.h
     "${ROOT}/generated"                                     # features_config.h, state_meta.h, etc.
     "${ROOT}/components/modesp_hal/include"                  # modesp/hal/driver_interfaces.h, hal_types.h
-    "${ROOT}/modules/equipment/include"                     # equipment_module.h
+    "${ROOT}/components/modesp_equipment/include"           # equipment_base.h (framework)
+    "${ROOT}/modules/equipment/include"                     # equipment_module.h (demo subclass)
     "${ROOT}/modules/datalogger/include"                    # datalogger_module.h
     "${ROOT}/modules/display/include"                       # display_module.h, display/menu_engine.h
     "${ROOT}/components/modesp_osd/include"                  # modesp/osd/osd_charmap.h (header-only on host)
@@ -54,7 +55,7 @@ set(CORE_SOURCES
 
 # ── Business module sources (compile directly — only need esp_log.h which is mocked) ──
 set(MODULE_SOURCES
-    "${ROOT}/modules/equipment/src/equipment_base.cpp"
+    "${ROOT}/components/modesp_equipment/src/equipment_base.cpp"
     "${ROOT}/modules/datalogger/src/datalogger_module.cpp"
     "${ROOT}/modules/display/src/menu_engine.cpp"
     "${ROOT}/modules/display/src/char_grid.cpp"

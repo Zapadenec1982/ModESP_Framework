@@ -88,7 +88,7 @@ Product provides arbitration logic — **business logic belongs in C++, not JSON
 | **modesp_net** | `components/modesp_net/` | WiFi (STA+AP), HTTP (REST), WebSocket |
 | **modesp_mqtt** | `components/modesp_mqtt/` | MQTT + TLS, delta-publish, heartbeat, LWT, OTA |
 | **modesp_aws** | `components/modesp_aws/` | AWS IoT Core (mTLS, Shadow, Jobs) — optional |
-| **Equipment** | `modules/equipment/` | HAL owner, arbitration, interlocks |
+| **Equipment** | `components/modesp_equipment/` (base) + `modules/equipment/` (demo) | HAL owner, arbitration, interlocks |
 | **DataLogger** | `modules/datalogger/` | Manifest-driven temperature + event logging, LittleFS, SVG chart |
 | **Generator** | `tools/generate_ui.py` | Manifest → 7 artifacts + i18n validation |
 | **WebUI** | `webui/` | Svelte 4 SPA, 24 widget types, dark/light theme |
