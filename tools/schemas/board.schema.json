@@ -372,6 +372,82 @@
         "additionalProperties": false
       }
     },
+    "spi_buses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "host": {
+            "type": "integer"
+          },
+          "mosi": {
+            "type": "integer"
+          },
+          "miso": {
+            "type": "integer"
+          },
+          "sclk": {
+            "type": "integer"
+          },
+          "freq_hz": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "pwm_outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "gpio": {
+            "type": "integer"
+          },
+          "channel": {
+            "type": "integer"
+          },
+          "freq_hz": {
+            "type": "integer"
+          },
+          "resolution_bits": {
+            "type": "integer"
+          },
+          "active_high": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
     "uart_buses": {
       "type": "array",
       "items": {

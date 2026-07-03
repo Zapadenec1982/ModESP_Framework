@@ -666,15 +666,10 @@ class ManifestLoader:
 #  Driver Manifest Validator
 # ═══════════════════════════════════════════════════════════════
 
-# Допустимі категорії та hardware types для драйверів
+# Допустимі категорії драйверів. Допустимі hardware types — НЕ хардкод: вони
+# похідні від єдиної таблиці BOARD_SECTION_TO_HW_TYPE (див. VALID_HARDWARE_TYPES
+# нижче, одразу після неї). Додати новий hardware type = один рядок у ту таблицю.
 VALID_DRIVER_CATEGORIES = {"sensor", "actuator", "io", "display", "audio"}
-VALID_HARDWARE_TYPES = {
-    "gpio_output", "gpio_input", "onewire_bus",
-    "adc_channel", "i2c_bus",
-    "i2c_expander_output", "i2c_expander_input",
-    "i2c_display", "spi_display", "uart_bus", "i2s_bus",
-    "ble",
-}
 # Категорії з компільованим driver-компонентом у drivers/ (Kconfig toggle +
 # register-all). Display/audio — теж повноцінні драйвери: їхні фабрики модулі
 # беруть із DriverRegistry (create_display/create_audio) у своєму on_bind().
@@ -836,7 +831,11 @@ class DriverManifestLoader:
 #  Cross-Validation (module <-> driver)
 # ═══════════════════════════════════════════════════════════════
 
-# Маппінг типу секції board.json → hardware_type
+# SINGLE SOURCE OF TRUTH for hardware types: board.json section → hardware_type.
+# Add a new hardware type by adding ONE row here — VALID_HARDWARE_TYPES (driver
+# manifest validation) is derived from this, and the board-section validator +
+# hw-id map + bindings page iterate it. (Runtime resolution — a HAL find_<type>()
+# — is added by the driver author alongside the driver, same as any new bus.)
 BOARD_SECTION_TO_HW_TYPE = {
     "gpio_outputs": "gpio_output",
     "gpio_inputs": "gpio_input",
@@ -847,11 +846,19 @@ BOARD_SECTION_TO_HW_TYPE = {
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
     "i2c_displays": "i2c_display",
+    "spi_buses": "spi_bus",
     "spi_displays": "spi_display",
+    "pwm_outputs": "pwm_output",
     "uart_buses": "uart_bus",
     "i2s_buses": "i2s_bus",
     "ble_devices": "ble",
 }
+
+# Hardware types a driver manifest may declare = every type a board section maps to
+# (derived, so the two never drift). A driver whose hardware_type is not here fails
+# validation. EXTRA_HW_TYPES is for any future type with no dedicated board section.
+EXTRA_HW_TYPES: set = set()
+VALID_HARDWARE_TYPES = set(BOARD_SECTION_TO_HW_TYPE.values()) | EXTRA_HW_TYPES
 
 # board.json top-level keys that are metadata, not hardware sections.
 BOARD_META_KEYS = {"manifest_version", "board", "display_name", "version", "description"}
