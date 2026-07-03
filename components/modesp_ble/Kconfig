@@ -37,7 +37,8 @@ menu "ModESP BLE"
         depends on MODESP_BLE_ENABLE
         default n
         help
-            Passive-scan observer (pvvx Xiaomi, BTHome, HolyIOT beacons) + optional
-            connect/GATT (iPixel LED panel). Feeds BLE drivers (hardware_type "ble").
+            Passive-scan observer + optional connect/GATT. BLE drivers
+            (hardware_type "ble") register advertisement decoders and connect
+            profiles; the transport owns the radio and knows no device format.
 
 endmenu

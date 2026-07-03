@@ -4,7 +4,7 @@
 
 `ble_xiaomi_th` reads a **Xiaomi LYWSD03MMC** hygro-thermometer flashed with custom firmware (**pvvx / ATC / BTHome**) over BLE. There is **no connection**: the sensor broadcasts its readings, and the driver receives them passively through the shared BLE **observer** (`modesp_ble`). One physical sensor exposes three values — temperature, humidity, battery — each selected by the binding's `address`.
 
-The driver registers as a `sensor` with `hardware_type: ble_device`. It feeds off advertisements parsed by the BLE host and is matched to a device **by MAC**. If no broadcast arrives for **60 s** the channel goes stale and the driver reports unhealthy.
+The driver registers as a `sensor` with `hardware_type: ble_device`. **It owns the wire format**: at factory time it registers its advertisement decoders (pvvx/ATC `0x181A`, BTHome `0xFCD2`) with `modesp_ble` via `adv_decoder.h`. The transport owns only the radio and the passive scan — it knows no device format — and hands every 16-bit service-data frame to the registered decoders. A decoder that recognizes its format publishes the reading (`ble::report_sensor`) into the per-MAC cache the driver reads. The device is matched **by MAC**; if no broadcast arrives for **60 s** the channel goes stale and the driver reports unhealthy.
 
 REQUIRES: the `modesp_ble` component (BLE host + observer) enabled via `CONFIG_MODESP_BLE_ENABLE`.
 
@@ -53,10 +53,13 @@ The `_ok` flag clears once the stale timeout (60 s with no broadcast) elapses.
 ## Read architecture
 
 ```
-LYWSD03MMC ──BLE adv──▶ modesp_ble (OBSERVER, passive scan)
-   (pvvx/ATC/BTHome)         │  parse by MAC
+LYWSD03MMC ──BLE adv──▶ modesp_ble (OBSERVER: radio + passive scan)
+   (pvvx/ATC/BTHome)         │  dispatch each service-data frame
+                             ▼
+              ble_xiaomi_th decoders (0x181A / 0xFCD2)   ← parse bytes (in the driver)
+                             │  ble::report_sensor → per-MAC cache (BleCentral)
                   ┌──────────┼──────────┐
-            temperature   humidity   battery   ← ble_xiaomi_th (per channel)
+            temperature   humidity   battery   ← ble_xiaomi_th (per-channel view)
                   │           │          │
                   └─ equipment.room_* ◀── EquipmentBase (read(), publishes)
                               │

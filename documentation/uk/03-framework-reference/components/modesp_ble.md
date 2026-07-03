@@ -10,7 +10,7 @@
 
 | Роль | Призначення |
 |---|---|
-| **OBSERVER** | Пасивне сканування. Парсить рекламу сенсорів (BTHome uuid `0xFCD2`, pvvx/ATC uuid `0x181A`) і живить BLE-сенсорні драйвери (напр. `ble_xiaomi_th`) за MAC. |
+| **OBSERVER** | Пасивне сканування. Роздає кожен кадр 16-бітного service-data декодерам, які реєструють BLE-сенсорні драйвери (`adv_decoder.h`); впізнаний показник кешується **за MAC** для прив'язаного драйвера. Транспорт формату пристрою не знає — самі декодери (напр. BTHome `0xFCD2`, pvvx/ATC `0x181A`) живуть у драйвері, напр. `ble_xiaomi_th`. |
 | **CENTRAL** | Підключається до пристрою (LED-панель iPixel) і пише команди. Доступна як singleton `BlePanel`. Підключення **ставить на паузу** сканування observer, потім **відновлює** його. |
 | **PERIPHERAL** | Власний GATT-сервер (телеметрія/керування + Wi-Fi provisioning), рекламує ім'я `"ModESP"`. |
 
@@ -50,7 +50,7 @@ void    show_text(const char* s,
 
 ### Observer → сенсор
 
-`ble_xiaomi_th` читає Xiaomi LYWSD03MMC з кастомною прошивкою (pvvx/ATC/BTHome) **пасивно** — observer ловить broadcast за MAC і роздає драйверу. Один фізичний сенсор → 3 канали (temperature / humidity / battery), які прив'язка обирає полем `address`. Публікується в `equipment.room_temp` / `equipment.room_humid` / `equipment.room_batt` (+ health-прапорці `equipment.<role>_ok`). Stale-timeout 60 c: немає broadcast → не healthy.
+`ble_xiaomi_th` читає Xiaomi LYWSD03MMC з кастомною прошивкою (pvvx/ATC/BTHome) **пасивно** — observer ловить broadcast, а декодери самого драйвера (зареєстровані через `adv_decoder.h`) розбирають байти й кешують показник за MAC. Один фізичний сенсор → 3 канали (temperature / humidity / battery), які прив'язка обирає полем `address`. Публікується в `equipment.room_temp` / `equipment.room_humid` / `equipment.room_batt` (+ health-прапорці `equipment.<role>_ok`). Stale-timeout 60 c: немає broadcast → не healthy.
 
 ### Central → панель
 

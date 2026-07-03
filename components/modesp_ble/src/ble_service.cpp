@@ -61,6 +61,7 @@
 #include "host/ble_gatt.h"
 #include "host/ble_uuid.h"
 #include "modesp/ble/ble_central.h"
+#include "modesp/ble/adv_decoder.h"   // transport ↔ sensor-driver decoder registry
 #include "modesp/ble/ble_panel.h"
 #include "panel_font_data.h"          // generated: PANEL_FONT 8x16 LSB-first + panel_font_index()
 #endif
@@ -493,10 +494,10 @@ void BleService::apply_provisioning(const char* json, int len) {
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 
 // ── BLE central: passive-scan observer for broadcast sensors ──────────────────
-// Decodes advertisement service-data (pvvx/ATC Xiaomi 0x181A, BTHome 0xFCD2) and
-// logs readings (per-device throttled); publishes a discovered-count to SharedState.
-// Per-device routing into named SharedState keys via bindings.json = Phase 3b.
-// Decode formulas: docs/ble/sensors_observer_spec.md.
+// Runs the passive scan and hands each 16-bit service-data frame to the decoders
+// that BLE-sensor drivers register (adv_decoder.h); a decoded reading is cached
+// per device (BleCentral) and logged throttled. The transport knows no device
+// format — all byte-level parsing lives in the driver.
 
 // ── BleCentral registry (bridge to BLE sensor drivers, hardware_type "ble") ──
 BleCentral& BleCentral::instance() { static BleCentral s; return s; }
@@ -536,9 +537,10 @@ void BleCentral::dispatch(const uint8_t mac6_le[6], int8_t rssi,
 static constexpr size_t  MAX_SEEN = 8;
 static constexpr int64_t LOG_THROTTLE_US = 5000000;  // 5 s per device
 
-// Per-device cache. pvvx/ATC carry all fields in one frame, but pvvx-BTHome
-// ALTERNATES frames (temp/hum vs voltage/flags), so we merge fields across frames
-// and log the unified current reading. (docs/ble/sensors_observer_spec.md §3c)
+// Per-device cache for the throttled diagnostic log. A decoder reports whichever
+// fields a given frame carried; some formats split temp/hum and voltage/flags into
+// separate adverts, so we merge fields across frames here and log the unified
+// current reading. Decoders own the byte layout (see the driver).
 struct SeenSensor {
     uint8_t mac[6];
     bool    used;
@@ -597,10 +599,12 @@ static void update_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
              s.batt_pct, s.batt_mv, rssi);
 }
 
-// Diagnostic: recognized service UUID but no known measurement — dump raw hex to
-// confirm the actual on-air format against docs/ble/sensors_observer_spec.md.
-static void log_raw(const uint8_t* mac, int8_t rssi, uint16_t uuid,
-                    const uint8_t* sd, uint16_t len) {
+// Diagnostic: a decoder recognized its service UUID but not this frame's format —
+// dump raw hex to confirm the actual on-air layout. Exposed to drivers as
+// ble::log_raw(); the transport itself never raw-logs unclaimed frames (an
+// unknown advertiser is simply not ours), so real RF traffic stays quiet.
+static void log_raw_frame(const uint8_t* mac, int8_t rssi, uint16_t uuid,
+                          const uint8_t* sd, uint16_t len) {
     int idx = seen_index(mac);
     if (idx < 0) return;
     int64_t now = esp_timer_get_time();
@@ -613,6 +617,45 @@ static void log_raw(const uint8_t* mac, int8_t rssi, uint16_t uuid,
     ESP_LOGI(TAG, "%s [raw]  " MODESP_MAC_FMT " uuid=%04x len=%u data=%s rssi=%d",
              is_new ? "[NEW]" : "     ", MODESP_MAC_ARG(mac), uuid, len, hex, rssi);
 }
+
+// ── Advertisement-decoder registry (transport ↔ sensor-driver seam) ──────────
+// modesp_ble owns the radio + scan but knows no device format. BLE-sensor
+// drivers register decoders (adv_decoder.h) at factory time; gap_scan_event
+// iterates them per frame. Fixed pool — no heap, ISR-safe reads.
+namespace ble {
+
+static constexpr size_t MAX_ADV_DECODERS = 8;
+static AdvDecoder s_adv_decoders[MAX_ADV_DECODERS] = {};
+static size_t     s_adv_decoder_count = 0;
+
+bool register_adv_decoder(AdvDecoder fn) {
+    if (!fn) return false;
+    for (size_t i = 0; i < s_adv_decoder_count; i++)
+        if (s_adv_decoders[i] == fn) return true;          // idempotent by fn ptr
+    if (s_adv_decoder_count >= MAX_ADV_DECODERS) {
+        ESP_LOGW(TAG, "adv-decoder pool full (%u) — decoder dropped", (unsigned)MAX_ADV_DECODERS);
+        return false;
+    }
+    s_adv_decoders[s_adv_decoder_count++] = fn;
+    return true;
+}
+size_t     adv_decoder_count()      { return s_adv_decoder_count; }
+AdvDecoder adv_decoder_at(size_t i) { return i < s_adv_decoder_count ? s_adv_decoders[i] : nullptr; }
+
+// Public API a decoder calls to publish a reading (impl = file-local merge+log).
+void report_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
+                   bool ht, float t, bool hh, float h, int bp, int mv) {
+    update_sensor(mac, rssi, fmt, ht, t, hh, h, bp, mv);
+}
+
+// Public API a decoder calls when it owns the UUID but can't parse the frame —
+// dumps raw hex for format discovery (throttled per device).
+void log_raw(const uint8_t* mac, int8_t rssi, uint16_t uuid,
+             const uint8_t* sd, uint16_t len) {
+    log_raw_frame(mac, rssi, uuid, sd, len);
+}
+
+} // namespace ble
 
 // ── start_observer_scan: shared passive-scan starter (sensors + panel name-match).
 // Used by BleService::start_scan() and resumed by BlePanel after (dis)connect. ──
@@ -955,37 +998,14 @@ int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
     const uint8_t* mac  = d->addr.val;     // little-endian source address
     int8_t         rssi = d->rssi;
 
-    if (uuid == 0x181A) {                  // pvvx / ATC Xiaomi (custom_beacon.h)
-        if (len == 17) {                   // pvvx-custom, LITTLE-ENDIAN, all fields
-            int16_t  t  = (int16_t)(sd[8]  | (sd[9]  << 8));
-            uint16_t h  = (uint16_t)(sd[10] | (sd[11] << 8));
-            uint16_t mv = (uint16_t)(sd[12] | (sd[13] << 8));
-            update_sensor(mac, rssi, "pvvx", true, t / 100.0f, true, h / 100.0f, sd[14], mv);
-        } else if (len == 15) {            // ATC1441, BIG-ENDIAN numerics
-            int16_t  t  = (int16_t)((sd[8] << 8) | sd[9]);
-            uint16_t mv = (uint16_t)((sd[12] << 8) | sd[13]);
-            update_sensor(mac, rssi, "atc", true, t / 10.0f, true, (float)sd[10], sd[11], mv);
-        } else {
-            log_raw(mac, rssi, uuid, sd, len);     // reveal actual format
-        }
-    } else if (uuid == 0xFCD2) {           // BTHome v2 (LE TLV from offset 3) — frames alternate
-        bool ht = false, hh = false; float t = 0, h = 0; int bp = -1, mv = -1;
-        bool ok = true, any = false;
-        uint16_t i = 3;                    // skip uuid(2) + device-info(1)
-        while (i < len) {
-            uint8_t id = sd[i++];
-            if      (id == 0x02 && i + 2 <= len) { t = (int16_t)(sd[i] | (sd[i+1] << 8)) / 100.0f; ht = true; any = true; i += 2; }
-            else if (id == 0x03 && i + 2 <= len) { h = (uint16_t)(sd[i] | (sd[i+1] << 8)) / 100.0f; hh = true; any = true; i += 2; }
-            else if (id == 0x01 && i + 1 <= len) { bp = sd[i]; any = true; i += 1; }
-            else if (id == 0x0C && i + 2 <= len) { mv = (uint16_t)(sd[i] | (sd[i+1] << 8)); any = true; i += 2; }
-            else if (id == 0x00 && i + 1 <= len) { i += 1; }                       // packet id (1B)
-            else if ((id == 0x0F || id == 0x10 || id == 0x11) && i + 1 <= len) { i += 1; }  // binary sensors (1B) — skip
-            else { ok = false; break; }                                           // unknown id — size unknown, stop
-        }
-        if (any)      update_sensor(mac, rssi, "bthome", ht, t, hh, h, bp, mv);
-        else if (!ok) log_raw(mac, rssi, uuid, sd, len);
+    // Offer the frame to each registered sensor-driver decoder; first to
+    // recognize its format and report wins. Byte-level parsing lives in the
+    // driver (adv_decoder.h) — the transport knows no device format.
+    for (size_t i = 0, n = ble::adv_decoder_count(); i < n; i++) {
+        ble::AdvDecoder dec = ble::adv_decoder_at(i);
+        if (dec && dec(mac, rssi, uuid, sd, len)) return 0;
     }
-    return 0;
+    return 0;   // no decoder claimed this frame — stay silent (unrelated advertiser)
 }
 
 void BleService::start_scan() {

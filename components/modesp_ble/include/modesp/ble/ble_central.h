@@ -2,11 +2,12 @@
  * @file ble_central.h
  * @brief BleCentral — registry of broadcast-BLE sensors keyed by MAC.
  *
- * The modesp_ble passive scanner decodes advertisement frames (pvvx/ATC Xiaomi
- * 0x181A, BTHome 0xFCD2) and pushes them here via dispatch() from the NimBLE host
- * task. BLE sensor drivers (hardware_type "ble", e.g. drivers/ble_xiaomi_th)
- * register their MAC at factory time and read the cached reading in
- * ISensorDriver::read(). Fixed pool, zero-heap.
+ * The modesp_ble passive scanner runs each frame through the advertisement
+ * decoders that drivers register (adv_decoder.h); a recognized frame is pushed
+ * here via dispatch() from the NimBLE host task. BLE sensor drivers (hardware_type
+ * "ble") register their MAC at factory time and read the cached reading in
+ * ISensorDriver::read(). Fixed pool, zero-heap. The transport knows no device
+ * format — all byte-level decoding lives in the driver.
  *
  * Layering: this is the bridge between modesp_ble (owns the radio) and the driver
  * layer. The driver depends on modesp_ble; modesp_ble does NOT depend on drivers.
@@ -23,8 +24,9 @@
 
 namespace modesp {
 
-/// Decoded broadcast reading, merged across alternating frames (BTHome temp/hum
-/// frame vs voltage/flags frame — docs/ble/sensors_observer_spec.md §3c).
+/// Decoded broadcast reading, merged across frames (some formats split temp/hum
+/// and voltage/flags into separate adverts — the decoder reports each field as it
+/// appears; unreported fields keep their prior cached value).
 struct BleReading {
     float   temp_c   = 0.0f;  bool has_temp = false;
     float   hum_pct  = 0.0f;  bool has_hum  = false;

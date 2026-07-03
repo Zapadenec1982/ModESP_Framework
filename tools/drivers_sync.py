@@ -42,7 +42,9 @@ def cfg_symbol(name: str) -> str:
 # in the generated Kconfig, so with the master OFF its own symbol is HIDDEN
 # (absent from sdkconfig) and setting it =y alone would be ignored by kconfig.
 # Value: (symbol, Kconfig default when the symbol is absent from sdkconfig).
-MASTER_SWITCHES = {"ble": ("CONFIG_MODESP_BLE_ENABLE", False)}
+# "ble" -> CENTRAL: both BLE driver flavours (observer sensor + connect panel)
+# use APIs guarded by CONFIG_MODESP_BLE_CENTRAL. CENTRAL implies ENABLE.
+MASTER_SWITCHES = {"ble": ("CONFIG_MODESP_BLE_CENTRAL", False)}
 
 
 def read_symbol(sdk_path: Path, symbol: str, default: bool) -> bool:

@@ -8,7 +8,7 @@ The host serves **three roles simultaneously**:
 
 | Role | What it does |
 |---|---|
-| **Observer** | Passive scan. Parses sensor advertisements — BTHome (uuid `0xFCD2`) and pvvx/ATC (uuid `0x181A`) — and feeds BLE sensor drivers (e.g. `ble_xiaomi_th`) matched **by MAC**. |
+| **Observer** | Passive scan. Hands each advertisement's 16-bit service-data to the decoders that BLE sensor drivers register (`adv_decoder.h`); a recognized reading is cached **per MAC** for the bound driver. The transport knows no device format — the decoders themselves (e.g. BTHome `0xFCD2`, pvvx/ATC `0x181A`) live in the driver, e.g. `ble_xiaomi_th`. |
 | **Central** | Connects to a device (the iPixel LED panel) and writes commands. Exposed as the `BlePanel` singleton. Connecting **pauses** the observer scan, then **resumes** it afterwards. |
 | **Peripheral** | Its own GATT server (telemetry/control + Wi-Fi provisioning), advertising the name `"ModESP"`. |
 

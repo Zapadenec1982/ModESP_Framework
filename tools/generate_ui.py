@@ -2752,10 +2752,12 @@ def main():
     #
     # Transport dependencies, derived from hardware_type in the driver manifest
     # (manifest-driven, no per-driver hardcode): a BLE driver consumes types and
-    # callbacks from the BLE service, so it must not compile when the service is
-    # off — 'depends on' auto-disables it, and the bound-driver gate in
-    # modesp_hal/CMakeLists.txt then reports boards that actually need it.
-    HW_TYPE_KCONFIG_DEPS = {"ble": "MODESP_BLE_ENABLE"}
+    # callbacks that live behind the BLE *central* role (observer scan + connect —
+    # BleCentral / adv_decoder / BlePanel are all under CONFIG_MODESP_BLE_CENTRAL),
+    # so it must not compile when that role is off. 'depends on' auto-disables the
+    # driver toggle, and the bound-driver gate in modesp_hal/CMakeLists.txt then
+    # reports boards that actually need it. (CENTRAL implies ENABLE in Kconfig.)
+    HW_TYPE_KCONFIG_DEPS = {"ble": "MODESP_BLE_CENTRAL"}
     kcfg = [
         "# Auto-generated from drivers/*/manifest.json by tools/generate_ui.py",
         "# DO NOT EDIT — regenerated on every build.",
