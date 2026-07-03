@@ -31,7 +31,6 @@ beneath those APIs.
 │   │ modesp_net       (WiFi, HTTP server, WebSocket)         │    │
 │   │ modesp_mqtt      (MQTT client, TLS, HA discovery)       │    │
 │   │ modesp_aws       (AWS IoT alternative cloud backend)    │    │
-│   │ modesp_json      (JSON parse/serialize wrapper)         │    │
 │   │ modesp_core      (App, ModuleManager, SharedState)      │    │
 │   └─────────────────────────────────────────────────────────┘    │
 ├──────────────────────────────────────────────────────────────────┤
@@ -52,7 +51,6 @@ higher. Domain modules sit at the top; the core lives at the bottom.
 | `modesp_net` | core, services, hal | WiFiService, HttpService, WsService |
 | `modesp_mqtt` | core, services, net | MqttService, TLS, HA discovery |
 | `modesp_aws` | core, services, net | AwsIotService (alternative to mqtt) |
-| `modesp_json` | (jsmn) | JSON parse helpers |
 | `modesp_scenario` | core, services | Engine, ActionRegistry, ContinuousRegistry, IStateBackend |
 | `modules/equipment` | core, hal, services | Equipment Manager (sensors → state, state → actuators) |
 | `modules/datalogger` | core, services | Channel logging, event logging |

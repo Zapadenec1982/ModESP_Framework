@@ -49,7 +49,6 @@ public:
 ```cpp
 static constexpr uint32_t PUBLISH_INTERVAL_MS = 1000;          // 1 с
 static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 30000;       // 30 с
-static constexpr uint32_t ALARM_REPUBLISH_INTERVAL_MS = 300000; // 5 хв
 ```
 
 Налаштовуються через Kconfig за потреби. Типові значення обережні —
@@ -93,9 +92,10 @@ modesp/v1/<tenant>/<device_id>/status
 2. Для кожного ключа перевіряється набір змінених ключів SharedState.
 3. Змінені ключі публікуються з QoS 0 (дельта-семантика).
 
-Heartbeat і повторна публікація аварій — окремі таймери; аварійні
-ключі, що відповідають списку у `CONFIG_MODESP_MQTT_ALARM_KEYS`
-(TBD у Stage 1.5), отримують збережені публікації кожні 5 хв.
+Heartbeat працює на власному таймері. Надійна доставка (QoS 1 + retain)
+для аварійних ключів повернеться як manifest-driven прапорець у Фазі 2
+дорожньої карти універсальності; старий зашитий префікс 'protection.'
+не збігався з жодним ключем і був видалений.
 
 ### HA discovery
 

@@ -67,7 +67,6 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [components/modesp_net.md](03-framework-reference/components/modesp_net.md) | ✅ | Wi-Fi, HTTP сервер, WebSocket. |
 | [components/modesp_mqtt.md](03-framework-reference/components/modesp_mqtt.md) | ✅ | Обгортка MQTT-клієнта з TLS і HA discovery. |
 | [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | Альтернативний бекенд AWS IoT. |
-| [components/modesp_json.md](03-framework-reference/components/modesp_json.md) | ✅ | Утиліти парсингу JSON (обгортка jsmn). |
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Загальний огляд рушія сценаріїв. |
 | [scenario-engine/](03-framework-reference/scenario-engine/README.md) | ✅ | Поглиблений розгляд рушія — архітектура, бінарний формат, FSM, ADR, посібники. |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — міст між sensor/actuator HAL. |

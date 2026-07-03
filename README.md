@@ -177,8 +177,9 @@ public:
 }
 ```
 
-The generator auto-creates includes, instances, and registration code.
-**One manual step:** add the module name to `main/CMakeLists.txt` PRIV_REQUIRES list (ESP-IDF requirement).
+The generator auto-creates includes, instances, registration code and the
+CMake dependency list (`generated/modules.cmake` → `main/CMakeLists.txt`) —
+no manual CMake edits.
 
 ### 4. Build
 
@@ -326,8 +327,7 @@ components/
 ├── modesp_hal/         # HAL, DriverManager, driver interfaces
 ├── modesp_net/         # WiFi, HTTP (23 endpoints), WebSocket
 ├── modesp_mqtt/        # MQTT + TLS, delta-publish, OTA handler
-├── modesp_aws/         # AWS IoT Core (optional)
-└── modesp_json/        # jsmn JSON parser
+└── modesp_aws/         # AWS IoT Core (optional)
 modules/
 ├── equipment/          # HAL owner, arbitration (framework)
 └── datalogger/         # Temperature + event logging (framework)

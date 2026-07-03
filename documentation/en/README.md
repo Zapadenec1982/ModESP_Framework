@@ -65,7 +65,6 @@ In order:
 | [components/modesp_net.md](03-framework-reference/components/modesp_net.md) | ✅ | Wi-Fi, HTTP server, WebSocket. |
 | [components/modesp_mqtt.md](03-framework-reference/components/modesp_mqtt.md) | ✅ | MQTT client wrapper із TLS і HA discovery. |
 | [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | AWS IoT alternative backend. |
-| [components/modesp_json.md](03-framework-reference/components/modesp_json.md) | ✅ | JSON parsing utilities (jsmn wrapper). |
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Scenario engine high-level overview. |
 | [scenario-engine/](03-framework-reference/scenario-engine/README.md) | ✅ | Engine deep dive — architecture, binary format, FSMs, ADRs, usage. |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — sensor/actuator HAL bridge. |

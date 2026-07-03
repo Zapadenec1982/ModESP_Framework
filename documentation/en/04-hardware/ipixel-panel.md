@@ -53,10 +53,8 @@ Content and web control come from the `panel` module; the `ble_led_panel` driver
 "modules": [ "...", "panel" ]
 ```
 
-```cmake
-# main/CMakeLists.txt
-PRIV_REQUIRES ... panel
-```
+The CMake dependency appears automatically (`generated/modules.cmake` →
+`main/CMakeLists.txt`) — no manual edits needed.
 
 The `ble_led_panel` driver becomes available in menuconfig automatically (the generator adds the toggle). If the board binds a driver that is disabled in menuconfig, the build fails with a FATAL — reconcile with `python tools/drivers_sync.py --fix`.
 

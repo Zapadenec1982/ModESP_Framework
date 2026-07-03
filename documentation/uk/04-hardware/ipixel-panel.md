@@ -53,10 +53,8 @@
 "modules": [ "...", "panel" ]
 ```
 
-```cmake
-# main/CMakeLists.txt
-PRIV_REQUIRES ... panel
-```
+CMake-залежність з'являється автоматично (`generated/modules.cmake` →
+`main/CMakeLists.txt`) — ручних правок не потрібно.
 
 Драйвер `ble_led_panel` опційний у menuconfig сам стає доступним (генератор додає toggle). Якщо плата прив'язує драйвер, вимкнений у menuconfig, білд падає з FATAL — узгодь: `python tools/drivers_sync.py --fix`.
 

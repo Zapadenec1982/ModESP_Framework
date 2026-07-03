@@ -32,7 +32,6 @@ modesp-v4/
 │   ├── modesp_net/
 │   ├── modesp_mqtt/
 │   ├── modesp_aws/
-│   ├── modesp_json/
 │   └── modesp_scenario/
 ├── modules/            ← reference business modules (rarely touched)
 ├── drivers/            ← hardware drivers (touch when adding а new device)

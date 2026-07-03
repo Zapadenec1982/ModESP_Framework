@@ -182,25 +182,24 @@ python tools/generate_ui.py --help
 |---|---|
 | `--project FILE` | Шлях до project.json (типово: `./project.json`). |
 | `--modules-dir DIR` | Корінь маніфестів модулів (типово: `./modules`). |
+| `--drivers-dir DIR` | Корінь маніфестів драйверів (типово: `./drivers`). |
 | `--output-data DIR` | Куди писати `ui.json` (типово: `./data`). |
 | `--output-gen DIR` | Куди писати `state_meta.h` тощо (типово: `./generated`). |
-| `--strict` | Розглядати попередження як помилки. |
+| `--minify` | Мініфікований `ui.json` (без відступів). |
 
 ## Інтеграція з CMake
 
-`CMakeLists.txt` оголошує кастомну команду, що залежить від глобу
-маніфестів:
+Кореневий `CMakeLists.txt` запускає генератор через `execute_process()` на
+кожному configure (до `project()`, щоб згенеровані Kconfig/cmake existed до
+confgen). Усі входи — `project.json`, `tools/generate_ui.py`,
+`tools/compile_scenario.py`, `modules/*/manifest.json`,
+`drivers/*/manifest.json`, `boards/*/board.json` — зареєстровані у
+`CMAKE_CONFIGURE_DEPENDS` (глоби через `file(GLOB ... CONFIGURE_DEPENDS)`
+ловлять появу/зникнення файлів).
 
-```cmake
-add_custom_command(
-    OUTPUT ${GEN_HEADERS}
-    COMMAND python ${CMAKE_SOURCE_DIR}/tools/generate_ui.py ...
-    DEPENDS ${MANIFEST_FILES}
-)
-```
-
-Редагування маніфесту → CMake перезапускає генератор → перегенеровані
-заголовки → відповідні компоненти перезбираються.
+Редагування маніфесту → `idf.py build` сам перезапускає configure →
+генератор → перегенеровані заголовки → відповідні компоненти
+перезбираються. Ручний `idf.py reconfigure` не потрібен.
 
 ## Типові помилки
 

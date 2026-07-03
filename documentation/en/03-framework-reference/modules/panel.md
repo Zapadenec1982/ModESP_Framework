@@ -14,7 +14,7 @@ It rotates **three fields** every ~4 s, each health-gated (`equipment.<role>_ok`
 
 (The room temperature/humidity come from the [`ble_xiaomi_th`](../drivers/ble_xiaomi_th.md) sensor via EquipmentBase.)
 
-Module priority is **LOW**. `manifest.json` declares read state (`panel.text`, `panel.connected`) plus readwrite controls surfaced on the **iPixel** web tab (see [Web control](#web-control-the-ipixel-tab)). `project.json` `modules += "panel"`; `main/CMakeLists` `PRIV_REQUIRES += panel`. The feature lives on git branch `feat/ble-led-panel`.
+Module priority is **LOW**. `manifest.json` declares read state (`panel.text`, `panel.connected`) plus readwrite controls surfaced on the **iPixel** web tab (see [Web control](#web-control-the-ipixel-tab)). `project.json` `modules += "panel"` — CMake dependency comes from generated/modules.cmake automatically. The feature lives on git branch `feat/ble-led-panel`.
 
 ## Rendering
 

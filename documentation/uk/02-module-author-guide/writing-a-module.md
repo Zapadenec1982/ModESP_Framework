@@ -99,23 +99,10 @@ modules/your_module/
 тримати багато модулів у репозиторії та обирати, які з них потрапляють
 у конкретну збірку прошивки.
 
-Потім додайте те саме ім'я модуля до `main/CMakeLists.txt` → `PRIV_REQUIRES`.
-Автореєстрація генерує includes/instances/реєстрацію, але CMake усе одно
-потребує явного переліку компонента, щоб залінкувати залежність:
-
-```cmake
-# main/CMakeLists.txt
-idf_component_register(
-    SRCS "main.cpp"
-    INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/generated"
-    PRIV_REQUIRES modesp_core modesp_services modesp_hal modesp_net \
-                  modesp_scenario equipment datalogger simple_thermo \
-                  display my_counter   # ← додайте свій модуль сюди
-)
-```
-
-Якщо це пропустити — збірка не залінкує символи модуля, навіть якщо він
-є у `project.json`.
+Це єдиний крок реєстрації. Генератор пише `generated/modules.cmake`
+(`PRODUCT_MODULES`), який `main/CMakeLists.txt` підключає автоматично, — CMake-залежність
+з'являється без ручних правок. Правка `project.json` чи будь-якого маніфесту
+автоматично перезапускає configure та генерацію (`CMAKE_CONFIGURE_DEPENDS`).
 
 ## Крок 3 — Написати CMakeLists.txt
 

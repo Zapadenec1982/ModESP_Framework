@@ -174,25 +174,24 @@ python tools/generate_ui.py --help
 |---|---|
 | `--project FILE` | Path to project.json (default: `./project.json`). |
 | `--modules-dir DIR` | Module manifest root (default: `./modules`). |
+| `--drivers-dir DIR` | Driver manifest root (default: `./drivers`). |
 | `--output-data DIR` | Where to write `ui.json` (default: `./data`). |
 | `--output-gen DIR` | Where to write `state_meta.h` etc. (default: `./generated`). |
-| `--strict` | Treat warnings as errors. |
+| `--minify` | Minified `ui.json` (no indentation). |
 
 ## Integration з CMake
 
-`CMakeLists.txt` declares а custom command depending on the manifest
-glob:
+The root `CMakeLists.txt` runs the generator via `execute_process()` on
+every configure (before `project()`, so generated Kconfig/cmake files exist
+before confgen). All inputs — `project.json`, `tools/generate_ui.py`,
+`tools/compile_scenario.py`, `modules/*/manifest.json`,
+`drivers/*/manifest.json`, `boards/*/board.json` — are registered in
+`CMAKE_CONFIGURE_DEPENDS` (globs use `file(GLOB ... CONFIGURE_DEPENDS)` to
+also catch added/removed files).
 
-```cmake
-add_custom_command(
-    OUTPUT ${GEN_HEADERS}
-    COMMAND python ${CMAKE_SOURCE_DIR}/tools/generate_ui.py ...
-    DEPENDS ${MANIFEST_FILES}
-)
-```
-
-Editing а manifest → CMake re-runs the generator → regenerated headers
-→ affected components rebuild.
+Editing a manifest → `idf.py build` re-runs configure by itself → generator
+→ regenerated headers → affected components rebuild. No manual
+`idf.py reconfigure` needed.
 
 ## Common pitfalls
 

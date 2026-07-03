@@ -123,7 +123,6 @@ state_set(modesp::panel_text::slot(0), "");          // очистити сло�
 ## Підключення
 
 1. `project.json` → `"modules"` += `"panel"`.
-2. `main/CMakeLists.txt` → `PRIV_REQUIRES` += `panel`.
 
 Контент панелі дає цей модуль, а лінк/живлення/яскравість — драйвер [`ble_led_panel`](../drivers/ble_led_panel.md); сам BLE-host — спільна інфраструктура [`modesp_ble`](../components/modesp_ble.md).
 

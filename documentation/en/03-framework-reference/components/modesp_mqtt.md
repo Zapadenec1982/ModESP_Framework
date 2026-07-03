@@ -5,7 +5,7 @@
 `modesp_mqtt` is the default cloud backend. It wraps ESP-IDF's
 `esp-mqtt` client AND ties it to SharedState through manifest-declared
 publish / subscribe lists. Optional TLS, optional Home Assistant auto
-discovery, retained alarms, і Last-Will-Testament — all configured
+discovery і Last-Will-Testament — all configured
 through manifests without explicit MQTT code from business modules.
 
 REQUIRES: `modesp_core`, `modesp_services`, `modesp_net`, `mqtt`,
@@ -48,7 +48,6 @@ Init priority: HIGH (1) — runs у Phase 2, after WiFi.
 ```cpp
 static constexpr uint32_t PUBLISH_INTERVAL_MS = 1000;          // 1 s
 static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 30000;       // 30 s
-static constexpr uint32_t ALARM_REPUBLISH_INTERVAL_MS = 300000; // 5 min
 ```
 
 Adjustable via Kconfig if needed. Defaults are conservative — chatty
@@ -91,9 +90,10 @@ Every `PUBLISH_INTERVAL_MS`:
 2. For each key, check SharedState's changed-keys set.
 3. Publish changed keys із QoS 0 (delta semantics).
 
-Heartbeat і alarm-republish are separate timers; alarm keys що match а
-list у `CONFIG_MODESP_MQTT_ALARM_KEYS` (TBD у Stage 1.5) get retained
-publishes every 5 min.
+Heartbeat runs on its own timer. Reliable delivery (QoS 1 + retain) for
+alarm-class keys returns as a manifest-driven flag in Phase 2 of the
+universality roadmap; the old hardcoded 'protection.' prefix matched
+nothing and was removed.
 
 ### HA discovery
 
