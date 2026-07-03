@@ -4,7 +4,7 @@
  *        iPixel BLE LED panel, with a threshold-based colour per value.
  */
 #include "panel_module.h"
-#include "modesp/panel_text.h"           // shared text-output slots API (other modules post here)
+#include "panel_text.h"                  // this module's text-output slots API (panel.slotN)
 #include "modesp/hal/panel_port.h"       // IPanelPort — the panel backend a driver publishes
 #include "modesp/hal/driver_registry.h"  // DriverRegistry::panel_port()
 #include "esp_log.h"
@@ -190,7 +190,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
     }
 
     // ── text slots ── any module posts here with state_set(modesp::panel_text::slot(i), "msg");
-    // non-empty slots rotate in (neutral white). See components/modesp_core/.../modesp/panel_text.h.
+    // non-empty slots rotate in (neutral white). See modules/panel/include/panel_text.h.
     for (int i = 0; i < modesp::panel_text::SLOTS && n < static_cast<int>(sizeof(e) / sizeof(e[0])); i++) {
         Entry& x = e[n];
         if (read_string(modesp::panel_text::slot(i), x.buf, sizeof(x.buf)) && x.buf[0] != '\0') {

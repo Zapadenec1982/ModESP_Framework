@@ -1,15 +1,18 @@
 #pragma once
 /**
  * @file panel_text.h
- * @brief Shared on-screen text slots — a tiny text-output API for the LED panel.
+ * @brief On-screen text slots for the LED panel — a tiny text-output API.
  *
- * Any module can post a short message to one of the panel's text slots; the panel module
- * rotates the non-empty slots onto the LED display (alongside the clock / sensor readouts).
+ * Lives WITH the panel module (which owns the panel.slotN state keys and the display),
+ * so the framework core carries no panel knowledge. A module that wants to post a short
+ * message to the panel opts in by depending on the `panel` component and including this
+ * header; the panel module rotates the non-empty slots onto the LED display (alongside
+ * the clock / sensor readouts).
  *
  * This is a thin, zero-cost convention over SharedState — the slots are ordinary string
  * state keys ("panel.slot0".."panel.slot4"), so a module posts with its OWN state_set():
  *
- *     #include "modesp/panel_text.h"
+ *     #include "panel_text.h"          // REQUIRES the panel component
  *     ...
  *     state_set(modesp::panel_text::slot(0), "ALARM");   // post to slot 0
  *     state_set(modesp::panel_text::slot(1), "DEFROST");
