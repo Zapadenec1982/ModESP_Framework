@@ -92,6 +92,30 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${_BOARD_PATH}/board.json"
     "${_BOARD_PATH}/bindings.json")
 
+# Re-run CMake configure whenever ANY single-source-of-truth input changes.
+# Without this, editing a manifest/project.json after the first configure silently
+# builds with STALE generated artifacts (ui.json, state_meta.h, datalogger_*.h,
+# drivers.cmake, Kconfig) — breaking the manifest-driven contract.
+# The GLOBs (with CONFIGURE_DEPENDS) retrigger on manifest ADD/REMOVE; listing the
+# matched files in CMAKE_CONFIGURE_DEPENDS retriggers on CONTENT edits.
+file(GLOB _modesp_module_manifests CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/modules/*/manifest.json")
+file(GLOB _modesp_driver_manifests CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/drivers/*/manifest.json")
+file(GLOB _modesp_board_manifests CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/boards/*/board.json")
+file(GLOB _modesp_i18n_inputs CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/modules/*/i18n/*.json"
+     "${CMAKE_SOURCE_DIR}/data/i18n/*.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/project.json"
+    "${CMAKE_SOURCE_DIR}/tools/generate_ui.py"
+    "${CMAKE_SOURCE_DIR}/tools/compile_scenario.py"
+    ${_modesp_module_manifests}
+    ${_modesp_driver_manifests}
+    ${_modesp_board_manifests}
+    ${_modesp_i18n_inputs})
+
 # ── Pre-build: generate UI schema and C++ headers from module manifests ──
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_FOUND)
@@ -134,10 +158,20 @@ file(READ "${CMAKE_SOURCE_DIR}/data/board.json" _BOARD_JSON_CONTENT)
 string(JSON _BOARD_NAME GET "${_BOARD_JSON_CONTENT}" "board")
 message(STATUS "ModESP board name: ${_BOARD_NAME}")
 
+# ── Trim the component graph to the product (single source of truth: project.json) ──
+# generated/modules.cmake (written by generate_ui.py above) defines PRODUCT_MODULES.
+# With COMPONENTS set, a module folder that is NOT in project.json no longer compiles;
+# framework components enter the graph transitively via REQUIRES. Cloud/BLE components
+# are listed explicitly because main links them via target_link_libraries(idf::...),
+# which does not participate in component dependency discovery.
+include("${CMAKE_SOURCE_DIR}/generated/modules.cmake")
+set(COMPONENTS main ${PRODUCT_MODULES} modesp_mqtt modesp_aws modesp_ble)
+
 # ── Firmware version (semver) ──
 # Used by esp_app_get_description()->version in heartbeat & OTA version matching.
-# MUST be updated before each release build.
-set(PROJECT_VER "1.0.1")
+# Single source of truth: project.json "version" — bump it there before a release.
+file(READ "${CMAKE_SOURCE_DIR}/project.json" _PROJECT_JSON_CONTENT)
+string(JSON PROJECT_VER GET "${_PROJECT_JSON_CONTENT}" "version")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(modesp_${_BOARD_NAME})

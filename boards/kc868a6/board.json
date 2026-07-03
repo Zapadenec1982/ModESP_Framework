@@ -1,6 +1,7 @@
 {
   "manifest_version": 1,
   "board": "kc868_a6",
+  "display_name": "KC868-A6 (I2C PCF8574)",
   "version": "1.0.0",
   "description": "Kincony KC868-A6 — 6 реле (PCF8574), 6 входів (PCF8574), I2C",
   "i2c_buses": [

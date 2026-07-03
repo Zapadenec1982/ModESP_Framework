@@ -37,6 +37,27 @@ def cfg_symbol(name: str) -> str:
     return f"CONFIG_MODESP_DRIVER_{name.upper()}"
 
 
+# Transport master switches — mirror of HW_TYPE_KCONFIG_DEPS in generate_ui.py:
+# a driver whose manifest hardware_type appears here gets 'depends on <symbol>'
+# in the generated Kconfig, so with the master OFF its own symbol is HIDDEN
+# (absent from sdkconfig) and setting it =y alone would be ignored by kconfig.
+# Value: (symbol, Kconfig default when the symbol is absent from sdkconfig).
+MASTER_SWITCHES = {"ble": ("CONFIG_MODESP_BLE_ENABLE", False)}
+
+
+def read_symbol(sdk_path: Path, symbol: str, default: bool) -> bool:
+    """Resolve an arbitrary bool symbol from sdkconfig (absent → its default)."""
+    if not sdk_path.exists():
+        return default
+    for raw in sdk_path.read_text(encoding="utf-8").splitlines():
+        s = raw.strip()
+        if s == f"{symbol}=y":
+            return True
+        if s == f"# {symbol} is not set":
+            return False
+    return default
+
+
 def read_driver_config(sdk_path: Path) -> dict:
     """{symbol: True/False} for explicit MODESP_DRIVER_* lines in sdkconfig.
 
@@ -143,15 +164,33 @@ def main(argv=None) -> int:
         if d in drivers and d not in bound:
             bound.append(d)
 
+    # Transport master switches: with 'depends on' unmet the driver symbol is
+    # ABSENT from sdkconfig (kconfig hides it) — which is_enabled() would
+    # misread as "enabled by default". Resolve the masters explicitly so a
+    # bound BLE driver with BLE off is reported (and fixed) via its master.
+    masters_off = {}   # symbol -> [driver, ...]
+    for d in bound:
+        hw = (drivers.get(d) or {}).get("hardware_type", "")
+        if hw in MASTER_SWITCHES:
+            sym, default = MASTER_SWITCHES[hw]
+            if not read_symbol(args.sdkconfig, sym, default):
+                masters_off.setdefault(sym, []).append(d)
+
     bound_but_disabled = [d for d in bound if not is_enabled(state, d)]
+    for ds in masters_off.values():
+        for d in ds:
+            if d not in bound_but_disabled:
+                bound_but_disabled.append(d)
     unused = unused_drivers(bindings, drivers)          # already excludes discovery
     enabled_but_unused = [d for d in unused if is_enabled(state, d)]
 
-    if not bound_but_disabled and not enabled_but_unused:
+    if not bound_but_disabled and not enabled_but_unused and not masters_off:
         print("In sync: every bound driver is enabled and no unused driver is compiled.")
         return 0
 
     print(f"Active board: {board.get('board', '?') if board else '?'}")
+    for sym, ds in masters_off.items():
+        print(f"  master switch {sym} is OFF — required by bound driver(s): {', '.join(ds)}")
     if bound_but_disabled:
         print(f"  bound but DISABLED (will enable): {', '.join(bound_but_disabled)}")
     if enabled_but_unused:
@@ -162,6 +201,12 @@ def main(argv=None) -> int:
         return 0
 
     changed = False
+    # Enable master switches first — the drivers' own symbols only become
+    # visible to kconfig once their master is on.
+    if masters_off and (args.fix or not args.prune):
+        for sym in masters_off:
+            if confirm(f"Enable master switch '{sym}'?", args.yes):
+                changed |= set_config(args.sdkconfig, sym, True)
     # Enable bound-but-disabled (default action / --fix).
     if bound_but_disabled and (args.fix or not args.prune):
         for d in bound_but_disabled:

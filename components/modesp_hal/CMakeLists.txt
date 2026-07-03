@@ -36,6 +36,8 @@ foreach(_drv ${MODESP_BOUND_DRIVERS})
     if(NOT CONFIG_MODESP_DRIVER_${_u})
         message(FATAL_ERROR
             "Board binds driver '${_drv}' but it is disabled in menuconfig "
-            "(CONFIG_MODESP_DRIVER_${_u}=n). Enable it, or run: python tools/drivers_sync.py --fix")
+            "(CONFIG_MODESP_DRIVER_${_u}=n, or its transport master switch — "
+            "e.g. CONFIG_MODESP_BLE_ENABLE for BLE drivers — is off). "
+            "Enable it, or run: python tools/drivers_sync.py --fix")
     endif()
 endforeach()

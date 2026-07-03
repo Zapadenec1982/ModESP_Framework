@@ -80,6 +80,17 @@ class ManifestValidator:
             if field not in manifest:
                 self.errors.append(f"[{name}] Missing required field '{field}' in {path}")
 
+        # Module name: naming convention + ETL capacity (etl::string<16> on device —
+        # a longer name would be silently truncated at runtime).
+        mod_name = manifest.get("module")
+        if mod_name:
+            if not re.match(r"^[a-z][a-z0-9_]*$", mod_name):
+                self.errors.append(
+                    f"[{name}] Invalid module name '{mod_name}' — must match ^[a-z][a-z0-9_]*$")
+            elif len(mod_name) > 16:
+                self.errors.append(
+                    f"[{name}] Module name '{mod_name}' is {len(mod_name)} chars — max 16")
+
         if "state" not in manifest:
             return len(self.errors) == 0
 
@@ -93,10 +104,23 @@ class ManifestValidator:
                 self.warnings.append(
                     f"[{name}] State key '{key}' does not start with '{prefix}'")
 
+            # SharedState keys are etl::string<32> on device — a longer key would be
+            # silently truncated, risking key collisions between distinct keys.
+            if len(key) > 32:
+                self.errors.append(
+                    f"[{name}] State key '{key}' is {len(key)} chars — max 32")
+
             if "type" not in info:
                 self.errors.append(f"[{name}] State key '{key}' missing 'type'")
             if "access" not in info:
                 self.errors.append(f"[{name}] State key '{key}' missing 'access'")
+
+            # persist_service.cpp only implements float/int/bool NVS batches — a
+            # persisted string would be silently never saved nor restored.
+            if info.get("persist") and info.get("type") == "string":
+                self.errors.append(
+                    f"[{name}] State key '{key}': persist=true is not supported for "
+                    f"type 'string' — remove persist or use float/int/bool")
 
             # readwrite keys must have min/max/step (unless options present)
             if info.get("access") == "readwrite":
@@ -437,6 +461,15 @@ class ManifestLoader:
                     f"Invalid JSON in {path}: {e}")
                 return None
 
+        # Folder name and manifest 'module' must match — the generated registry,
+        # CMake component name and include paths are all derived from the folder,
+        # so a mismatch produces confusing link/registration errors downstream.
+        declared = manifest.get("module")
+        if declared and declared != name:
+            self.validator.errors.append(
+                f"Module folder 'modules/{name}/' declares module '{declared}' — "
+                f"folder name and manifest 'module' field must match")
+
         self.validator.validate_manifest(manifest, path)
         return manifest
 
@@ -465,7 +498,7 @@ class ManifestLoader:
 VALID_DRIVER_CATEGORIES = {"sensor", "actuator", "io", "display", "audio"}
 VALID_HARDWARE_TYPES = {
     "gpio_output", "gpio_input", "onewire_bus",
-    "adc_channel", "pwm_channel", "i2c_bus",
+    "adc_channel", "i2c_bus",
     "i2c_expander_output", "i2c_expander_input",
     "i2c_display", "uart_bus", "i2s_bus",
     "ble",
@@ -621,7 +654,6 @@ BOARD_SECTION_TO_HW_TYPE = {
     "gpio_inputs": "gpio_input",
     "onewire_buses": "onewire_bus",
     "adc_channels": "adc_channel",
-    "pwm_channels": "pwm_channel",
     "i2c_buses": "i2c_bus",
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
@@ -630,6 +662,14 @@ BOARD_SECTION_TO_HW_TYPE = {
     "i2s_buses": "i2s_bus",
     "ble_devices": "ble",
 }
+
+# board.json top-level keys that are metadata, not hardware sections.
+BOARD_META_KEYS = {"manifest_version", "board", "display_name", "version", "description"}
+
+# board.json sections consumed by the device (HAL/config) but not bindable
+# hardware entries — known, just outside BOARD_SECTION_TO_HW_TYPE.
+# i2c_expanders defines the expander CHIPS; expander_outputs/inputs map their pins.
+BOARD_AUX_SECTIONS = {"i2c_expanders"}
 
 
 def cross_validate(module_manifests, driver_manifests, errors, warnings):
@@ -736,6 +776,18 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings):
     are ERROR-level (fail the build): a mis-wired binding must not reach firmware
     as a silent runtime skip. board/bindings may be None (boardless build) → skip.
     """
+    # Unknown top-level board.json sections are silently ignored by both this
+    # generator and the on-device parser — a typo ('gpio_output' for
+    # 'gpio_outputs') would silently drop the hardware. Warn loudly.
+    if board:
+        for section in board:
+            if (section not in BOARD_SECTION_TO_HW_TYPE
+                    and section not in BOARD_META_KEYS
+                    and section not in BOARD_AUX_SECTIONS):
+                warnings.append(
+                    f"[board] unknown top-level section '{section}' — ignored. "
+                    f"Known sections: {', '.join(sorted(BOARD_SECTION_TO_HW_TYPE | BOARD_AUX_SECTIONS))}")
+
     # (a) No board or no bindings → nothing to cross-check.
     if not board or not bindings:
         return
@@ -2325,7 +2377,7 @@ def main():
     #   generated/drivers.cmake        → REQUIRES list for modesp_hal
     #   generated/driver_register_all.h→ guarded register-all (skips disabled)
     driver_dirs = sorted(p.parent for p in args.drivers_dir.glob("*/manifest.json"))
-    drivers_meta = []  # (name, category, description)
+    drivers_meta = []  # (name, category, description, hardware_type)
     for ddir in driver_dirs:
         try:
             dm = json.loads((ddir / "manifest.json").read_text(encoding="utf-8"))
@@ -2342,22 +2394,35 @@ def main():
             # driver component, no MODESP_DRIVER_<NAME> toggle, no register-all.
             # Code lives in its module (e.g. modules/display, CONFIG_MODESP_DISPLAY_*).
             continue
-        drivers_meta.append((name, category, dm.get("description", name)))
+        drivers_meta.append((name, category, dm.get("description", name),
+                             dm.get("hardware_type", "")))
 
     # Driver Kconfig — one toggle per driver (default y → existing behaviour).
     # Written to components/modesp_hal/Kconfig so ESP-IDF auto-discovers it as a
     # component Kconfig (reliable; no fragile orsource path resolution).
+    #
+    # Transport dependencies, derived from hardware_type in the driver manifest
+    # (manifest-driven, no per-driver hardcode): a BLE driver consumes types and
+    # callbacks from the BLE service, so it must not compile when the service is
+    # off — 'depends on' auto-disables it, and the bound-driver gate in
+    # modesp_hal/CMakeLists.txt then reports boards that actually need it.
+    HW_TYPE_KCONFIG_DEPS = {"ble": "MODESP_BLE_ENABLE"}
     kcfg = [
         "# Auto-generated from drivers/*/manifest.json by tools/generate_ui.py",
         "# DO NOT EDIT — regenerated on every build.",
         'menu "ModESP Drivers"',
         "",
     ]
-    for name, category, desc in drivers_meta:
+    for name, category, desc, hw_type in drivers_meta:
         kcfg += [
             f"    config MODESP_DRIVER_{name.upper()}",
             f'        bool "{name} driver"',
             "        default y",
+        ]
+        dep = HW_TYPE_KCONFIG_DEPS.get(hw_type)
+        if dep:
+            kcfg.append(f"        depends on {dep}")
+        kcfg += [
             "        help",
             f"            Compile and register the '{name}' {category} driver.",
             "            Disable to exclude it from the firmware (smaller binary).",
@@ -2370,17 +2435,81 @@ def main():
     print(f"  + {kcfg_path}")
     files_written += 1
 
+    # ── 6e-2. Board Kconfig — generated from boards/*/board.json ──────────
+    # One choice entry per board folder, so adding boards/my_board/ requires ZERO
+    # framework edits (same drop-in contract as drivers). Written to
+    # main/Kconfig.boards; main/Kconfig.projbuild pulls it in via rsource.
+    # Symbol names derive from the folder: boards/dev/ → MODESP_BOARD_DEV.
+    boards_root = args.drivers_dir.parent / "boards"
+    board_entries = []  # (dirname, prompt, description)
+    for bjson in sorted(boards_root.glob("*/board.json")):
+        bdir = bjson.parent.name
+        if not re.match(r"^[a-z][a-z0-9_]*$", bdir):
+            print(f"  WARNING: board dir '{bdir}' has invalid name "
+                  f"(must match ^[a-z][a-z0-9_]*$) — skipped")
+            continue
+        if bdir == "dir":
+            # MODESP_BOARD_DIR is the string symbol carrying the folder name —
+            # a board literally named 'dir' would collide with it.
+            print("  WARNING: board dir 'dir' is reserved "
+                  "(collides with MODESP_BOARD_DIR) — skipped")
+            continue
+        try:
+            bdata = json.loads(bjson.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"  WARNING: skipping board '{bdir}': {e}")
+            continue
+        # Kconfig prompt is a quoted single-line string; help is one indented
+        # line — sanitize both (escape, collapse to a single line).
+        prompt = (bdata.get("display_name") or bdata.get("board") or bdir)
+        prompt = " ".join(prompt.replace("\\", "/").replace('"', "'").split())
+        desc_lines = bdata.get("description", "").splitlines()
+        board_entries.append((bdir, prompt,
+                              desc_lines[0].strip() if desc_lines else ""))
+    if not board_entries:
+        print(f"  ERROR: no valid boards found in {boards_root}/*/board.json")
+        sys.exit(1)
+    default_board = ("dev" if any(d == "dev" for d, _, _ in board_entries)
+                     else board_entries[0][0])
+    bkcfg = [
+        "# Auto-generated from boards/*/board.json by tools/generate_ui.py",
+        "# DO NOT EDIT — regenerated on every build.",
+        "choice MODESP_BOARD",
+        '    prompt "Target board"',
+        f"    default MODESP_BOARD_{default_board.upper()}",
+        "    help",
+        "        Select the target hardware board. Determines which board.json",
+        "        and bindings.json are copied to data/ during build.",
+        "",
+    ]
+    for bdir, prompt, desc in board_entries:
+        bkcfg += [
+            f"    config MODESP_BOARD_{bdir.upper()}",
+            f'        bool "{prompt} ({bdir})"',
+        ]
+        if desc:
+            bkcfg += ["        help", f"            {desc}"]
+        bkcfg.append("")
+    bkcfg += ["endchoice", "", "config MODESP_BOARD_DIR", "    string"]
+    for bdir, _, _ in board_entries:
+        bkcfg.append(f'    default "{bdir}" if MODESP_BOARD_{bdir.upper()}')
+    board_kcfg_path = args.drivers_dir.parent / "main" / "Kconfig.boards"
+    with open(board_kcfg_path, "w", encoding="utf-8") as f:
+        f.write('\n'.join(bkcfg) + '\n')
+    print(f"  + {board_kcfg_path}")
+    files_written += 1
+
     # drivers.cmake — full driver list for modesp_hal PRIV_REQUIRES
     dcmake_path = gen_dir / "drivers.cmake"
     with open(dcmake_path, "w", encoding="utf-8") as f:
         f.write("# Auto-generated from drivers/*/manifest.json — DO NOT EDIT\n")
-        f.write(f"set(MODESP_ALL_DRIVERS {' '.join(n for n, _, _ in drivers_meta)})\n")
+        f.write(f"set(MODESP_ALL_DRIVERS {' '.join(n for n, _, _, _ in drivers_meta)})\n")
     print(f"  + {dcmake_path}")
     files_written += 1
 
     # required_drivers.cmake — distinct driver set the ACTIVE board's bindings use.
     # modesp_hal/CMakeLists.txt FATAL_ERRORs if any of these is disabled in menuconfig.
-    driver_names = {n for n, _, _ in drivers_meta}
+    driver_names = {n for n, _, _, _ in drivers_meta}
     bound_drivers = []
     if bindings:
         for b in bindings.get("bindings", []):
@@ -2411,14 +2540,14 @@ def main():
         "",
         'extern "C" {',
     ]
-    for name, _, _ in drivers_meta:
+    for name, _, _, _ in drivers_meta:
         reg += [
             f"#ifdef CONFIG_MODESP_DRIVER_{name.upper()}",
             f"void modesp_register_driver_{name}(void);",
             "#endif",
         ]
     reg += ["}", "", "inline void modesp_register_all_drivers(void) {"]
-    for name, _, _ in drivers_meta:
+    for name, _, _, _ in drivers_meta:
         reg += [
             f"#ifdef CONFIG_MODESP_DRIVER_{name.upper()}",
             f"    modesp_register_driver_{name}();",
@@ -2451,7 +2580,12 @@ def main():
     # unconditional #include in datalogger_module.h would still compile against.
     MAX_CHANNELS = 6  # Fixed for binary compatibility
     if len(log_channels) > MAX_CHANNELS:
-        print(f"  WARNING: {len(log_channels)} channels declared, MAX_CHANNELS={MAX_CHANNELS}")
+        # Channels beyond runtime capacity would silently never log — in an
+        # industrial logger that is silent data loss, so fail the build instead.
+        print(f"  ERROR: {len(log_channels)} datalogger channels declared, but "
+              f"MAX_LOG_CHANNELS={MAX_CHANNELS} — channels beyond capacity would "
+              f"silently never be logged. Remove channels or raise the capacity.")
+        sys.exit(1)
 
     ch_lines = [
         "#pragma once",
@@ -2569,7 +2703,7 @@ def main():
 
     # ── i18n: build language packs ───────────────────────────
     i18n_out = args.output_data / "www" / "i18n"
-    i18n_out.mkdir(exist_ok=True)
+    i18n_out.mkdir(parents=True, exist_ok=True)
 
     # Discover available languages from module i18n files
     available_langs = set()

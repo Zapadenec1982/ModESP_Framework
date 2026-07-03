@@ -11,6 +11,8 @@ data/board.json
 data/bindings.json
 # Per-driver menuconfig toggles, generated from drivers/*/manifest.json
 components/modesp_hal/Kconfig
+# Board choice, generated from boards/*/board.json
+main/Kconfig.boards
 
 # === ESP-IDF managed dependencies ===
 /managed_components/

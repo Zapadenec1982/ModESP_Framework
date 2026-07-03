@@ -1,6 +1,7 @@
 {
   "manifest_version": 1,
   "board": "template_dev_v1",
+  "display_name": "Dev Board (GPIO relays)",
   "version": "1.0.0",
   "description": "Template dev board — ESP32-WROOM, GPIO relays + OneWire",
   "gpio_outputs": [

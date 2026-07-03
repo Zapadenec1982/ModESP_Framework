@@ -29,10 +29,8 @@
                          "persist": true, "mqtt_subscribe": true,
                          "description": "Ефект тексту: 0 статика · 1 скрол← · 2 скрол→ · 3 ↑ · 4 ↓ · 5 блим · 6 дих · 7 drop-in"},
     "panel.message":    {"type": "string", "access": "readwrite", "default": "",
-                         "persist": true,
                          "description": "Свій текст на панелі (порожнє = авто-ротація; макс. 31 символ)"},
     "panel.color":      {"type": "string", "access": "readwrite", "default": "#FFFFFF",
-                         "persist": true,
                          "description": "Колір повідомлення"},
 
     "panel.slot0":      {"type": "string", "access": "read", "description": "Текст-слот 0 (модулі пишуть через panel_text API)"},
