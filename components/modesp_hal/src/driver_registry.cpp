@@ -10,13 +10,16 @@ namespace modesp {
 
 namespace {
 
-struct SensorEntry   { const char* type; SensorFactory   fn; };
-struct ActuatorEntry { const char* type; ActuatorFactory fn; };
+struct SensorEntry    { const char* type; SensorFactory   fn; };
+struct ActuatorEntry  { const char* type; ActuatorFactory fn; };
+struct DiscoveryEntry { const char* type; DiscoveryFn     fn; };
 
-SensorEntry   s_sensors[DriverRegistry::MAX_DRIVER_TYPES];
-size_t        s_sensor_n = 0;
-ActuatorEntry s_actuators[DriverRegistry::MAX_DRIVER_TYPES];
-size_t        s_actuator_n = 0;
+SensorEntry    s_sensors[DriverRegistry::MAX_DRIVER_TYPES];
+size_t         s_sensor_n = 0;
+ActuatorEntry  s_actuators[DriverRegistry::MAX_DRIVER_TYPES];
+size_t         s_actuator_n = 0;
+DiscoveryEntry s_discoveries[DriverRegistry::MAX_DRIVER_TYPES];
+size_t         s_discovery_n = 0;
 
 bool sensor_has(const char* type) {
     for (size_t i = 0; i < s_sensor_n; ++i)
@@ -59,6 +62,29 @@ IActuatorDriver* DriverRegistry::create_actuator(const char* type, const Binding
 
 bool DriverRegistry::is_known(const char* type) {
     return sensor_has(type) || actuator_has(type);
+}
+
+bool DriverRegistry::register_discovery(const char* type, DiscoveryFn fn) {
+    if (find_discovery(type)) return true;              // idempotent
+    if (s_discovery_n >= MAX_DRIVER_TYPES) return false;
+    s_discoveries[s_discovery_n++] = {type, fn};
+    return true;
+}
+
+DiscoveryFn DriverRegistry::find_discovery(const char* type) {
+    for (size_t i = 0; i < s_discovery_n; ++i)
+        if (strcmp(s_discoveries[i].type, type) == 0) return s_discoveries[i].fn;
+    return nullptr;
+}
+
+size_t DriverRegistry::discovery_count() { return s_discovery_n; }
+
+const char* DriverRegistry::discovery_type_at(size_t i) {
+    return i < s_discovery_n ? s_discoveries[i].type : nullptr;
+}
+
+DiscoveryFn DriverRegistry::discovery_fn_at(size_t i) {
+    return i < s_discovery_n ? s_discoveries[i].fn : nullptr;
 }
 
 } // namespace modesp

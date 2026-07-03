@@ -803,6 +803,28 @@ modesp::ISensorDriver* ds18b20_factory(const modesp::Binding& b, modesp::HAL& ha
     drv.apply_settings(b);
     return &drv;
 }
+
+// Discovery: enumerate DS18B20 devices on a OneWire bus (id from board.json)
+// with a temperature preview per device. Dispatched by the generic scan
+// endpoint through DriverRegistry — modesp_net does not know this driver.
+int ds18b20_discovery(modesp::HAL& hal, const char* hw_id,
+                      modesp::DiscoveredDevice* out, size_t max) {
+    auto* ow = hal.find_onewire_bus(etl::string_view(hw_id, strlen(hw_id)));
+    if (!ow) return -1;  // unknown resource for this driver
+
+    DS18B20Driver::RomAddress devices[DS18B20Driver::MAX_DEVICES_PER_BUS];
+    size_t found = DS18B20Driver::scan_bus(ow->gpio, devices,
+                                           DS18B20Driver::MAX_DEVICES_PER_BUS);
+    size_t n = found < max ? found : max;
+    for (size_t i = 0; i < n; ++i) {
+        DS18B20Driver::format_address(devices[i].bytes,
+                                      out[i].address, sizeof(out[i].address));
+        float temp = 0;
+        out[i].has_value = DS18B20Driver::read_temp_by_address(ow->gpio, devices[i], temp);
+        out[i].value = temp;
+    }
+    return static_cast<int>(n);
+}
 } // namespace
 
-MODESP_REGISTER_SENSOR(ds18b20, &ds18b20_factory)
+MODESP_REGISTER_SENSOR_WITH_DISCOVERY(ds18b20, &ds18b20_factory, &ds18b20_discovery)

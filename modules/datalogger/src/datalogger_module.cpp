@@ -102,6 +102,10 @@ bool DataLoggerModule::on_init() {
         return false;
     }
 
+    // Самореєстрація як джерело історії для /api/log* (HttpService читає
+    // слот) — жодного set_datalogger() у main.cpp.
+    modesp::log_source::set(this);
+
     // Створити директорію логів
     mkdir(LOG_DIR, 0775);
 
@@ -594,6 +598,7 @@ bool DataLoggerModule::serialize_summary(char* buf, size_t buf_size) const {
 // ── Stop ──
 
 void DataLoggerModule::on_stop() {
+    if (modesp::log_source::get() == this) modesp::log_source::set(nullptr);
     flush_to_flash();
     ESP_LOGI(TAG, "Зупинено, фінальний flush виконано");
 }

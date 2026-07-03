@@ -12,10 +12,8 @@
 #include "modesp/hal/hal.h"
 #include "modesp/types.h"
 #include "sdkconfig.h"
-#ifdef CONFIG_MODESP_DRIVER_DS18B20
-#include "ds18b20_driver.h"   // OneWire scan endpoint — only when driver enabled
-#endif
-#include "datalogger_module.h"
+#include "modesp/hal/driver_registry.h"  // generic discovery dispatch (/api/onewire/scan)
+#include "modesp/net/log_source.h"   // /api/log* — джерело через self-registration слот
 #ifdef CONFIG_MODESP_SCENARIO_ENABLE
 #include "modesp/scenario/engine.h"  // Phase 3: restored з modesp::scenario types
 #endif
@@ -1283,13 +1281,6 @@ esp_err_t HttpService::handle_post_time(httpd_req_t* req) {
 
 esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
     if (!check_auth(req)) return ESP_OK;
-#ifndef CONFIG_MODESP_DRIVER_DS18B20
-    // DS18B20 driver disabled in menuconfig — OneWire scan unavailable.
-    set_cors_headers(req);
-    httpd_resp_send_err(req, HTTPD_501_METHOD_NOT_IMPLEMENTED,
-                        "DS18B20 driver disabled in menuconfig");
-    return ESP_OK;
-#else
     auto* self = static_cast<HttpService*>(req->user_ctx);
     set_cors_headers(req);
 
@@ -1298,9 +1289,10 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
-    // 1. Отримати bus_id з query string
+    // 1. bus (обов'язково) + driver (опційно) з query string
     char query[64] = {};
     char bus_id[16] = {};
+    char drv_type[24] = {};
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing query: ?bus=ow_1");
         return ESP_FAIL;
@@ -1309,23 +1301,54 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing 'bus' parameter");
         return ESP_FAIL;
     }
+    httpd_query_key_value(query, "driver", drv_type, sizeof(drv_type));  // optional
 
-    // 2. Знайти GPIO для шини через HAL
-    auto* ow_res = self->hal_->find_onewire_bus(
-        etl::string_view(bus_id, strlen(bus_id)));
-    if (!ow_res) {
+    const auto& bindings = self->config_->binding_table().bindings;
+
+    // 2. Резолв discovery-функції через DriverRegistry — БЕЗ знання конкретного
+    //    драйвера: явний ?driver= → тип із bindings цієї шини → єдина
+    //    зареєстрована discovery. Драйвер вимкнено в menuconfig → його
+    //    discovery просто не зареєстрована.
+    modesp::DiscoveryFn scan = nullptr;
+    const char* type = nullptr;
+    if (drv_type[0]) {
+        scan = modesp::DriverRegistry::find_discovery(drv_type);
+        if (!scan) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
+                                "Driver has no discovery (unknown or disabled)");
+            return ESP_FAIL;
+        }
+        type = drv_type;
+    }
+    if (!scan) {
+        for (const auto& b : bindings) {
+            if (b.hardware_id.size() == strlen(bus_id) &&
+                strncmp(b.hardware_id.c_str(), bus_id, b.hardware_id.size()) == 0) {
+                scan = modesp::DriverRegistry::find_discovery(b.driver_type.c_str());
+                if (scan) { type = b.driver_type.c_str(); break; }
+            }
+        }
+    }
+    if (!scan && modesp::DriverRegistry::discovery_count() == 1) {
+        type = modesp::DriverRegistry::discovery_type_at(0);
+        scan = modesp::DriverRegistry::discovery_fn_at(0);
+    }
+    if (!scan) {
+        httpd_resp_send_err(req, HTTPD_501_METHOD_NOT_IMPLEMENTED,
+                            "No discovery-capable driver registered");
+        return ESP_OK;
+    }
+
+    // 3. Сканування через реєстр (драйвер сам резолвить шину в HAL)
+    modesp::DiscoveredDevice devices[16];
+    int found = scan(*self->hal_, bus_id, devices, 16);
+    if (found < 0) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Bus not found");
         return ESP_FAIL;
     }
+    size_t count = static_cast<size_t>(found);
 
-    // 3. Scan bus
-    DS18B20Driver::RomAddress devices[DS18B20Driver::MAX_DEVICES_PER_BUS];
-    size_t count = DS18B20Driver::scan_bus(ow_res->gpio, devices,
-                                            DS18B20Driver::MAX_DEVICES_PER_BUS);
-
-    // 4. Побудувати JSON — для кожного пристрою: адреса, температура, role
-    const auto& bindings = self->config_->binding_table().bindings;
-
+    // 4. Побудувати JSON — для кожного пристрою: адреса, значення, role
     // Збираємо SKIP_ROM bindings на цій шині (без адреси)
     // Вони вже "займають" пристрій на шині, навіть без конкретної адреси
     struct SkipRomBinding { const char* role; bool matched; };
@@ -1333,7 +1356,7 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
     size_t skip_rom_count = 0;
     for (const auto& b : bindings) {
         if (b.address.empty() &&
-            b.driver_type == "ds18b20" &&
+            strcmp(b.driver_type.c_str(), type) == 0 &&
             b.hardware_id.size() == strlen(bus_id) &&
             strncmp(b.hardware_id.c_str(), bus_id, b.hardware_id.size()) == 0 &&
             skip_rom_count < 4) {
@@ -1343,14 +1366,15 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
 
     char json[1536];
     int pos = snprintf(json, sizeof(json),
-        "{\"bus\":\"%s\",\"gpio\":%d,\"devices\":[", bus_id, ow_res->gpio);
+        "{\"bus\":\"%s\",\"driver\":\"%s\",\"devices\":[", bus_id, type);
 
     for (size_t i = 0; i < count; i++) {
-        char addr_str[24];
-        DS18B20Driver::format_address(devices[i].bytes, addr_str, sizeof(addr_str));
+        const char* addr_str = devices[i].address;
 
-        float temp = 0;
-        bool has_temp = DS18B20Driver::read_temp_by_address(ow_res->gpio, devices[i], temp);
+        // JSON-ключ "temperature" збережено для сумісності з webui;
+        // семантично це generic value-превью від discovery-драйвера.
+        float temp = devices[i].value;
+        bool has_temp = devices[i].has_value;
 
         // Пошук в bindings: спочатку по адресі
         const char* role = nullptr;
@@ -1396,18 +1420,18 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, json, pos);
-#endif // CONFIG_MODESP_DRIVER_DS18B20
 }
 
 // ── DataLogger API ──────────────────────────────────────────────
 
 esp_err_t HttpService::handle_get_log(httpd_req_t* req) {
     if (!check_auth(req)) return ESP_OK;
-    auto* self = static_cast<HttpService*>(req->user_ctx);
     set_cors_headers(req);
 
-    if (!self->datalogger_) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "DataLogger not available");
+    const modesp::ILogSource* log = modesp::log_source::get();
+    if (!log) {
+        // Продукт без log-модуля в project.json — endpoint існує, джерела немає.
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log source not available");
         return ESP_FAIL;
     }
 
@@ -1424,21 +1448,21 @@ esp_err_t HttpService::handle_get_log(httpd_req_t* req) {
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    return self->datalogger_->serialize_log_chunked(req, hours);
+    return log->serialize_log_chunked(req, hours);
 }
 
 esp_err_t HttpService::handle_get_log_summary(httpd_req_t* req) {
     if (!check_auth(req)) return ESP_OK;
-    auto* self = static_cast<HttpService*>(req->user_ctx);
     set_cors_headers(req);
 
-    if (!self->datalogger_) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "DataLogger not available");
+    const modesp::ILogSource* log = modesp::log_source::get();
+    if (!log) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log source not available");
         return ESP_FAIL;
     }
 
     char buf[128];
-    if (self->datalogger_->serialize_summary(buf, sizeof(buf))) {
+    if (log->serialize_summary(buf, sizeof(buf))) {
         httpd_resp_set_type(req, "application/json");
         return httpd_resp_send(req, buf, strlen(buf));
     }

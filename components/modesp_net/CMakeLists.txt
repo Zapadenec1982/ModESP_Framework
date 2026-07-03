@@ -14,7 +14,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES modesp_core modesp_services modesp_hal
              esp_wifi esp_netif esp_http_server esp_event nvs_flash app_update espressif__mdns
-    PRIV_REQUIRES jsmn ds18b20 datalogger mbedtls modesp_scenario
+    PRIV_REQUIRES jsmn mbedtls modesp_scenario
 )
 
 # Доступ до згенерованих headers (state_meta.h для валідації POST /api/settings)

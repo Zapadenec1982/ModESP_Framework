@@ -8,6 +8,7 @@
  */
 
 #include "modesp/base_module.h"
+#include "modesp/net/log_source.h"
 #include <esp_http_server.h>
 #include <etl/vector.h>
 #include <freertos/FreeRTOS.h>
@@ -46,7 +47,7 @@ struct EventRecord {
 };
 static_assert(sizeof(EventRecord) == 8, "EventRecord must be 8 bytes");
 
-class DataLoggerModule : public modesp::BaseModule {
+class DataLoggerModule : public modesp::BaseModule, public modesp::ILogSource {
 public:
     DataLoggerModule();
 
@@ -54,11 +55,14 @@ public:
     void on_update(uint32_t dt_ms) override;
     void on_stop() override;
 
+    // ── modesp::ILogSource (споживає HttpService через log_source-слот;
+    //     модуль самореєструється в on_init — main.cpp не бере участі) ──
+
     /// Стрімінг логу як chunked JSON в HTTP response
-    esp_err_t serialize_log_chunked(httpd_req_t* req, int hours) const;
+    esp_err_t serialize_log_chunked(httpd_req_t* req, int hours) const override;
 
     /// Стислі лічильники для /api/log/summary
-    bool serialize_summary(char* buf, size_t buf_size) const;
+    bool serialize_summary(char* buf, size_t buf_size) const override;
 
 private:
     // ── RAM буфери ──

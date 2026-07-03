@@ -25,8 +25,6 @@
 #include "modesp/base_module.h"
 #include "esp_http_server.h"
 
-class DataLoggerModule;  // forward declaration (modules/datalogger)
-
 namespace modesp {
 
 class SharedState;
@@ -54,7 +52,8 @@ public:
     void set_wifi(WiFiService* wifi) { wifi_ = wifi; }
     void set_persist(PersistService* persist) { persist_ = persist; }
     void set_hal(HAL* hal) { hal_ = hal; }
-    void set_datalogger(DataLoggerModule* dl) { datalogger_ = dl; }
+    // /api/log*: джерело історії приходить через modesp::log_source-слот
+    // (модуль самореєструється) — сеттера немає, framework не знає модуля.
     void set_scenario_engine(scenario::Engine* eng) { scenario_engine_ = eng; }
     scenario::Engine* scenario_engine() const { return scenario_engine_; }
 
@@ -79,7 +78,6 @@ private:
     WiFiService* wifi_ = nullptr;
     PersistService* persist_ = nullptr;
     HAL* hal_ = nullptr;
-    DataLoggerModule* datalogger_ = nullptr;
     scenario::Engine* scenario_engine_ = nullptr;
 
     bool start_server();

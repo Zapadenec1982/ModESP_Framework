@@ -28,6 +28,20 @@ class HAL;
 using SensorFactory   = ISensorDriver*   (*)(const Binding&, HAL&);
 using ActuatorFactory = IActuatorDriver* (*)(const Binding&, HAL&);
 
+/// One device found by a driver's discovery scan (bus enumeration before any
+/// binding exists). `value` is an optional preview sample (e.g. temperature).
+struct DiscoveredDevice {
+    char  address[24] = {};
+    float value       = 0.0f;
+    bool  has_value   = false;
+};
+
+/// Scan the board resource `hw_id` (id from board.json, e.g. "ow_1") and fill
+/// out[0..max). Returns the device count, or <0 if the resource is unknown to
+/// this driver (wrong id / wrong bus kind). The driver resolves the resource
+/// through HAL itself — the HTTP layer stays bus-agnostic.
+using DiscoveryFn = int (*)(HAL&, const char* hw_id, DiscoveredDevice* out, size_t max);
+
 class DriverRegistry {
 public:
     static constexpr size_t MAX_DRIVER_TYPES = 16;
@@ -44,6 +58,16 @@ public:
 
     /// True if any (sensor or actuator) factory is registered for this type.
     static bool is_known(const char* type);
+
+    // ── Discovery (optional per driver) ──
+    // A discovery-capable driver (manifest: discovery.supported=true) also
+    // registers a scan function; the generic scan endpoint dispatches through
+    // here — modesp_net never includes a concrete driver again.
+    static bool        register_discovery(const char* type, DiscoveryFn fn);
+    static DiscoveryFn find_discovery(const char* type);
+    static size_t      discovery_count();
+    static const char* discovery_type_at(size_t i);   // nullptr if out of range
+    static DiscoveryFn discovery_fn_at(size_t i);     // nullptr if out of range
 };
 
 } // namespace modesp
@@ -67,4 +91,12 @@ public:
 #define MODESP_REGISTER_ACTUATOR(name, factory_fn)                        \
     extern "C" void modesp_register_driver_##name(void) {                 \
         ::modesp::DriverRegistry::register_actuator(#name, (factory_fn));  \
+    }
+
+// Sensor that can also enumerate devices on its bus before any binding exists
+// (manifest: discovery.supported=true). Registers both in one hook.
+#define MODESP_REGISTER_SENSOR_WITH_DISCOVERY(name, factory_fn, discovery_fn) \
+    extern "C" void modesp_register_driver_##name(void) {                     \
+        ::modesp::DriverRegistry::register_sensor(#name, (factory_fn));        \
+        ::modesp::DriverRegistry::register_discovery(#name, (discovery_fn));   \
     }
