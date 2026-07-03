@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "modesp/bindings.schema.json",
+  "title": "ModESP bindings.json",
+  "type": "object",
+  "properties": {
+    "manifest_version": {
+      "const": 1
+    },
+    "bindings": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "properties": {
+          "hardware": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "driver": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "module": {
+            "type": "string",
+            "minLength": 1
+          },
+          "address": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "hardware",
+          "driver",
+          "role",
+          "module"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "manifest_version",
+    "bindings"
+  ],
+  "patternProperties": {
+    "^_": {}
+  },
+  "additionalProperties": false
+}

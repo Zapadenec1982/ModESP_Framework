@@ -36,6 +36,38 @@ if sys.platform == 'win32':
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
+# ═══════════════════════════════════════════════════════════════
+#  JSON Schema validation (tools/schemas/*.schema.json, draft-07)
+# ═══════════════════════════════════════════════════════════════
+# Структурний шар перед доменними перевірками: ловить опечатки полів
+# (additionalProperties:false — 'persits' → помилка, не тихе ігнорування),
+# неправильні типи ('priority': "high" → помилка, не TypeError у сортуванні)
+# та невідомі widget-типи. jsonschema — обов'язкова залежність білду
+# (tools/requirements.txt), як і для compile_scenario.py.
+
+_SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
+_SCHEMA_CACHE = {}
+
+
+def schema_errors(data, schema_name, label):
+    """Список рядків-помилок валідації `data` проти <schema_name>.schema.json."""
+    try:
+        import jsonschema
+    except ImportError:
+        print("ERROR: python package 'jsonschema' is required for manifest "
+              "validation. Install: pip install -r tools/requirements.txt")
+        sys.exit(1)
+    if schema_name not in _SCHEMA_CACHE:
+        path = _SCHEMA_DIR / f"{schema_name}.schema.json"
+        _SCHEMA_CACHE[schema_name] = jsonschema.Draft7Validator(
+            json.loads(path.read_text(encoding="utf-8")))
+    out = []
+    for err in sorted(_SCHEMA_CACHE[schema_name].iter_errors(data),
+                      key=lambda e: list(map(str, e.absolute_path))):
+        loc = "/".join(str(p) for p in err.absolute_path) or "<root>"
+        out.append(f"[{label}] schema: {loc}: {err.message}")
+    return out
+
 # Widget type → compatible state types
 WIDGET_TYPE_COMPAT = {
     "gauge":        {"float", "int"},
@@ -48,6 +80,8 @@ WIDGET_TYPE_COMPAT = {
     "status_text":  {"string"},
     "text_input":   {"string"},
     "color_picker": {"string"},
+    "password_input": {"string"},
+    "datetime_input": {"string"},
     "value":        {"float", "int", "bool", "string"},
     "chart":        {"float"},
 }
@@ -77,6 +111,14 @@ class ManifestValidator:
     def validate_manifest(self, manifest, path):
         """Validate a single manifest. Returns True if valid."""
         name = manifest.get("module", "<unknown>")
+
+        # Структурний шар: JSON Schema (типи полів, невідомі ключі, enum-и).
+        # Схемні помилки — first-class: далі доменні перевірки не женемо,
+        # бо вони можуть впасти на неправильних типах.
+        sch = schema_errors(manifest, "module", name)
+        if sch:
+            self.errors.extend(sch)
+            return False
 
         # Check manifest_version
         mv = manifest.get("manifest_version")
@@ -542,6 +584,14 @@ class ManifestLoader:
                     f"Invalid JSON in {path}: {e}")
                 return None
 
+        # Структурний шар ПЕРЕД усім: схемно-битий маніфест далі не годуємо —
+        # cross-validate хард-індексує поля, які схема щойно відхилила, і впав
+        # би сирим трейсбеком, загубивши чисте повідомлення.
+        sch = schema_errors(manifest, "module", manifest.get("module", name))
+        if sch:
+            self.validator.errors.extend(sch)
+            return None
+
         # Folder name and manifest 'module' must match — the generated registry,
         # CMake component name and include paths are all derived from the folder,
         # so a mismatch produces confusing link/registration errors downstream.
@@ -601,6 +651,12 @@ class DriverManifestValidator:
     def validate(self, manifest, path):
         """Validate a single driver manifest. Returns True if valid."""
         name = manifest.get("driver", "<unknown>")
+
+        # Структурний шар: JSON Schema — далі доменні перевірки не женемо.
+        sch = schema_errors(manifest, "driver", f"driver:{name}")
+        if sch:
+            self.errors.extend(sch)
+            return False
 
         # manifest_version
         mv = manifest.get("manifest_version")
@@ -704,6 +760,12 @@ class DriverManifestLoader:
                 self.validator.errors.append(
                     f"Invalid JSON in {path}: {e}")
                 return None
+
+        sch = schema_errors(manifest, "driver",
+                            f"driver:{manifest.get('driver', name)}")
+        if sch:
+            self.validator.errors.extend(sch)
+            return None
 
         self.validator.validate(manifest, path)
         return manifest
@@ -2280,6 +2342,13 @@ def main():
             print(f"  Examples: thermostat, heat_pump, data_logger")
             sys.exit(1)
 
+    # Структурний шар: project.json проти схеми (типи, невідомі ключі).
+    _proj_sch = schema_errors(project, "project", "project.json")
+    if _proj_sch:
+        for e in _proj_sch:
+            print(f"ERROR: {e}")
+        sys.exit(1)
+
     # system.mqtt_topic_root: потрапляє в C-літерали, MQTT-топіки та HA
     # node_id — жорсткий charset + ліміт довжини, щоб fixed-size буфери
     # (prefix_[80], disc_topic[96], unique_id[64]) ніколи не обрізались.
@@ -2320,12 +2389,16 @@ def main():
                 board = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             binding_errors.append(f"[board] invalid JSON in {board_path.name}: {e}")
+        if board is not None:
+            binding_errors.extend(schema_errors(board, "board", "board"))
     if bindings_path.exists():
         try:
             with open(bindings_path, "r", encoding="utf-8") as f:
                 bindings = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             binding_errors.append(f"[bindings] invalid JSON in {bindings_path.name}: {e}")
+        if bindings is not None:
+            binding_errors.extend(schema_errors(bindings, "bindings", "bindings"))
 
     # Full driver set (not just module-required) for binding validation.
     all_driver_manifests = load_all_driver_manifests(args.drivers_dir, binding_warnings)

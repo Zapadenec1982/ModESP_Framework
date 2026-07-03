@@ -79,11 +79,12 @@ class TestMqttValidation:
     def test_ha_component_whitelist(self):
         errors = self._validate(_manifest(ha={"test_mod.temp": {
             "name": "T", "component": "switch"}}))
-        assert any("component 'switch' not" in e for e in errors)
+        assert any("'switch'" in e for e in errors)  # схемний enum або доменна форма
 
     def test_ha_name_required(self):
         errors = self._validate(_manifest(ha={"test_mod.temp": {}}))
-        assert any("non-empty 'name'" in e for e in errors)
+        assert any("'name' is a required property" in e or "non-empty 'name'" in e
+                   for e in errors)
 
     def test_ha_strings_reject_quotes(self):
         # Лапки/бекслеші потрапили б у C-літерал і discovery-JSON без escaping

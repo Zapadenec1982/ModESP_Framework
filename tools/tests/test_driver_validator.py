@@ -167,7 +167,8 @@ class TestSettingsValidation:
             ]
         }
         drv_validator.validate(manifest, "test")
-        assert any("missing 'key'" in e for e in drv_validator.errors)
+        assert any("'key' is a required property" in e or "missing 'key'" in e
+                   for e in drv_validator.errors)
 
     def test_setting_missing_type(self, drv_validator):
         """Setting без type → помилка."""
@@ -182,7 +183,8 @@ class TestSettingsValidation:
             ]
         }
         drv_validator.validate(manifest, "test")
-        assert any("missing 'type'" in e for e in drv_validator.errors)
+        assert any("'type' is a required property" in e or "missing 'type'" in e
+                   for e in drv_validator.errors)
 
     def test_setting_invalid_key_format(self, drv_validator):
         """Setting key з невалідними символами → помилка."""

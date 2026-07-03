@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "modesp/driver.schema.json",
+  "title": "ModESP driver manifest",
+  "type": "object",
+  "properties": {
+    "manifest_version": {
+      "const": 1
+    },
+    "driver": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 16
+    },
+    "category": {
+      "enum": [
+        "sensor",
+        "actuator",
+        "io",
+        "display",
+        "audio"
+      ]
+    },
+    "hardware_type": {
+      "type": "string"
+    },
+    "provides": {
+      "type": "object"
+    },
+    "requires_address": {
+      "type": "boolean"
+    },
+    "multiple_per_bus": {
+      "type": "boolean"
+    },
+    "description": {
+      "type": "string"
+    },
+    "settings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "type": {
+            "enum": [
+              "float",
+              "int",
+              "bool"
+            ]
+          },
+          "default": {},
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "persist": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "default"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "ui": {
+      "type": "object"
+    },
+    "discovery": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "manifest_version",
+    "driver",
+    "category",
+    "hardware_type",
+    "provides"
+  ],
+  "patternProperties": {
+    "^_": {}
+  },
+  "additionalProperties": false
+}

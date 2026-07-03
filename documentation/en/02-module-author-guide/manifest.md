@@ -421,8 +421,14 @@ discovered devices.
 `tools/generate_ui.py` runs as а pre-build CMake hook. It:
 
 1. Discovers every `manifest.json` under `modules/` і `drivers/`.
-2. Validates each against the schema (this document is the human-readable
-   form of that schema).
+2. Validates each against the **JSON Schema** in `tools/schemas/`
+   (`module`, `driver`, `board`, `bindings`, `project` — draft-07,
+   `additionalProperties:false`). A typo in a field name (`persits`), a
+   wrong type (`"priority": "high"`), or an unknown widget fails the build
+   with a clear `schema:` message instead of silently ignoring the field.
+   Underscore-prefixed keys (`_note`, `_config_note`) are always allowed as
+   free-form annotations. This document is the human-readable form of the
+   schema.
 3. Cross-validates references: every key у `mqtt.subscribe` must exist у
    `state`; every `setting.key` must be unique within а driver; every recipe
    `scenario` mirror key must be pre-declared у the recipe's `state` section.

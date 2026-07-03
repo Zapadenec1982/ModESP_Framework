@@ -107,6 +107,8 @@ file(GLOB _modesp_board_manifests CONFIGURE_DEPENDS
 file(GLOB _modesp_i18n_inputs CONFIGURE_DEPENDS
      "${CMAKE_SOURCE_DIR}/modules/*/i18n/*.json"
      "${CMAKE_SOURCE_DIR}/data/i18n/*.json")
+file(GLOB _modesp_schemas CONFIGURE_DEPENDS
+     "${CMAKE_SOURCE_DIR}/tools/schemas/*.schema.json")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/project.json"
     "${CMAKE_SOURCE_DIR}/tools/generate_ui.py"
@@ -114,7 +116,8 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${_modesp_module_manifests}
     ${_modesp_driver_manifests}
     ${_modesp_board_manifests}
-    ${_modesp_i18n_inputs})
+    ${_modesp_i18n_inputs}
+    ${_modesp_schemas})
 
 # ── Pre-build: generate UI schema and C++ headers from module manifests ──
 find_package(Python3 COMPONENTS Interpreter QUIET)

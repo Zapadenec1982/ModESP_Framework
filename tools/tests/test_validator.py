@@ -63,7 +63,8 @@ class TestManifestVersion:
         manifest = load_fixture("valid_minimal.json")
         manifest["manifest_version"] = 99
         validator.validate_manifest(manifest, "test")
-        assert any("manifest_version=99" in e for e in validator.errors)
+        # Схемний шар ловить це першим (const 1); доменна форма — legacy
+        assert any("manifest_version" in e for e in validator.errors)
 
 
 class TestRequiredFields:
@@ -93,7 +94,8 @@ class TestStateKeyValidation:
             "state": {"test.x": {"access": "read"}}
         }
         validator.validate_manifest(manifest, "test")
-        assert any("missing 'type'" in e for e in validator.errors)
+        assert any("'type' is a required property" in e or "missing 'type'" in e
+                   for e in validator.errors)
 
     def test_missing_access(self, validator):
         """V5: state key без access — помилка."""
@@ -103,7 +105,8 @@ class TestStateKeyValidation:
             "state": {"test.x": {"type": "float"}}
         }
         validator.validate_manifest(manifest, "test")
-        assert any("missing 'access'" in e for e in validator.errors)
+        assert any("'access' is a required property" in e or "missing 'access'" in e
+                   for e in validator.errors)
 
     def test_readwrite_missing_min_max_step(self, validator):
         """V6: readwrite float без min/max/step — 3 помилки."""

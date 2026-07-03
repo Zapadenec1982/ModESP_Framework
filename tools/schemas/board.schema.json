@@ -1,0 +1,492 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "modesp/board.schema.json",
+  "title": "ModESP board.json",
+  "type": "object",
+  "properties": {
+    "manifest_version": {
+      "const": 1
+    },
+    "board": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 23
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 7
+    },
+    "description": {
+      "type": "string"
+    },
+    "gpio_outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "gpio": {
+            "type": "integer"
+          },
+          "active_high": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "gpio_inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "gpio": {
+            "type": "integer"
+          },
+          "pull": {
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "invert": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "onewire_buses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "gpio": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "adc_channels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "gpio": {
+            "type": "integer"
+          },
+          "atten": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "encoders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "clk": {
+            "type": "integer"
+          },
+          "dt": {
+            "type": "integer"
+          },
+          "pull": {
+            "enum": [
+              "up",
+              "down"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "i2c_buses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "sda": {
+            "type": "integer"
+          },
+          "scl": {
+            "type": "integer"
+          },
+          "freq_hz": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "i2c_expanders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "bus": {
+            "type": "string"
+          },
+          "chip": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]+$"
+          },
+          "pins": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "expander_outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "expander": {
+            "type": "string"
+          },
+          "pin": {
+            "type": "integer"
+          },
+          "active_high": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "expander_inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "expander": {
+            "type": "string"
+          },
+          "pin": {
+            "type": "integer"
+          },
+          "invert": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "i2c_displays": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "bus": {
+            "type": "string"
+          },
+          "chip": {
+            "type": "string"
+          },
+          "cols": {
+            "type": "integer"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "cal_x": {
+            "type": "integer"
+          },
+          "cal_y": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "spi_displays": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "uart_buses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "tx": {
+            "type": "integer"
+          },
+          "rx": {
+            "type": "integer"
+          },
+          "baud": {
+            "type": "integer"
+          },
+          "rx_buffer": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "i2s_buses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "bclk": {
+            "type": "integer"
+          },
+          "ws": {
+            "type": "integer"
+          },
+          "dout": {
+            "type": "integer"
+          },
+          "sd": {
+            "type": "integer"
+          },
+          "sample_rate_hz": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "ble_devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "mac": {
+            "type": "string",
+            "pattern": "^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "board"
+  ],
+  "patternProperties": {
+    "^_": {}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,482 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "modesp/module.schema.json",
+  "title": "ModESP module manifest",
+  "type": "object",
+  "properties": {
+    "manifest_version": {
+      "const": 1
+    },
+    "module": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 16
+    },
+    "module_type": {
+      "enum": [
+        "recipe"
+      ]
+    },
+    "class_name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "description": {
+      "type": "string"
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "driver": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "role",
+          "type"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "state": {
+      "type": "object",
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "float",
+              "int",
+              "bool",
+              "string"
+            ]
+          },
+          "access": {
+            "enum": [
+              "read",
+              "readwrite"
+            ]
+          },
+          "default": {},
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "persist": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "additionalProperties": false,
+              "patternProperties": {
+                "^_": {}
+              }
+            }
+          },
+          "on_label": {
+            "type": "string"
+          },
+          "off_label": {
+            "type": "string"
+          },
+          "mqtt_subscribe": {
+            "type": "boolean"
+          },
+          "enum": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "access"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "source_module": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "optional": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "page": {
+          "type": "string"
+        },
+        "page_id": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer"
+        },
+        "access_level": {
+          "type": "string"
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "widgets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "widget": {
+                      "enum": [
+                        "gauge",
+                        "slider",
+                        "number_input",
+                        "select",
+                        "indicator",
+                        "toggle",
+                        "button",
+                        "status_text",
+                        "text_input",
+                        "color_picker",
+                        "value",
+                        "chart",
+                        "password_input",
+                        "datetime_input"
+                      ]
+                    },
+                    "size": {},
+                    "color_zones": {
+                      "type": "array"
+                    },
+                    "on_label": {
+                      "type": "string"
+                    },
+                    "off_label": {
+                      "type": "string"
+                    },
+                    "on_color": {
+                      "type": "string"
+                    },
+                    "off_color": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "api_endpoint": {
+                      "type": "string"
+                    },
+                    "confirm": {
+                      "type": [
+                        "string",
+                        "boolean"
+                      ]
+                    },
+                    "maxlength": {
+                      "type": "integer"
+                    },
+                    "data_source": {
+                      "type": "string"
+                    },
+                    "default_hours": {
+                      "type": "integer"
+                    },
+                    "visible_when": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "eq": {},
+                        "neq": {},
+                        "in": {
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "key"
+                      ],
+                      "additionalProperties": false,
+                      "patternProperties": {
+                        "^_": {}
+                      }
+                    },
+                    "i18n_key": {
+                      "type": "string"
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "step": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "widget"
+                  ],
+                  "patternProperties": {
+                    "^_": {}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "group": {
+                "type": "string"
+              },
+              "collapsible": {
+                "type": "boolean"
+              },
+              "visible_when": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "eq": {},
+                  "neq": {},
+                  "in": {
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^_": {}
+                }
+              },
+              "icon": {
+                "type": "string"
+              },
+              "icon_color": {
+                "type": "string"
+              },
+              "subtitle": {
+                "type": "string"
+              },
+              "summary_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "wide": {
+                "type": "boolean"
+              },
+              "layout": {
+                "type": "string"
+              },
+              "instance_per_binding": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "patternProperties": {
+              "^_": {}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "mqtt": {
+      "type": "object",
+      "properties": {
+        "publish": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "subscribe": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "alarm": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ha": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "component": {
+                "enum": [
+                  "sensor",
+                  "binary_sensor"
+                ]
+              },
+              "device_class": {
+                "type": "string"
+              },
+              "state_class": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^_": {}
+            }
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
+    "loggable": {
+      "type": "object"
+    },
+    "display": {
+      "type": "object"
+    },
+    "features": {
+      "type": "object"
+    },
+    "constraints": {
+      "type": "object"
+    },
+    "scenario": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "manifest_version",
+    "module",
+    "state"
+  ],
+  "patternProperties": {
+    "^_": {}
+  },
+  "additionalProperties": false
+}

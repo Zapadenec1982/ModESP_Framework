@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "modesp/project.schema.json",
+  "title": "ModESP project.json",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*$"
+      }
+    },
+    "system": {
+      "type": "object",
+      "properties": {
+        "device_name": {
+          "type": "string"
+        },
+        "mqtt_topic_root": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "maxLength": 24
+        },
+        "cloud_provider": {
+          "enum": [
+            "mqtt",
+            "aws"
+          ]
+        },
+        "pages": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "version",
+    "modules"
+  ],
+  "patternProperties": {
+    "^_": {}
+  },
+  "additionalProperties": false
+}
