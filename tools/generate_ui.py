@@ -57,6 +57,16 @@ WIDGET_TYPE_COMPAT = {
 #  Manifest Validator
 # ═══════════════════════════════════════════════════════════════
 
+def role_providers(manifests):
+    """[(module_name, requires[])] для кожного модуля з top-level 'requires'.
+
+    Capability-детекція провайдерів ролей: будь-який модуль, що декларує
+    requires, постачає ролі для bindings/UI/фіч — жодних хардкодів імені
+    'equipment' (аудит універсальності, Фаза 2)."""
+    return [(m.get("module", "?"), m["requires"])
+            for m in manifests if m.get("requires")]
+
+
 class ManifestValidator:
     """Validates module manifests and cross-module consistency."""
 
@@ -79,6 +89,26 @@ class ManifestValidator:
         for field in ("module", "state"):
             if field not in manifest:
                 self.errors.append(f"[{name}] Missing required field '{field}' in {path}")
+
+        # Top-level requires (role-provider capability): list of objects, each
+        # with non-empty 'role' + 'type' — downstream (V15, bindings page,
+        # FeatureResolver) hard-indexes these fields.
+        requires = manifest.get("requires")
+        if requires is not None:
+            if not isinstance(requires, list):
+                self.errors.append(f"[{name}] 'requires' must be a list")
+            else:
+                for i, req in enumerate(requires):
+                    if not isinstance(req, dict):
+                        self.errors.append(
+                            f"[{name}] requires[{i}] must be an object")
+                        continue
+                    for field in ("role", "type"):
+                        val = req.get(field)
+                        if not val or not isinstance(val, str):
+                            self.errors.append(
+                                f"[{name}] requires[{i}] missing non-empty "
+                                f"string '{field}'")
 
         # Module name: naming convention + ETL capacity (etl::string<16> on device —
         # a longer name would be silently truncated at runtime).
@@ -305,29 +335,47 @@ class ManifestValidator:
                 else:
                     seen_keys[key] = name
 
-        # V15: features.requires_roles must exist in equipment.requires[].role
-        equipment_roles = set()
-        for m in manifests:
-            if m.get("module") == "equipment":
-                for req in m.get("requires", []):
-                    equipment_roles.add(req.get("role", ""))
-                break
-        if equipment_roles:
+        # V15: features.requires_roles must exist in SOME role-provider's
+        # requires[].role (будь-який модуль із top-level requires — не лише
+        # 'equipment').
+        provider_roles = set()
+        role_owner = {}   # role -> module (для перевірки унікальності)
+        for prov_mod, reqs in role_providers(manifests):
+            for req in reqs:
+                r = req.get("role", "")
+                if not r:
+                    continue  # validate_manifest вже зарепортив malformed entry
+                provider_roles.add(r)
+                # Ролі мусять бути глобально унікальні (в т.ч. всередині одного
+                # модуля): bindings.json і WebUI-редактор ключаться на сам
+                # рядок ролі, без module.
+                if r in role_owner:
+                    self.errors.append(
+                        f"Role '{r}' declared more than once "
+                        f"('{role_owner[r]}' / '{prov_mod}') — role names must "
+                        f"be unique")
+                else:
+                    role_owner[r] = prov_mod
+        if provider_roles:
             for m in manifests:
                 mod_name = m.get("module", "?")
                 for feat_name, feat in m.get("features", {}).items():
                     for role in feat.get("requires_roles", []):
-                        if role not in equipment_roles:
+                        if role not in provider_roles:
                             self.errors.append(
                                 f"[{mod_name}] Feature '{feat_name}' "
-                                f"requires_role '{role}' not found in "
-                                f"equipment.requires")
+                                f"requires_role '{role}' not found in any "
+                                f"module's requires")
 
         # V20: visible_when must reference a declared state key or a known runtime
         # namespace — catches dangling refs (e.g. a leftover 'equipment.evap_temp'
         # after the hardware it gated was removed).
-        RUNTIME_KEY_PREFIXES = (
-            "equipment.has_",  # dynamic per-role presence flags
+        # Dynamic per-role presence flags: КОЖЕН role-provider публікує
+        # <module>.has_<role> у рантаймі (EquipmentBase pattern) — не лише
+        # 'equipment'.
+        RUNTIME_KEY_PREFIXES = tuple(
+            f"{prov_mod}.has_" for prov_mod, _ in role_providers(manifests)
+        ) + (
             "wifi.", "mqtt.", "system.", "_ota.", "scenario.",  # framework-populated
         )
 
@@ -943,13 +991,19 @@ def unused_drivers(bindings, all_driver_manifests):
 class FeatureResolver:
     """Визначає які features активні на основі bindings."""
 
-    def __init__(self, bindings_data, equipment_manifest):
+    def __init__(self, bindings_data, provider_manifests):
+        """provider_manifests: список маніфестів модулів із top-level requires
+        (role-провайдери) — не лише 'equipment'. Одиночний маніфест-dict теж
+        приймається (зручність для тестів/скриптів)."""
+        if isinstance(provider_manifests, dict):
+            provider_manifests = [provider_manifests]
         self.bound_roles = set()
         for b in bindings_data.get("bindings", []):
             self.bound_roles.add(b["role"])
-        self.all_equipment_roles = set()
-        for r in equipment_manifest.get("requires", []):
-            self.all_equipment_roles.add(r["role"])
+        self.all_provider_roles = set()
+        for m in provider_manifests:
+            for r in m.get("requires", []):
+                self.all_provider_roles.add(r["role"])
 
     def resolve_module(self, module_manifest):
         """Повертає dict {feature_name: bool} для одного модуля."""
@@ -1054,17 +1108,17 @@ class UIJsonGenerator:
                 continue
             page = self._module_page(m, ui)
             pages.append(page)
-        # Bindings page (equipment overview)
+        # Bindings page (hardware overview)
         if bindings and board:
-            # Витягуємо requires з equipment manifest
-            equip_requires = []
-            for m in manifests:
-                if m.get("module") == "equipment":
-                    equip_requires = m.get("requires", [])
-                    break
+            # Агрегуємо requires з УСІХ role-провайдерів (модулі з top-level
+            # requires) — ролі display/player/... видимі нарівні з equipment.
+            provider_requires = []   # [(module_name, req_dict)]
+            for prov_mod, reqs in role_providers(manifests):
+                for req in reqs:
+                    provider_requires.append((prov_mod, req))
             pages.append(self._bindings_page(
                 bindings, board, driver_manifests or {},
-                equip_requires))
+                provider_requires))
         if sys_pages.get("network", True):
             cloud_provider = sys_cfg.get("cloud_provider", "mqtt")
             pages.append(self._network_page(cloud_provider))
@@ -1464,8 +1518,11 @@ class UIJsonGenerator:
         }
 
     def _bindings_page(self, bindings, board, driver_manifests,
-                        equip_requires=None):
-        """Equipment page: shows current bindings + free hardware."""
+                        provider_requires=None):
+        """Bindings page: current bindings + free hardware + role metadata.
+
+        provider_requires: [(module_name, req_dict)] — агрегація з усіх
+        role-провайдерів; кожна роль несе 'module' для WebUI-редактора."""
         binding_list = bindings.get("bindings", [])
 
         # Збираємо всі hardware ids з board.json
@@ -1534,7 +1591,7 @@ class UIJsonGenerator:
 
         # Roles metadata для BindingsEditor
         roles = []
-        for req in (equip_requires or []):
+        for prov_mod, req in (provider_requires or []):
             drivers = req.get("driver", [])
             if isinstance(drivers, str):
                 drivers = [drivers]
@@ -1553,6 +1610,7 @@ class UIJsonGenerator:
             role_entry = {
                 "role": req["role"],
                 "type": req["type"],
+                "module": prov_mod,
                 "drivers": drivers,
                 "hw_types": hw_types,
                 "requires_address": requires_address,
@@ -2207,13 +2265,16 @@ def main():
     # Create FeatureResolver if bindings available
     resolver = None
     if bindings:
-        equipment_manifest = None
-        for m in manifests:
-            if m.get("module") == "equipment":
-                equipment_manifest = m
-                break
-        if equipment_manifest:
-            resolver = FeatureResolver(bindings, equipment_manifest)
+        providers = [m for m in manifests if m.get("requires")]
+        if not providers and bindings.get("bindings"):
+            # Прив'язки є, але жоден модуль проекту не декларує requires —
+            # залізо не має споживача. Fail fast замість тихого ігнорування.
+            print("  ERROR: bindings.json contains bindings, but no module in "
+                  "project.json declares a top-level 'requires' (role provider) "
+                  "— the hardware would be silently ignored at runtime")
+            sys.exit(1)
+        if providers:
+            resolver = FeatureResolver(bindings, providers)
             all_features = resolver.resolve_all(manifests)
             print("\nFeatures:")
             for mod_name, features in sorted(all_features.items()):

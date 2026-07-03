@@ -224,11 +224,11 @@ class TestFeatureResolverRealData:
         assert len(resolver.bound_roles) > 0
 
     def test_equipment_roles_from_real_manifest(self, real_bindings, equipment):
-        """all_equipment_roles == ролі з equipment.requires."""
+        """all_provider_roles == ролі з requires провайдера (тут: equipment)."""
         resolver = FeatureResolver(real_bindings, equipment)
         expected = {r["role"] for r in equipment["requires"]}
-        assert resolver.all_equipment_roles == expected
-        assert "air_temp" in resolver.all_equipment_roles
+        assert resolver.all_provider_roles == expected
+        assert "air_temp" in resolver.all_provider_roles
 
     def test_real_modules_have_no_features(self, real_bindings, equipment, all_manifests):
         """Поточні template-модулі не оголошують features → resolve_all порожній.
