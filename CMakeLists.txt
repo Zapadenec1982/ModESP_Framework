@@ -83,14 +83,27 @@ file(COPY "${_BOARD_PATH}/board.json" DESTINATION "${CMAKE_SOURCE_DIR}/data")
 file(COPY "${_BOARD_PATH}/bindings.json" DESTINATION "${CMAKE_SOURCE_DIR}/data")
 message(STATUS "ModESP board: ${_BOARD_DIR}")
 
+# ── Board profile: apply boards/<board>/sdkconfig.board on top of the shared
+# sdkconfig.defaults (ESP-IDF also auto-applies each entry's .<target> overlay). Set
+# BEFORE project(); the board dir is resolved above. So a new board ships its own
+# config in its folder — zero edits to the global sdkconfig.defaults.<target>. NOTE:
+# these seed only a FRESH sdkconfig (idf.py set-target / first build); an existing
+# sdkconfig already holds the resolved values (change them via menuconfig).
+set(_sdkconfig_defaults "${CMAKE_SOURCE_DIR}/sdkconfig.defaults")
+if(EXISTS "${_BOARD_PATH}/sdkconfig.board")
+    list(APPEND _sdkconfig_defaults "${_BOARD_PATH}/sdkconfig.board")
+endif()
+set(SDKCONFIG_DEFAULTS "${_sdkconfig_defaults}")
+
 # Re-run CMake configure (which re-copies the two files above into data/) whenever
-# the active board's board.json/bindings.json change. Without this, editing them does
-# NOT refresh data/ — file(COPY) only runs at configure time and these are not tracked
-# as configure inputs — so the LittleFS data image keeps the STALE hardware map and the
-# device boots the old config until a manual `idf.py reconfigure`/fullclean.
+# the active board's board.json/bindings.json/sdkconfig.board change. Without this,
+# editing them does NOT refresh data/ — file(COPY) only runs at configure time and
+# these are not tracked as configure inputs — so the LittleFS data image keeps the
+# STALE hardware map and the device boots the old config until a manual reconfigure.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${_BOARD_PATH}/board.json"
-    "${_BOARD_PATH}/bindings.json")
+    "${_BOARD_PATH}/bindings.json"
+    "${_BOARD_PATH}/sdkconfig.board")
 
 # Re-run CMake configure whenever ANY single-source-of-truth input changes.
 # Without this, editing a manifest/project.json after the first configure silently

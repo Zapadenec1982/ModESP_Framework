@@ -1,0 +1,43 @@
+# ── stand_s3 board profile ────────────────────────────────────────────────────
+# Board-specific sdkconfig for the S3 stand (N16R8: 16MB flash, 8MB PSRAM, BLE).
+# Applied on top of the shared sdkconfig.defaults (+ its .esp32s3 target overlay) by
+# CMakeLists.txt for whichever board is active — so a new board ships its own config
+# in its own folder and never edits the global sdkconfig.defaults.<target>.
+# Toggle any of these in `idf.py menuconfig` for a different profile.
+
+# ── Flash + partitions (16MB N16R8, 3MB+3MB OTA slots so BLE+Wi-Fi has headroom) ──
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"
+
+# ── ModESP BLE (NimBLE) ──────────────────────────────────────────────────────
+# These symbols only take effect when CONFIG_MODESP_BLE_ENABLE (menu "ModESP BLE")
+# selects CONFIG_BT_ENABLED. They are INERT on non-BLE builds.
+# Verified verbatim against ESP-IDF release/v5.5 Kconfig — docs/ble/ipixel_nimble_spec.md §2.1.
+CONFIG_MODESP_BLE_ENABLE=y
+
+# Default BT host is Bluedroid; switch to NimBLE (BLE-only, ~167KB smaller):
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_CONTROLLER_ENABLED=y
+
+# Phase 1: telemetry/control GATT server (mirrors SharedState over BLE).
+CONFIG_MODESP_BLE_GATT_SERVER=y
+# Phase 2: BLE Wi-Fi provisioning (write-only creds char, accepted only in AP mode).
+CONFIG_MODESP_BLE_PROVISIONING=y
+# Phase 3a: BLE central (passive-scan observer + connect drivers).
+CONFIG_MODESP_BLE_CENTRAL=y
+# Larger ATT MTU so the telemetry JSON snapshot fits in one notification PDU.
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=512
+
+# Wi-Fi/BLE software coexistence (default-y when both stacks on; explicit for clarity).
+# Wi-Fi STA + NimBLE dual-role is officially Y/stable on S3 (avoid SoftAP+BLE = unstable).
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# Radio core pinning (S3 is dual-core): BT controller + NimBLE host on core 0.
+CONFIG_BT_CTRL_PINNED_TO_CORE_0=y
+CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y
+
+# Link budget + buffers (sum of simultaneous peripheral + central links).
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=3
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=4096
+CONFIG_BT_CTRL_BLE_MAX_ACT=6

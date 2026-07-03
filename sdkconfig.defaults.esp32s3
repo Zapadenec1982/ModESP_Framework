@@ -1,52 +1,11 @@
 # ── ESP32-S3 target overlay (auto-applied by ESP-IDF on top of sdkconfig.defaults
-#    when IDF_TARGET=esp32s3). Test board: N16R8 (16MB flash, 8MB PSRAM). ──
-
-# ── S3 test board profile (stand_s3 + N16R8 16MB + BLE on) ───────────────────
-# Switch the active board to the S3 stand and exploit the full 16MB flash with a
-# larger OTA layout (3MB+3MB slots) so BLE+Wi-Fi has plenty of headroom.
-# Toggle any of these in `idf.py menuconfig` if you want a different S3 profile.
-CONFIG_MODESP_BOARD_STAND_S3=y
-CONFIG_MODESP_BLE_ENABLE=y
-# NOTE: display/audio backends are DRIVERS now — generated toggles
-# CONFIG_MODESP_DRIVER_AMT630A / CONFIG_MODESP_DRIVER_MAX98357A (default y),
-# so both compile out of the box and stand_s3 bindings resolve them at boot.
-# If the AMT630A chip is absent/unpowered, its port init fails gracefully and
-# the display falls back to LogPort at runtime. Audio: role audio_main ->
-# board i2s_0 (BCLK=15 WS=16 DOUT=7 SD=17).
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"
-
-# ── ModESP BLE (NimBLE) ──────────────────────────────────────────────────────
-# These symbols only take effect when CONFIG_MODESP_BLE_ENABLE (menu "ModESP BLE")
-# selects CONFIG_BT_ENABLED. They are INERT on non-BLE builds, so enabling them
-# here does not change the existing stand_s3 (display) build unless BLE is on.
+#    when IDF_TARGET=esp32s3). ──
 #
-# Verified verbatim against ESP-IDF release/v5.5 Kconfig — see
-# docs/ble/ipixel_nimble_spec.md §2.1.
-
-# Default BT host is Bluedroid; switch to NimBLE (BLE-only, ~167KB smaller):
-CONFIG_BT_NIMBLE_ENABLED=y
-CONFIG_BT_CONTROLLER_ENABLED=y
-
-# Phase 1: telemetry/control GATT server (mirrors SharedState over BLE).
-CONFIG_MODESP_BLE_GATT_SERVER=y
-# Phase 2: BLE Wi-Fi provisioning (write-only creds char, accepted only in AP mode).
-CONFIG_MODESP_BLE_PROVISIONING=y
-# Phase 3a: BLE central passive-scan observer (pvvx/ATC/BTHome broadcast sensors).
-CONFIG_MODESP_BLE_CENTRAL=y
-# Larger ATT MTU so the telemetry JSON snapshot fits in one notification PDU.
-CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=512
-
-# Wi-Fi/BLE software coexistence (default-y when both stacks on; explicit for clarity).
-# Wi-Fi STA + NimBLE dual-role is officially Y/stable on S3 (avoid SoftAP+BLE = unstable).
-CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
-
-# Radio core pinning (S3 is dual-core): BT controller + NimBLE host on core 0.
-CONFIG_BT_CTRL_PINNED_TO_CORE_0=y
-CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y
-
-# Link budget + buffers (sum of simultaneous peripheral + central links).
-CONFIG_BT_NIMBLE_MAX_CONNECTIONS=3
-CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=4096
-CONFIG_BT_CTRL_BLE_MAX_ACT=6
+# This overlay only picks the DEFAULT board for a fresh esp32s3 sdkconfig. All
+# board-specific config (flash size, partition table, BLE, radio tuning) now lives
+# in the board's own profile: boards/<board>/sdkconfig.board, which CMakeLists.txt
+# applies for whichever board is active. So a new S3 board = a new boards/<name>/
+# folder (board.json + bindings.json + sdkconfig.board) with zero edits here.
+#
+# Select a different board in `idf.py menuconfig` → "ModESP Configuration".
+CONFIG_MODESP_BOARD_STAND_S3=y
