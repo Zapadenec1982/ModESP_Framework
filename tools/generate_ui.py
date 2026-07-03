@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+import copy
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -1418,260 +1419,44 @@ class UIJsonGenerator:
             "cards": cards,
         }
 
+    def _system_pages(self):
+        """Framework Network/System page STRUCTURE — loaded from tools/system_pages.json
+        (data, not hardcoded here), so the built-in pages are editable without touching
+        the generator. Cached per generator instance."""
+        if not hasattr(self, "_sys_pages_cache"):
+            p = Path(__file__).resolve().parent / "system_pages.json"
+            with open(p, encoding="utf-8") as f:
+                self._sys_pages_cache = json.load(f)
+        return self._sys_pages_cache
+
     def _network_page(self, cloud_provider="mqtt"):
-        """Network page: combined status + WiFi/AP + cloud settings (MQTT or AWS)."""
-
-        # Спільні cards: WiFi status, WiFi settings, AP settings
-        wifi_status_widgets = [
-            {"key": "wifi.ssid", "widget": "value",
-             "description": "Мережа"},
-            {"key": "wifi.ip", "widget": "value",
-             "description": "IP адреса"},
-            {"key": "wifi.rssi", "widget": "value",
-             "unit": "dBm", "description": "Сигнал"},
-        ]
-
-        wifi_card = {
-            "title": "WiFi",
-            "icon": "wifi",
-            "group": "settings",
-            "collapsible": True,
-            "widgets": [
-                {"key": "_action.wifi_scan", "widget": "wifi_scan",
-                 "label": "Сканувати мережі"},
-                {"key": "wifi.ssid", "widget": "text_input",
-                 "editable": True, "description": "SSID",
-                 "api_endpoint": "/api/wifi"},
-                {"key": "wifi.password", "widget": "password_input",
-                 "editable": True, "description": "Пароль",
-                 "api_endpoint": "/api/wifi"},
-                {"key": "_action.wifi_save", "widget": "wifi_save",
-                 "label": "Зберегти",
-                 "api_endpoint": "/api/wifi"},
-            ],
+        """Network page: status + WiFi/AP + cloud (MQTT or AWS). Structure comes from
+        system_pages.json; only the cloud variant is selected here (project.system.
+        cloud_provider). deepcopy → downstream mutation can't poison the cache."""
+        d = copy.deepcopy(self._system_pages()["network"])
+        cloud = d["cloud"].get(cloud_provider) or d["cloud"]["mqtt"]
+        sc = d["status_card"]
+        status_card = {
+            "title": sc["title"],
+            "icon": sc["icon"],
+            "subtitle": cloud["subtitle"],
+            "wide": sc["wide"],
+            "widgets": d["wifi_status_widgets"] + cloud["status_widgets"],
         }
-
-        ap_card = {
-            "title": "Точка доступу",
-            "icon": "wifi",
-            "group": "settings",
-            "collapsible": True,
-            "defaultOpen": False,
-            "widgets": [
-                {"key": "wifi.ap_ssid", "widget": "text_input",
-                 "editable": True, "description": "SSID точки доступу",
-                 "form_only": True},
-                {"key": "wifi.ap_password", "widget": "password_input",
-                 "editable": True, "description": "Пароль (мін. 8 символів або порожній)",
-                 "form_only": True},
-                {"key": "wifi.ap_channel", "widget": "number_input",
-                 "editable": True, "description": "Канал",
-                 "min": 1, "max": 13, "step": 1,
-                 "form_only": True},
-                {"key": "_action.ap_save", "widget": "ap_save",
-                 "label": "Зберегти AP"},
-            ],
-        }
-
-        # Cloud-specific: status widgets + settings card
-        if cloud_provider == "aws":
-            cloud_status_widgets = [
-                {"key": "cloud.connected", "widget": "indicator",
-                 "description": "AWS IoT",
-                 "on_label": "Підключено", "off_label": "Відключено",
-                 "on_color": "#22c55e", "off_color": "#64748b"},
-                {"key": "cloud.endpoint", "widget": "value",
-                 "description": "Endpoint"},
-                {"key": "cloud.thing_name", "widget": "value",
-                 "description": "Thing Name"},
-            ]
-            cloud_card = {
-                "title": "AWS IoT Core",
-                "icon": "cloud",
-                "group": "settings",
-                "collapsible": True,
-                "wide": True,
-                "widgets": [
-                    {"key": "cloud.endpoint", "widget": "text_input",
-                     "editable": True, "description": "Endpoint",
-                     "api_endpoint": "/api/cloud"},
-                    {"key": "cloud.thing_name", "widget": "text_input",
-                     "editable": True, "description": "Thing Name",
-                     "api_endpoint": "/api/cloud"},
-                    {"key": "cloud.cert_loaded", "widget": "indicator",
-                     "description": "Сертифікат",
-                     "on_label": "Завантажено", "off_label": "Відсутній",
-                     "on_color": "#22c55e", "off_color": "#ef4444"},
-                    {"key": "_action.cert_upload", "widget": "cert_upload",
-                     "label": "Завантажити сертифікат",
-                     "api_endpoint": "/api/cloud"},
-                    {"key": "cloud.enabled", "widget": "toggle",
-                     "editable": True, "description": "Увімкнути AWS IoT",
-                     "form_only": True},
-                    {"key": "_action.cloud_save", "widget": "cloud_save",
-                     "label": "Зберегти",
-                     "api_endpoint": "/api/cloud"},
-                ],
-            }
-            subtitle = "WiFi та AWS IoT"
-        else:
-            cloud_status_widgets = [
-                {"key": "mqtt.connected", "widget": "indicator",
-                 "description": "MQTT",
-                 "on_label": "Підключено", "off_label": "Відключено",
-                 "on_color": "#22c55e", "off_color": "#64748b"},
-                {"key": "mqtt.status", "widget": "status_text",
-                 "description": "Стан MQTT"},
-                {"key": "mqtt.broker", "widget": "value",
-                 "description": "Брокер"},
-            ]
-            cloud_card = {
-                "title": "MQTT",
-                "icon": "link",
-                "group": "settings",
-                "collapsible": True,
-                "wide": True,
-                "widgets": [
-                    {"key": "mqtt.broker", "widget": "text_input",
-                     "editable": True, "description": "Адреса брокера",
-                     "api_endpoint": "/api/mqtt"},
-                    {"key": "mqtt.port", "widget": "number_input",
-                     "editable": True, "description": "Порт",
-                     "min": 1, "max": 65535, "step": 1,
-                     "form_only": True},
-                    {"key": "mqtt.user", "widget": "text_input",
-                     "editable": True, "description": "Логін",
-                     "api_endpoint": "/api/mqtt"},
-                    {"key": "mqtt.password", "widget": "password_input",
-                     "editable": True, "description": "Пароль",
-                     "api_endpoint": "/api/mqtt"},
-                    {"key": "mqtt.prefix", "widget": "text_input",
-                     "editable": True, "description": "Префікс топіків",
-                     "api_endpoint": "/api/mqtt"},
-                    {"key": "mqtt.enabled", "widget": "toggle",
-                     "editable": True, "description": "Увімкнути MQTT",
-                     "form_only": True},
-                    {"key": "_action.mqtt_save", "widget": "mqtt_save",
-                     "label": "Зберегти",
-                     "api_endpoint": "/api/mqtt"},
-                ],
-            }
-            subtitle = "WiFi та MQTT"
-
         return {
-            "id": "network",
-            "title": "Мережа",
-            "icon": "wifi",
-            "order": 90,
-            "system": True,
-            "cards": [
-                {
-                    "title": "Стан мережі",
-                    "icon": "activity",
-                    "subtitle": subtitle,
-                    "wide": True,
-                    "widgets": wifi_status_widgets + cloud_status_widgets,
-                },
-                wifi_card,
-                ap_card,
-                cloud_card,
-            ],
+            "id": d["id"],
+            "title": d["title"],
+            "icon": d["icon"],
+            "order": d["order"],
+            "system": d["system"],
+            "cards": [status_card, d["wifi_card"], d["ap_card"], cloud["card"]],
         }
 
     def _system_page(self):
-        """System page: wide system info, time, security, service actions."""
-        return {
-            "id": "system",
-            "title": "Система",
-            "icon": "cpu",
-            "order": 99,
-            "system": True,
-            "cards": [
-                {
-                    "title": "Інформація про систему",
-                    "icon": "info",
-                    "subtitle": "Стан та прошивка",
-                    "wide": True,
-                    "widgets": [
-                        # 2-col grid: L=runtime, R=firmware
-                        # Row 1
-                        {"key": "system.uptime", "widget": "value",
-                         "format": "duration", "description": "Час роботи"},
-                        {"key": "_ota.version", "widget": "value",
-                         "description": "Версія прошивки"},
-                        # Row 2
-                        {"key": "system.heap_free", "widget": "value",
-                         "unit": "B", "description": "Вільна RAM"},
-                        {"key": "_ota.board", "widget": "value",
-                         "description": "Версія плати"},
-                        # Row 3
-                        {"key": "system.heap_min", "widget": "value",
-                         "unit": "B", "description": "Мінімум RAM"},
-                        {"key": "_ota.date", "widget": "value",
-                         "description": "Номер збірки"},
-                        # Row 4
-                        {"key": "system.boot_reason", "widget": "value",
-                         "description": "Причина завантаження"},
-                        {"key": "_ota.upload", "widget": "firmware_upload",
-                         "api_endpoint": "/api/ota",
-                         "label": "Вибрати .bin файл",
-                         "description": "Оновити прошивку"},
-                    ],
-                },
-                {
-                    "title": "Час",
-                    "icon": "clock",
-                    "group": "settings",
-                    "collapsible": True,
-                    "widgets": [
-                        {"key": "time.ntp_enabled", "widget": "toggle",
-                         "editable": True, "description": "NTP синхронізація",
-                         "form_only": True},
-                        {"key": "time.timezone", "widget": "timezone_select",
-                         "editable": True, "description": "Часовий пояс",
-                         "form_only": True},
-                        {"key": "time.manual_datetime", "widget": "datetime_input",
-                         "editable": True, "description": "Встановити вручну"},
-                        {"key": "_action.time_save", "widget": "time_save",
-                         "label": "Зберегти",
-                         "api_endpoint": "/api/time"},
-                    ],
-                },
-                {
-                    "title": "Безпека",
-                    "icon": "shield",
-                    "group": "settings",
-                    "collapsible": True,
-                    "widgets": [
-                        {"key": "_action.auth_save", "widget": "auth_save",
-                         "description": "Аутентифікація"},
-                    ],
-                },
-                {
-                    "title": "Сервіс",
-                    "icon": "sliders",
-                    "widgets": [
-                        {"key": "_action.grid", "widget": "actions_grid",
-                         "actions": [
-                             {"id": "backup", "label": "Завантажити бекап",
-                              "icon": "\u2b07", "api_endpoint": "/api/backup",
-                              "download": True},
-                             {"id": "restore", "label": "Відновити з бекапу",
-                              "icon": "\u2b06", "api_endpoint": "/api/restore",
-                              "accept": ".json",
-                              "confirm": "Відновити налаштування з файлу? Пристрій перезавантажиться."},
-                             {"id": "restart", "label": "Перезавантажити",
-                              "icon": "\u21bb", "api_endpoint": "/api/restart",
-                              "confirm": "Перезавантажити пристрій?"},
-                             {"id": "factory_reset", "label": "Скинути до заводських",
-                              "icon": "\u26a0", "api_endpoint": "/api/factory-reset",
-                              "confirm": "Всі налаштування будуть скинуті до заводських значень. Продовжити?",
-                              "style": "danger"},
-                         ]},
-                    ],
-                },
-            ],
-        }
+        """System page: system info, time, security, service actions. Structure from
+        system_pages.json (data, not hardcoded). deepcopy so downstream sorting/mutation
+        never poisons the cache."""
+        return copy.deepcopy(self._system_pages()["system"])
 
     def _bindings_page(self, bindings, board, driver_manifests,
                         provider_requires=None):

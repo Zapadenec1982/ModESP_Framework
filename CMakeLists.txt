@@ -112,6 +112,7 @@ file(GLOB _modesp_schemas CONFIGURE_DEPENDS
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/project.json"
     "${CMAKE_SOURCE_DIR}/tools/generate_ui.py"
+    "${CMAKE_SOURCE_DIR}/tools/system_pages.json"
     "${CMAKE_SOURCE_DIR}/tools/compile_scenario.py"
     ${_modesp_module_manifests}
     ${_modesp_driver_manifests}

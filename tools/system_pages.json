@@ -1,0 +1,159 @@
+{
+  "_note": "Framework Network/System page structure — data, not Python. Loaded by tools/generate_ui.py (_network_page/_system_page). Edit here to change the built-in pages; the generator only picks the cloud variant (project.system.cloud_provider) and gates pages via project.system.pages. Keys/labels here land verbatim in data/ui.json.",
+
+  "network": {
+    "id": "network",
+    "title": "Мережа",
+    "icon": "wifi",
+    "order": 90,
+    "system": true,
+
+    "status_card": {
+      "title": "Стан мережі",
+      "icon": "activity",
+      "wide": true
+    },
+
+    "wifi_status_widgets": [
+      {"key": "wifi.ssid", "widget": "value", "description": "Мережа"},
+      {"key": "wifi.ip", "widget": "value", "description": "IP адреса"},
+      {"key": "wifi.rssi", "widget": "value", "unit": "dBm", "description": "Сигнал"}
+    ],
+
+    "wifi_card": {
+      "title": "WiFi",
+      "icon": "wifi",
+      "group": "settings",
+      "collapsible": true,
+      "widgets": [
+        {"key": "_action.wifi_scan", "widget": "wifi_scan", "label": "Сканувати мережі"},
+        {"key": "wifi.ssid", "widget": "text_input", "editable": true, "description": "SSID", "api_endpoint": "/api/wifi"},
+        {"key": "wifi.password", "widget": "password_input", "editable": true, "description": "Пароль", "api_endpoint": "/api/wifi"},
+        {"key": "_action.wifi_save", "widget": "wifi_save", "label": "Зберегти", "api_endpoint": "/api/wifi"}
+      ]
+    },
+
+    "ap_card": {
+      "title": "Точка доступу",
+      "icon": "wifi",
+      "group": "settings",
+      "collapsible": true,
+      "defaultOpen": false,
+      "widgets": [
+        {"key": "wifi.ap_ssid", "widget": "text_input", "editable": true, "description": "SSID точки доступу", "form_only": true},
+        {"key": "wifi.ap_password", "widget": "password_input", "editable": true, "description": "Пароль (мін. 8 символів або порожній)", "form_only": true},
+        {"key": "wifi.ap_channel", "widget": "number_input", "editable": true, "description": "Канал", "min": 1, "max": 13, "step": 1, "form_only": true},
+        {"key": "_action.ap_save", "widget": "ap_save", "label": "Зберегти AP"}
+      ]
+    },
+
+    "cloud": {
+      "mqtt": {
+        "subtitle": "WiFi та MQTT",
+        "status_widgets": [
+          {"key": "mqtt.connected", "widget": "indicator", "description": "MQTT", "on_label": "Підключено", "off_label": "Відключено", "on_color": "#22c55e", "off_color": "#64748b"},
+          {"key": "mqtt.status", "widget": "status_text", "description": "Стан MQTT"},
+          {"key": "mqtt.broker", "widget": "value", "description": "Брокер"}
+        ],
+        "card": {
+          "title": "MQTT",
+          "icon": "link",
+          "group": "settings",
+          "collapsible": true,
+          "wide": true,
+          "widgets": [
+            {"key": "mqtt.broker", "widget": "text_input", "editable": true, "description": "Адреса брокера", "api_endpoint": "/api/mqtt"},
+            {"key": "mqtt.port", "widget": "number_input", "editable": true, "description": "Порт", "min": 1, "max": 65535, "step": 1, "form_only": true},
+            {"key": "mqtt.user", "widget": "text_input", "editable": true, "description": "Логін", "api_endpoint": "/api/mqtt"},
+            {"key": "mqtt.password", "widget": "password_input", "editable": true, "description": "Пароль", "api_endpoint": "/api/mqtt"},
+            {"key": "mqtt.prefix", "widget": "text_input", "editable": true, "description": "Префікс топіків", "api_endpoint": "/api/mqtt"},
+            {"key": "mqtt.enabled", "widget": "toggle", "editable": true, "description": "Увімкнути MQTT", "form_only": true},
+            {"key": "_action.mqtt_save", "widget": "mqtt_save", "label": "Зберегти", "api_endpoint": "/api/mqtt"}
+          ]
+        }
+      },
+      "aws": {
+        "subtitle": "WiFi та AWS IoT",
+        "status_widgets": [
+          {"key": "cloud.connected", "widget": "indicator", "description": "AWS IoT", "on_label": "Підключено", "off_label": "Відключено", "on_color": "#22c55e", "off_color": "#64748b"},
+          {"key": "cloud.endpoint", "widget": "value", "description": "Endpoint"},
+          {"key": "cloud.thing_name", "widget": "value", "description": "Thing Name"}
+        ],
+        "card": {
+          "title": "AWS IoT Core",
+          "icon": "cloud",
+          "group": "settings",
+          "collapsible": true,
+          "wide": true,
+          "widgets": [
+            {"key": "cloud.endpoint", "widget": "text_input", "editable": true, "description": "Endpoint", "api_endpoint": "/api/cloud"},
+            {"key": "cloud.thing_name", "widget": "text_input", "editable": true, "description": "Thing Name", "api_endpoint": "/api/cloud"},
+            {"key": "cloud.cert_loaded", "widget": "indicator", "description": "Сертифікат", "on_label": "Завантажено", "off_label": "Відсутній", "on_color": "#22c55e", "off_color": "#ef4444"},
+            {"key": "_action.cert_upload", "widget": "cert_upload", "label": "Завантажити сертифікат", "api_endpoint": "/api/cloud"},
+            {"key": "cloud.enabled", "widget": "toggle", "editable": true, "description": "Увімкнути AWS IoT", "form_only": true},
+            {"key": "_action.cloud_save", "widget": "cloud_save", "label": "Зберегти", "api_endpoint": "/api/cloud"}
+          ]
+        }
+      }
+    }
+  },
+
+  "system": {
+    "id": "system",
+    "title": "Система",
+    "icon": "cpu",
+    "order": 99,
+    "system": true,
+    "cards": [
+      {
+        "title": "Інформація про систему",
+        "icon": "info",
+        "subtitle": "Стан та прошивка",
+        "wide": true,
+        "widgets": [
+          {"key": "system.uptime", "widget": "value", "format": "duration", "description": "Час роботи"},
+          {"key": "_ota.version", "widget": "value", "description": "Версія прошивки"},
+          {"key": "system.heap_free", "widget": "value", "unit": "B", "description": "Вільна RAM"},
+          {"key": "_ota.board", "widget": "value", "description": "Версія плати"},
+          {"key": "system.heap_min", "widget": "value", "unit": "B", "description": "Мінімум RAM"},
+          {"key": "_ota.date", "widget": "value", "description": "Номер збірки"},
+          {"key": "system.boot_reason", "widget": "value", "description": "Причина завантаження"},
+          {"key": "_ota.upload", "widget": "firmware_upload", "api_endpoint": "/api/ota", "label": "Вибрати .bin файл", "description": "Оновити прошивку"}
+        ]
+      },
+      {
+        "title": "Час",
+        "icon": "clock",
+        "group": "settings",
+        "collapsible": true,
+        "widgets": [
+          {"key": "time.ntp_enabled", "widget": "toggle", "editable": true, "description": "NTP синхронізація", "form_only": true},
+          {"key": "time.timezone", "widget": "timezone_select", "editable": true, "description": "Часовий пояс", "form_only": true},
+          {"key": "time.manual_datetime", "widget": "datetime_input", "editable": true, "description": "Встановити вручну"},
+          {"key": "_action.time_save", "widget": "time_save", "label": "Зберегти", "api_endpoint": "/api/time"}
+        ]
+      },
+      {
+        "title": "Безпека",
+        "icon": "shield",
+        "group": "settings",
+        "collapsible": true,
+        "widgets": [
+          {"key": "_action.auth_save", "widget": "auth_save", "description": "Аутентифікація"}
+        ]
+      },
+      {
+        "title": "Сервіс",
+        "icon": "sliders",
+        "widgets": [
+          {"key": "_action.grid", "widget": "actions_grid", "actions": [
+            {"id": "backup", "label": "Завантажити бекап", "icon": "⬇", "api_endpoint": "/api/backup", "download": true},
+            {"id": "restore", "label": "Відновити з бекапу", "icon": "⬆", "api_endpoint": "/api/restore", "accept": ".json", "confirm": "Відновити налаштування з файлу? Пристрій перезавантажиться."},
+            {"id": "restart", "label": "Перезавантажити", "icon": "↻", "api_endpoint": "/api/restart", "confirm": "Перезавантажити пристрій?"},
+            {"id": "factory_reset", "label": "Скинути до заводських", "icon": "⚠", "api_endpoint": "/api/factory-reset", "confirm": "Всі налаштування будуть скинуті до заводських значень. Продовжити?", "style": "danger"}
+          ]}
+        ]
+      }
+    ]
+  }
+}
