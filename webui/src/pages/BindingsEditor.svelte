@@ -2,10 +2,8 @@
   import { onMount } from 'svelte';
   import { apiGet, apiPost } from '../lib/api.js';
   import { pages } from '../stores/ui.js';
-  import { state } from '../stores/state.js';
   import { t } from '../stores/i18n.js';
   import Card from '../components/Card.svelte';
-  import NumberInput from '../components/widgets/NumberInput.svelte';
   import EquipmentStatus from './bindings/EquipmentStatus.svelte';
   import BindingCard from './bindings/BindingCard.svelte';
   import OneWireDiscovery from './bindings/OneWireDiscovery.svelte';
@@ -130,7 +128,6 @@
   $: assignedSensors = roles.filter(r => r.type === 'sensor' && assignedRoles.has(r.role));
   $: assignedActuators = roles.filter(r => r.type === 'actuator' && assignedRoles.has(r.role));
 
-  $: hasNtc = !!$state['equipment.has_ntc_driver'];
   $: unassignedRoles = roles
     .filter(r => !assignedRoles.has(r.role))
     .filter(r => availableHw(r).length > 0);
@@ -233,26 +230,8 @@
       </Card>
     {/if}
 
-    <!-- DS18B20 settings -->
+    <!-- DS18B20 OneWire ROM scanner (onewire-specific) -->
     <OneWireDiscovery />
-
-    <!-- NTC settings -->
-    {#if hasNtc}
-      <Card title="NTC">
-        <NumberInput
-          config={{ key: 'equipment.ntc_beta', description: $t['eq.ntc_beta'] || 'B-коефіцієнт', min: 2000, max: 5000, step: 1 }}
-          value={$state['equipment.ntc_beta']}
-        />
-        <NumberInput
-          config={{ key: 'equipment.ntc_r_series', description: $t['eq.ntc_series'] || 'Послідовний резистор', unit: 'Ом', min: 1000, max: 100000, step: 100 }}
-          value={$state['equipment.ntc_r_series']}
-        />
-        <NumberInput
-          config={{ key: 'equipment.ntc_r_nominal', description: $t['eq.ntc_nominal'] || 'Номінальний опір (25°C)', unit: 'Ом', min: 1000, max: 100000, step: 100 }}
-          value={$state['equipment.ntc_r_nominal']}
-        />
-      </Card>
-    {/if}
 
     <!-- Add optional roles -->
     {#if unassignedRoles.length > 0}

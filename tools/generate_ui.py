@@ -68,6 +68,46 @@ def schema_errors(data, schema_name, label):
         out.append(f"[{label}] schema: {loc}: {err.message}")
     return out
 
+
+# ── DataLogger channel/event collection (shared: chart widget + generated headers) ──
+
+def collect_log_channels(manifests):
+    """[{id, state_key, enable_key, requires, default, label}] з loggable.channels
+    усіх модулів. Джерело істини і для datalogger_channels.h, і для chart-widget
+    config у ui.json (щоб WebUI знав id→state_key для live-оновлень)."""
+    out = []
+    for m in manifests:
+        for key, cfg in m.get("loggable", {}).get("channels", {}).items():
+            out.append({
+                "id": key.split(".")[-1],   # "equipment.air_temp" → "air_temp"
+                "state_key": key,
+                "enable_key": cfg.get("enable_key"),
+                "requires": cfg.get("requires"),
+                "default": cfg.get("default", False),
+                "label": cfg.get("label", key.split(".")[-1]),
+            })
+    return out
+
+
+def collect_log_events(manifests):
+    """[{id, state_key, edge, label, label_on, label_off}] з loggable.events,
+    відсортовані за id. BOTH-подія логується як id (rising) + id+1 (falling)
+    — це знає і datalogger, і ChartWidget через цю таблицю в ui.json."""
+    out = []
+    for m in manifests:
+        for key, cfg in m.get("loggable", {}).get("events", {}).items():
+            out.append({
+                "id": cfg["id"],
+                "state_key": key,
+                "edge": cfg.get("edge", "rising"),
+                "label": cfg.get("label", key),
+                "label_on": cfg.get("label_on"),
+                "label_off": cfg.get("label_off"),
+            })
+    out.sort(key=lambda e: e["id"])
+    return out
+
+
 # Widget type → compatible state types
 WIDGET_TYPE_COMPAT = {
     "gauge":        {"float", "int"},
@@ -1179,6 +1219,11 @@ class UIJsonGenerator:
         # Зберігаємо resolver для використання у _build_widget
         self._resolver = resolver
 
+        # DataLogger канали/події — для інжекту в chart-widget config (щоб WebUI
+        # мав id→state_key і таблицю подій, не хардкодячи їх).
+        self._log_channels = collect_log_channels(manifests)
+        self._log_events = collect_log_events(manifests)
+
         # Для кожного модуля обчислюємо active features та constraints
         self._module_features = {}
         self._module_constraints = {}
@@ -1334,6 +1379,22 @@ class UIJsonGenerator:
         # visible_when passthrough
         if "visible_when" in w:
             widget["visible_when"] = w["visible_when"]
+
+        # Chart: інжектуємо мапу каналів (id→state_key для live-оновлень з
+        # SharedState) і таблицю подій (id/edge/label/label_off для зон і
+        # лейблів) — замість хардкоду у ChartWidget.svelte.
+        if w.get("widget") == "chart":
+            widget["channels"] = [
+                {"id": ch["id"], "state_key": ch["state_key"],
+                 "label": ch["label"]}
+                for ch in getattr(self, "_log_channels", [])
+            ]
+            widget["events"] = [
+                {"id": ev["id"], "edge": ev["edge"],
+                 "label": ev.get("label_on") or ev["label"],
+                 "label_off": ev.get("label_off")}
+                for ev in getattr(self, "_log_events", [])
+            ]
         return widget
 
     def _dashboard_page(self, manifests):
@@ -2849,19 +2910,7 @@ def main():
     files_written += 1
 
     # ── 7. DataLogger channels (manifest-driven) ───────────
-    log_channels = []
-    for m in manifests:
-        loggable = m.get("loggable", {})
-        for key, cfg in loggable.get("channels", {}).items():
-            ch_id = key.split(".")[-1]  # "equipment.air_temp" → "air_temp"
-            log_channels.append({
-                "id": ch_id,
-                "state_key": key,
-                "enable_key": cfg.get("enable_key"),
-                "requires": cfg.get("requires"),
-                "default": cfg.get("default", False),
-                "label": cfg.get("label", ch_id),
-            })
+    log_channels = collect_log_channels(manifests)  # same source as chart-widget config
 
     # Always (re)write the header — even with zero channels — so removing the last
     # loggable channel can't leave a stale datalogger_channels.h that the
@@ -2921,20 +2970,7 @@ def main():
     # ── 8. DataLogger events (manifest-driven) ─────────────
     # Event ids were already validated in the pre-write gate (validate_loggable),
     # so this only collects + emits — no sys.exit mid-generation.
-    log_events = []
-    for m in manifests:
-        for key, cfg in m.get("loggable", {}).get("events", {}).items():
-            log_events.append({
-                "id": cfg["id"],
-                "state_key": key,
-                "edge": cfg.get("edge", "rising"),
-                "label": cfg.get("label", key),
-                "label_on": cfg.get("label_on"),
-                "label_off": cfg.get("label_off"),
-            })
-
-    # Sort by ID for stable ordering
-    log_events.sort(key=lambda e: e["id"])
+    log_events = collect_log_events(manifests)  # same source as chart-widget config
 
     # Always (re)write the header — same stale-header reasoning as channels above.
     ev_lines = [

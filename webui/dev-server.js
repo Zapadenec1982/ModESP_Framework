@@ -112,23 +112,24 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === '/api/log') {
-    // Mock empty chart data
+    // Mock chart data matching the REAL generated channels/events (template
+    // project): channels air_temp/temperature, events 30/31 (heat ON/OFF BOTH)
+    // + system power-on (10). Keeps the dev-server useful for verifying the
+    // generator's chart-widget config — no stale refrigeration keys.
     const now = Math.floor(Date.now() / 1000);
     const temp = [];
-    const channels = ['air', 'evap', 'setpoint'];
-    // Generate 2h of fake data
+    const channels = ['air_temp', 'temperature'];
     for (let i = 120; i >= 0; i--) {
       const ts = now - i * 60;
-      const air = -17 + Math.sin(i / 20) * 2 + (Math.random() - 0.5) * 0.3;
-      const evap = -24 + Math.sin(i / 20) * 1.5;
-      const sp = -18;
-      temp.push([ts, +air.toFixed(1), +evap.toFixed(1), sp]);
+      const airTemp = 21 + Math.sin(i / 20) * 2 + (Math.random() - 0.5) * 0.3;
+      const thermo = 22 + Math.sin(i / 25) * 1.2;
+      temp.push([ts, +airTemp.toFixed(1), +thermo.toFixed(1)]);
     }
     const events = [
-      [now - 7200, 10],
-      [now - 5400, 1],
-      [now - 3600, 2],
-      [now - 1800, 1],
+      [now - 7200, 10],  // power on (system)
+      [now - 5400, 30],  // heat ON  (BOTH rising)
+      [now - 3600, 31],  // heat OFF (BOTH falling = id+1)
+      [now - 1800, 30],  // heat ON
     ];
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ channels, temp, events }));

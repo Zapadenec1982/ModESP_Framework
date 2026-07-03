@@ -20,10 +20,6 @@
   const LIVE_THROTTLE = 10;
   let showEvents = false;
 
-  // Channel names discovered dynamically from API response
-  // (no hardcoded refrigeration channels)
-  let CH_STATE_KEYS = {};
-
   // SVG dimensions
   const W = 720;
   const H = 300;
@@ -33,10 +29,26 @@
 
   const MAX_POINTS = 720;
 
-  // Event type constants (from generated datalogger_events.h)
-  // Generic — event labels come from i18n, not hardcoded here
+  // Framework system events (datalogger_events.h — fixed, not product-specific).
   const ALARM_CLEAR = 7;
   const POWER_ON = 10;
+
+  // ── Manifest-driven config (generator emits into the chart widget) ──
+  // channels: [{id, state_key, label}] — id≠state_key, live values read by key.
+  // events:   [{id, edge, label, label_off}] — BOTH logs id (on) + id+1 (off).
+  $: chLabelById = Object.fromEntries(((config && config.channels) || []).map(c => [c.id, c.label]));
+  $: evTable = (config && config.events) || [];
+  $: bothEvents = evTable.filter(e => e.edge === 'both');
+  $: risingEventIds = new Set(evTable.filter(e => e.edge === 'rising').map(e => e.id));
+  // event-id → label: id→label (on/rising); for BOTH also id+1→label_off (falling)
+  $: evLabels = (() => {
+    const m = {};
+    for (const e of evTable) {
+      if (e.label) m[e.id] = e.label;
+      if (e.edge === 'both' && e.label_off) m[e.id + 1] = e.label_off;
+    }
+    return m;
+  })();
 
   // Палітра кольорів для каналів
   const PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899'];
@@ -60,14 +72,10 @@
   onMount(() => { loadData(); refreshTimer = setInterval(loadData, 300000); });
   onDestroy(() => { if (refreshTimer) clearInterval(refreshTimer); });
 
-  // Reactive live update: збираємо актуальні значення каналів з $state
-  $: liveVals = {
-    air: $state['equipment.air_temp'],
-    evap: $state['equipment.evap_temp'],
-    cond: $state['equipment.cond_temp'],
-    setpoint: $state['thermostat.setpoint'],
-    humidity: $state['equipment.humidity']
-  };
+  // Reactive live update: значення каналів з $state за їх state_key (з config),
+  // ключовані id каналу — так само як API повертає data.channels.
+  $: liveVals = Object.fromEntries(
+    ((config && config.channels) || []).map(c => [c.id, $state[c.state_key]]));
   $: if (data?.temp && liveVals) {
     const now = Math.floor(Date.now() / 1000);
     if (now - lastLiveTs >= LIVE_THROTTLE) {
@@ -105,7 +113,8 @@
       name,
       idx: i + 1,
       color: PALETTE[i % PALETTE.length],
-      tkey: chTKey(name),
+      // Лейбл з маніфесту (config.channels[].label) → i18n → сирий id.
+      label: chLabelById[name] || $t[chTKey(name)] || name,
     };
   });
 
@@ -172,24 +181,14 @@
       ts => xScale(ts, tMin, tMax), v => yScale(v, vMin, vMax))
   }));
 
-  // Zones — generic: even event IDs = ON, odd = OFF (from manifest BOTH edge convention)
-  // Build zones for any event pair where id is even (ON) and id+1 is OFF
-  $: allZones = (() => {
-    const zones = [];
-    const onIds = new Set();
-    for (const e of events) {
-      if (e[1] % 2 === 1 && e[1] !== ALARM_CLEAR && e[1] !== POWER_ON) onIds.add(e[1]);
-    }
-    for (const onId of onIds) {
-      const z = buildZones(events, onId, onId + 1);
-      if (z.length) zones.push({ id: onId, zones: z });
-    }
-    return zones;
-  })();
+  // Zones — з таблиці подій: кожна BOTH-подія малює зону id(ON)→id+1(OFF).
+  $: allZones = bothEvents
+    .map(e => ({ id: e.id, label: e.label, zones: buildZones(events, e.id, e.id + 1) }))
+    .filter(z => z.zones.length);
 
-  // Alarm markers — any event with type >= ALARM_CLEAR treated as alarm
+  // Alarm markers — RISING-події (одноразові, без пари) з таблиці.
   $: alarmMarkers = events
-    .filter(e => e[1] >= 5 && e[1] !== ALARM_CLEAR && e[1] !== POWER_ON && e[1] % 2 === 1)
+    .filter(e => risingEventIds.has(e[1]))
     .map(e => PAD.left + xScale(e[0], tMin, tMax));
 
   // Power-on markers
@@ -221,7 +220,7 @@
     const mo = String(d.getMonth() + 1).padStart(2, '0');
     return {
       time: `${dd}.${mo} ${hh}:${mm}:${ss}`,
-      label: $t[`event.${e[1]}`] || `Event #${e[1]}`,
+      label: evLabels[e[1]] || $t[`event.${e[1]}`] || `Event #${e[1]}`,
       type: e[1]
     };
   });
@@ -247,7 +246,7 @@
       const time = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
       const vals = visibleChannels
         .filter(ch => best[ch.idx] != null)
-        .map(ch => ({ name: $t[ch.tkey] || ch.name, val: (best[ch.idx]/10).toFixed(1) + '°' }));
+        .map(ch => ({ name: ch.label, val: (best[ch.idx]/10).toFixed(1) + '°' }));
       tooltip = {
         svgX: svgPtX, svgY: svgPtY,
         pctX: (svgPtX / W) * 100,
@@ -279,7 +278,7 @@
     for (const e of events) {
       const d = new Date(e[0] * 1000);
       const dt = d.toISOString().replace('T', ' ').slice(0, 19);
-      csv += `${e[0]},${dt},${e[1]},${$t[`event.${e[1]}`] || ''}\n`;
+      csv += `${e[0]},${dt},${e[1]},${evLabels[e[1]] || $t[`event.${e[1]}`] || ''}\n`;
     }
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -309,7 +308,7 @@
     <div class="channel-toggles">
       {#each channelsWithData as ch}
         <label class="ch-toggle" style="--ch-color: {ch.color}">
-          <input type="checkbox" bind:checked={channelShow[ch.name]} /> {$t[ch.tkey] || ch.name}
+          <input type="checkbox" bind:checked={channelShow[ch.name]} /> {ch.label}
         </label>
       {/each}
     </div>
@@ -381,21 +380,15 @@
       <!-- Legend (dynamic channels) -->
       {#each visibleChannels as ch, i}
         <rect x={PAD.left + i * 100} y={H - 16} width="10" height="10" fill={ch.color} />
-        <text x={PAD.left + i * 100 + 14} y={H - 6} class="legend-text">{$t[ch.tkey] || ch.name}</text>
+        <text x={PAD.left + i * 100 + 14} y={H - 6} class="legend-text">{ch.label}</text>
       {/each}
-      <!-- Zone legend -->
-      {#if true}
-        {@const lx = PAD.left + visibleChannels.length * 100}
-        <rect x={lx} y={H - 16} width="10" height="10" fill="#22c55e" opacity="0.5" />
-        <text x={lx + 14} y={H - 6} class="legend-text">{$t['chart.legend_comp']}</text>
-        <rect x={lx + 80} y={H - 16} width="10" height="10" fill="#f97316" opacity="0.5" />
-        <text x={lx + 94} y={H - 6} class="legend-text">{$t['chart.legend_defrost']}</text>
-        {#if spY != null}
-          <line x1={lx + 170} y1={H - 10} x2={lx + 192} y2={H - 10}
-                stroke="#f59e0b" stroke-width="1" stroke-dasharray="4 2" />
-          <text x={lx + 196} y={H - 6} class="legend-text">{$t['chart.legend_setpoint']}</text>
-        {/if}
-      {/if}
+      <!-- Zone legend — generic: одна позначка на BOTH-подію (лейбл з маніфесту) -->
+      {#each allZones as z, zi}
+        {@const lx = PAD.left + visibleChannels.length * 100 + zi * 110}
+        <rect x={lx} y={H - 16} width="10" height="10" class="zone-generic"
+              style="opacity: {0.5 + zi * 0.1}" />
+        <text x={lx + 14} y={H - 6} class="legend-text">{z.label}</text>
+      {/each}
     </svg>
     {#if tooltip}
       <div class="html-tip" style="left:{tooltip.pctX}%; top:{tooltip.pctY}%">
@@ -516,8 +509,7 @@
   }
   .chart-svg .grid { stroke: var(--border); stroke-width: 0.5; }
   .chart-svg .setpoint { stroke: #f59e0b; stroke-width: 1; stroke-dasharray: 4 2; }
-  .chart-svg .zone-comp { fill: #22c55e; opacity: 0.15; }
-  .chart-svg .zone-defrost { fill: #f97316; opacity: 0.2; }
+  .chart-svg .zone-generic { fill: #22c55e; }
   .chart-svg .alarm-mark { stroke: #ef4444; stroke-width: 1; opacity: 0.7; }
   .chart-svg .power-mark { stroke: #64748b; stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.5; }
   .chart-svg .axis-label { font-size: 16px; fill: var(--fg-muted); }
@@ -586,7 +578,6 @@
     color: var(--fg);
   }
   .event-alarm .event-label { color: #ef4444; }
-  .event-defrost .event-label { color: #f97316; }
   .event-power .event-label { color: #64748b; }
 
   @media (max-width: 480px) {
