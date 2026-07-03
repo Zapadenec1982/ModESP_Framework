@@ -6,7 +6,6 @@
   import Card from '../components/Card.svelte';
   import EquipmentStatus from './bindings/EquipmentStatus.svelte';
   import BindingCard from './bindings/BindingCard.svelte';
-  import OneWireDiscovery from './bindings/OneWireDiscovery.svelte';
 
   // Roles/hardware metadata з ui.json bindings page
   $: bindingsPage = $pages.find(p => p.id === 'bindings') || {};
@@ -47,16 +46,15 @@
     return idx >= 0 && idx < drivers.length ? drivers[idx] : drivers[0] || '';
   }
 
-  // Типи hardware що підтримують кілька ролей на одному порті
-  const SHAREABLE_HW = new Set(['onewire_bus']);
-
   function usedHwIds(excludeRole) {
+    // A shareable bus (driver multiple_per_bus → ui.json hw.shareable) carries several
+    // roles at once, so it never counts as "used". Manifest-driven, no hardcoded set.
     return new Set(bindings
       .filter(b => b.role !== excludeRole)
       .map(b => b.hardware)
       .filter(hwId => {
         const hw = hwInventory.find(h => h.id === hwId);
-        return hw && !SHAREABLE_HW.has(hw.hw_type);
+        return hw && !hw.shareable;
       }));
   }
 
@@ -75,9 +73,11 @@
     const oldBinding = bindings.find(b => b.role === role);
     const oldHw = oldBinding ? hwInventory.find(h => h.id === oldBinding.hardware) : null;
     const newHw = hwInventory.find(h => h.id === hwId);
-    // Очищати адресу при зміні типу hardware (OW↔ADC) або зміні шини
-    const clearAddr = (oldHw?.hw_type === 'onewire_bus' && newHw?.hw_type !== 'onewire_bus')
-                   || (oldHw?.id !== hwId && newHw?.hw_type === 'onewire_bus');
+    // Clear the address when leaving a shareable bus, or moving onto a different
+    // shareable bus (the old per-device address no longer applies). hw.shareable is
+    // manifest-driven (driver multiple_per_bus), not a hardcoded hw_type.
+    const clearAddr = (oldHw?.shareable && !newHw?.shareable)
+                   || (oldHw?.id !== hwId && newHw?.shareable);
     bindings = bindings.map(b =>
       b.role === role ? {
         ...b,
@@ -106,10 +106,9 @@
       hardware: autoAssign ? hw[0].id : '',
       driver: autoAssign ? driverForHw(roleDef, hw[0].id) : '',
       role: roleDef.role,
-      // Модуль ролі приходить з ui.json (генератор емить role.module з усіх
-      // провайдерів ролей) — не хардкод 'equipment', тож редактор коректно
-      // прив'язує ролі display/player/будь-якого модуля.
-      module: roleDef.module || 'equipment',
+      // Role's module comes from ui.json (the generator emits role.module for every
+      // role provider), so the editor binds display/player/any module correctly.
+      module: roleDef.module,
     }];
   }
 
@@ -120,8 +119,10 @@
   $: missingRequired = requiredRoles.filter(r => !assignedRoles.has(r.role));
   $: hasEmptyHw = bindings.some(b => !b.hardware);
   $: hasEmptyAddr = bindings.some(b => {
-    const hw = hwInventory.find(h => h.id === b.hardware);
-    return hw && hw.hw_type === 'onewire_bus' && !b.address;
+    // A binding needs an address only if its role's driver requires one
+    // (requires_address, from ui.json) — not "any OneWire bus".
+    const roleDef = roles.find(r => r.role === b.role);
+    return roleDef && roleDef.requires_address && !b.address;
   });
   $: canSave = !hasEmptyHw && !hasEmptyAddr && !saving;
 
@@ -229,9 +230,6 @@
         {/each}
       </Card>
     {/if}
-
-    <!-- DS18B20 OneWire ROM scanner (onewire-specific) -->
-    <OneWireDiscovery />
 
     <!-- Add optional roles -->
     {#if unassignedRoles.length > 0}

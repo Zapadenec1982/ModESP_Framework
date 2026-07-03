@@ -1571,6 +1571,15 @@ class UIJsonGenerator:
                 role_entry["hw_type"] = hw_types[0] if hw_types else ""
             roles.append(role_entry)
 
+        # hw_types that support multiple roles on one port (a driver with
+        # multiple_per_bus). Manifest-driven — the BindingsEditor uses hw.shareable
+        # instead of a hardcoded set, so a new shareable bus needs no webui edit.
+        shareable_hw_types = {
+            d.get("hardware_type", "")
+            for d in driver_manifests.values()
+            if d.get("multiple_per_bus", False)
+        }
+
         # Hardware inventory з board.json (для select options у BindingsEditor)
         hardware = []
         for section, hw_type in BOARD_SECTION_TO_HW_TYPE.items():
@@ -1579,6 +1588,7 @@ class UIJsonGenerator:
                     "id": item.get("id", ""),
                     "hw_type": hw_type,
                     "label": item.get("label", item.get("id", "")),
+                    "shareable": hw_type in shareable_hw_types,
                 }
                 if "gpio" in item:
                     hw_entry["gpio"] = item["gpio"]

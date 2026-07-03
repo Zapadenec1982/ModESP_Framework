@@ -6,10 +6,10 @@
   export let sensors = [];
   export let actuators = [];
 
-  // Generic: state key = "{module}.{role}" — модуль ролі приходить з ui.json
-  // (role.module), тож статус працює для будь-якого модуля, не лише equipment.
-  function stateKey(r) { return `${r.module || 'equipment'}.${r.role}`; }
-  function okKey(r)    { return `${r.module || 'equipment'}.${r.role}_ok`; }
+  // Generic: state key = "{module}.{role}" — the role's module comes from ui.json
+  // (role.module, always emitted by the generator), so status works for any module.
+  function stateKey(r) { return `${r.module}.${r.role}`; }
+  function okKey(r)    { return `${r.module}.${r.role}_ok`; }
 
   function formatValue(role, val) {
     if (val === undefined || val === null) return '--';
