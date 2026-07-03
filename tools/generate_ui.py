@@ -1579,6 +1579,14 @@ class UIJsonGenerator:
             for d in driver_manifests.values()
             if d.get("multiple_per_bus", False)
         }
+        # hw_types whose driver can enumerate devices on the bus (discovery.supported,
+        # e.g. a OneWire ROM scan). BindingCard offers the scan/address picker on
+        # hw.discoverable — manifest-driven, so no hardcoded "onewire_bus" in the webui.
+        discoverable_hw_types = {
+            d.get("hardware_type", "")
+            for d in driver_manifests.values()
+            if d.get("discovery", {}).get("supported", False)
+        }
 
         # Hardware inventory з board.json (для select options у BindingsEditor)
         hardware = []
@@ -1589,6 +1597,7 @@ class UIJsonGenerator:
                     "hw_type": hw_type,
                     "label": item.get("label", item.get("id", "")),
                     "shareable": hw_type in shareable_hw_types,
+                    "discoverable": hw_type in discoverable_hw_types,
                 }
                 if "gpio" in item:
                     hw_entry["gpio"] = item["gpio"]

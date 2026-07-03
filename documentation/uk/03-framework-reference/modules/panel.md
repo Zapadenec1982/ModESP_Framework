@@ -90,10 +90,10 @@ HW-підтверджено на `LED_BLE_E6C5EBE2`:
 
 ## API виводу тексту (слоти модулів)
 
-Будь-який модуль може вивести свій текст на панель через **5 спільних текст-слотів** (`panel.slot0`..`panel.slot4`) — тонка конвенція над SharedState (слоти це звичайні рядкові state-ключі). API — хедер [`modesp/panel_text.h`](../../../../components/modesp_core/include/modesp/panel_text.h) (у `modesp_core`, доступний усім модулям):
+Будь-який модуль може вивести свій текст на панель через **5 спільних текст-слотів** (`panel.slot0`..`panel.slot4`) — тонка конвенція над SharedState (слоти це звичайні рядкові state-ключі). API — хедер [`panel_text.h`](../../../../modules/panel/include/panel_text.h) (належить модулю `panel`; модуль-постувальник залежить від компонента `panel`):
 
 ```cpp
-#include "modesp/panel_text.h"
+#include "panel_text.h"
 // ... зсередини методу модуля (on_update / on_init), де доступний state_set:
 state_set(modesp::panel_text::slot(0), "ALARM");     // вивести у слот 0
 state_set(modesp::panel_text::slot(1), "DEFROST");   // слот 1

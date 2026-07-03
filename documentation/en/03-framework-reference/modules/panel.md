@@ -85,10 +85,10 @@ The `anim` byte drives a hardware effect (HW-confirmed on `LED_BLE_E6C5EBE2`):
 
 ## Text-output API (module slots)
 
-Any module can put its own text on the panel through **5 shared text slots** (`panel.slot0`..`panel.slot4`) — a thin convention over SharedState (the slots are ordinary string state keys). The API is the header [`modesp/panel_text.h`](../../../../components/modesp_core/include/modesp/panel_text.h) (in `modesp_core`, available to every module):
+Any module can put its own text on the panel through **5 shared text slots** (`panel.slot0`..`panel.slot4`) — a thin convention over SharedState (the slots are ordinary string state keys). The API is the header [`panel_text.h`](../../../../modules/panel/include/panel_text.h) (owned by the `panel` module; a posting module depends on the `panel` component):
 
 ```cpp
-#include "modesp/panel_text.h"
+#include "panel_text.h"
 // ... from inside a module method (on_update / on_init), where state_set is available:
 state_set(modesp::panel_text::slot(0), "ALARM");     // post to slot 0
 state_set(modesp::panel_text::slot(1), "DEFROST");   // slot 1

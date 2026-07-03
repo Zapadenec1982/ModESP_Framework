@@ -99,7 +99,7 @@ HW-confirmed on the panel:
 Any module can put its own line on the panel through **5 shared text slots**. It is a thin convention over SharedState — the slots are ordinary string keys, so you write them with your own `state_set`:
 
 ```cpp
-#include "modesp/panel_text.h"
+#include "panel_text.h"
 // ... from inside a module method (on_update / on_init):
 state_set(modesp::panel_text::slot(0), "ALARM");     // post to slot 0
 state_set(modesp::panel_text::slot(1), "DEFROST");
@@ -128,5 +128,5 @@ Non-empty slots **rotate on the display** (white) alongside the sensors. An empt
 - [`boards/stand_s3/board.json`](../../../boards/stand_s3/board.json), [`boards/stand_s3/bindings.json`](../../../boards/stand_s3/bindings.json)
 - [`drivers/ble_led_panel/`](../../../drivers/ble_led_panel/)
 - [`modules/panel/`](../../../modules/panel/)
-- [`components/modesp_core/include/modesp/panel_text.h`](../../../components/modesp_core/include/modesp/panel_text.h) — slots API
+- [`modules/panel/include/panel_text.h`](../../../modules/panel/include/panel_text.h) — slots API
 - [`docs/ble/panel_protocol.md`](../../../docs/ble/panel_protocol.md) — panel byte protocol

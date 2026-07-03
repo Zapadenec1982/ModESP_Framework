@@ -99,7 +99,7 @@ HW-підтверджено на панелі:
 Будь-який модуль може вивести свій рядок на панель через **5 спільних текст-слотів**. Це тонка конвенція над SharedState — слоти це звичайні рядкові ключі, тож пишеш їх власним `state_set`:
 
 ```cpp
-#include "modesp/panel_text.h"
+#include "panel_text.h"
 // ... зсередини методу модуля (on_update / on_init):
 state_set(modesp::panel_text::slot(0), "ALARM");     // вивести у слот 0
 state_set(modesp::panel_text::slot(1), "DEFROST");
@@ -128,5 +128,5 @@ state_set(modesp::panel_text::slot(0), "");          // очистити сло�
 - [`boards/stand_s3/board.json`](../../../boards/stand_s3/board.json), [`boards/stand_s3/bindings.json`](../../../boards/stand_s3/bindings.json)
 - [`drivers/ble_led_panel/`](../../../drivers/ble_led_panel/)
 - [`modules/panel/`](../../../modules/panel/)
-- [`components/modesp_core/include/modesp/panel_text.h`](../../../components/modesp_core/include/modesp/panel_text.h) — слоти-API
+- [`modules/panel/include/panel_text.h`](../../../modules/panel/include/panel_text.h) — слоти-API
 - [`docs/ble/panel_protocol.md`](../../../docs/ble/panel_protocol.md) — байтовий протокол панелі

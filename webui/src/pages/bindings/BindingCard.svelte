@@ -11,9 +11,11 @@
 
   const dispatch = createEventDispatcher();
 
-  // Визначаємо чи обране hardware потребує ROM адресу (OneWire bus)
+  // Offer the scan/address picker when the selected bus can enumerate devices
+  // (hw.discoverable — driver discovery.supported, from ui.json). Manifest-driven,
+  // so a new discoverable bus needs no edit here (no hardcoded 'onewire_bus').
   $: selectedHw = hwList.find(h => h.id === binding.hardware);
-  $: needsAddress = selectedHw && selectedHw.hw_type === 'onewire_bus';
+  $: needsAddress = !!(selectedHw && selectedHw.discoverable);
 </script>
 
 <div class="binding-row">
