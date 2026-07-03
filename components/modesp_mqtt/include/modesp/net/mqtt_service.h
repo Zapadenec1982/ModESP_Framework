@@ -78,10 +78,6 @@ private:
     static constexpr uint32_t MQTT_INITIAL_RECONNECT_MS = 5000;   // 5s
     static constexpr uint32_t MQTT_MAX_RECONNECT_MS = 300000;     // 5 min
 
-    // Periodic alarm re-publish (retain + QoS 1)
-    uint32_t alarm_republish_timer_ms_ = 0;
-    static constexpr uint32_t ALARM_REPUBLISH_INTERVAL_MS = 300000; // 5 min
-
     // Heartbeat (metadata, every 30s)
     uint32_t heartbeat_timer_ms_ = 0;
     static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 30000; // 30s
@@ -99,7 +95,6 @@ private:
     void stop_client();
     void publish_state();
     void publish_params();  // One-shot: publish all writable param current values
-    void publish_alarms_retained();
     void publish_heartbeat();
     void publish_ha_discovery();
     void publish_ha_entity(const char* state_key, const char* name,

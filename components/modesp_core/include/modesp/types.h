@@ -114,11 +114,8 @@ namespace msg_id {
     constexpr etl::message_id_t ACTUATOR_FEEDBACK  = 121;
 
     // ── Модулі ──
-    constexpr etl::message_id_t ALARM_TRIGGERED    = 150;
-    constexpr etl::message_id_t ALARM_CLEARED      = 151;
-    constexpr etl::message_id_t SETPOINT_CHANGED   = 160;
-    constexpr etl::message_id_t DEFROST_START      = 170;
-    constexpr etl::message_id_t DEFROST_END        = 171;
+    // ID 150-179 вільні: продуктові message-ID оголошуються в модулях продукту,
+    // не в core (колишні ALARM_*/SETPOINT_*/DEFROST_* — залишки refrigeration).
     constexpr etl::message_id_t UI_NOTICE          = 180;  // банер на дисплей (ADR-001)
 } // namespace msg_id
 

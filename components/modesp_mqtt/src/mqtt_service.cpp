@@ -209,12 +209,6 @@ void MqttService::on_update(uint32_t dt_ms) {
         publish_params();
     }
 
-    // Periodic alarm re-publish (кожні 5 хв, retain + QoS 1)
-    alarm_republish_timer_ms_ += dt_ms;
-    if (alarm_republish_timer_ms_ >= ALARM_REPUBLISH_INTERVAL_MS) {
-        alarm_republish_timer_ms_ = 0;
-        publish_alarms_retained();
-    }
 }
 
 void MqttService::on_stop() {
@@ -361,10 +355,7 @@ void MqttService::mqtt_event_handler(void* args, esp_event_base_t base,
                 }
             }
 
-            // Публікуємо alarm state одразу при підключенні (retain)
-            self->alarm_republish_timer_ms_ = 0;
             self->heartbeat_timer_ms_ = 0;
-            self->publish_alarms_retained();
 
             // HA Auto-Discovery — відкладаємо до on_update() (більший стек)
             self->ha_discovery_pending_ = true;
@@ -392,12 +383,6 @@ void MqttService::mqtt_event_handler(void* args, esp_event_base_t base,
         default:
             break;
     }
-}
-
-// ── Alarm topic detection ───────────────────────────────────────
-
-static bool is_alarm_topic(const char* key) {
-    return strncmp(key, "protection.", 11) == 0;
 }
 
 // ── Publish state ───────────────────────────────────────────────
@@ -428,7 +413,7 @@ void MqttService::publish_state() {
     };
     static constexpr size_t SYS_KEYS_COUNT = sizeof(SYS_KEYS) / sizeof(SYS_KEYS[0]);
 
-    // 1. Згенеровані module keys (equipment.*, protection.*, etc.)
+    // 1. Згенеровані module keys (з mqtt-секцій маніфестів)
     for (size_t i = 0; i < gen::MQTT_PUBLISH_COUNT && i < MAX_PUBLISH_KEYS; i++) {
         auto val = state_->get(gen::MQTT_PUBLISH[i]);
         if (!val.has_value()) continue;
@@ -446,10 +431,10 @@ void MqttService::publish_state() {
         snprintf(topic, sizeof(topic), "%s/state/%s",
                  prefix_, gen::MQTT_PUBLISH[i]);
 
-        // Alarm topics: QoS 1 + retain для надійної доставки
-        int qos = is_alarm_topic(gen::MQTT_PUBLISH[i]) ? 1 : 0;
-        int retain = qos;
-        esp_mqtt_client_publish(client_, topic, payload, len, qos, retain);
+        // QoS 0, no retain. Reliable delivery (QoS 1 + retain) for alarm-class
+        // keys returns as a manifest-driven flag — Phase 2 of the universality
+        // roadmap; the old hardcoded 'protection.' prefix matched nothing.
+        esp_mqtt_client_publish(client_, topic, payload, len, 0, 0);
 
         // Зберігаємо опубліковане значення в кеш
         strncpy(last_payloads_[i], payload, sizeof(last_payloads_[i]) - 1);
@@ -512,27 +497,6 @@ void MqttService::publish_params() {
     }
 
     ESP_LOGI(TAG, "Published %d writable params (one-shot)", count);
-}
-
-void MqttService::publish_alarms_retained() {
-    if (!connected_ || !client_ || !state_) return;
-
-    for (size_t i = 0; i < gen::MQTT_PUBLISH_COUNT; i++) {
-        if (!is_alarm_topic(gen::MQTT_PUBLISH[i])) continue;
-
-        auto val = state_->get(gen::MQTT_PUBLISH[i]);
-        if (!val.has_value()) continue;
-
-        char payload[32];
-        int len = format_value(val.value(), payload, sizeof(payload));
-        if (len <= 0) continue;
-
-        char topic[128];
-        snprintf(topic, sizeof(topic), "%s/state/%s",
-                 prefix_, gen::MQTT_PUBLISH[i]);
-        esp_mqtt_client_publish(client_, topic, payload, len, 1, 1);
-    }
-    ESP_LOGD(TAG, "Alarm topics re-published (retained)");
 }
 
 // ── Heartbeat (metadata) ────────────────────────────────────────

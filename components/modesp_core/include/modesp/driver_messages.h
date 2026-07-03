@@ -48,14 +48,4 @@ struct MsgActuatorFeedback : etl::message<msg_id::ACTUATOR_FEEDBACK> {
     bool was_rejected;            // true = команда відхилена (min switch time, safe mode)
 };
 
-// ═══════════════════════════════════════════════════════════════
-// Module messages (150+)
-// ═══════════════════════════════════════════════════════════════
-
-/// Зміна уставки (від WebSocket, конфігурації)
-struct MsgSetpointChanged : etl::message<msg_id::SETPOINT_CHANGED> {
-    etl::string<16> target;       // "thermostat", "alarm"
-    float value;
-};
-
 } // namespace modesp

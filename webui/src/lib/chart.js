@@ -1,5 +1,5 @@
 /**
- * Shared chart math utilities — used by ChartWidget and MiniChart.
+ * Shared chart math utilities — used by ChartWidget.
  */
 
 /** SVG polyline path (пряме з'єднання точок, без overshoots) */
