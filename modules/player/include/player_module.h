@@ -40,9 +40,15 @@ public:
     void on_update(uint32_t dt_ms) override;
 
     /// Resolve the active audio sink from bindings.json (role/driver) via
-    /// AudioBackendRegistry; pins from board.json via HAL. Called in main.cpp
-    /// after hal.init (like display.bind_display). No binding → NullSink.
+    /// AudioBackendRegistry; pins from board.json via HAL. No binding → NullSink.
     void bind_audio(const modesp::BindingTable& bindings, modesp::HAL& hal);
+
+    /// Generic bind hook: called by ModuleManager::bind_all() between
+    /// registration and init_all — main.cpp no longer names the player.
+    void on_bind(modesp::DriverManager&, const modesp::BindingTable& bindings,
+                 modesp::HAL& hal) override {
+        bind_audio(bindings, hal);
+    }
 
 private:
     static constexpr size_t LUT_SIZE     = 256;   // sine table (power of 2)

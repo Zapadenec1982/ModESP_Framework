@@ -27,6 +27,11 @@ namespace modesp {
 // Forward declarations — модуль не знає деталей реалізації
 class ModuleManager;
 class SharedState;
+// Binding-контекст живе в modesp_hal — core лишається hal-agnostic
+// (лише посилання у сигнатурі on_bind, без include).
+class DriverManager;
+class HAL;
+struct BindingTable;
 
 class BaseModule {
 public:
@@ -42,6 +47,14 @@ public:
     virtual void on_update(uint32_t dt_ms)            {}
     virtual void on_message(const etl::imessage& msg) {}
     virtual void on_stop()                            {}
+
+    /// Викликається ModuleManager::bind_all() ОДИН раз між реєстрацією та
+    /// init_all (Phase 2), коли HAL і драйвери вже ініціалізовані. Модуль
+    /// із залізом резолвить тут свої драйвери/бекенди за bindings.json —
+    /// main.cpp не мусить знати імен модулів. Модулі без заліза ігнорують.
+    virtual void on_bind(DriverManager& drivers,
+                         const BindingTable& bindings,
+                         HAL& hal) {}
 
     // ── Ідентифікація ──
     const char*    name()     const { return name_; }

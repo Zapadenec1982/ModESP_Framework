@@ -31,6 +31,8 @@
 
 namespace modesp {
 class DriverManager;
+class HAL;
+struct BindingTable;
 }
 
 class EquipmentBase : public modesp::BaseModule {
@@ -40,6 +42,13 @@ public:
 
     /// Bind drivers from DriverManager (reads roles from manifest "requires")
     void bind_drivers(modesp::DriverManager& dm);
+
+    /// Generic bind-хук: ModuleManager::bind_all() кличе замість прямого
+    /// виклику equipment.bind_drivers(...) у main.cpp.
+    void on_bind(modesp::DriverManager& drivers,
+                 const modesp::BindingTable&, modesp::HAL&) override {
+        bind_drivers(drivers);
+    }
 
     bool on_init() override;
     void on_update(uint32_t dt_ms) override;

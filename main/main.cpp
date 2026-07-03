@@ -245,17 +245,6 @@ extern "C" void app_main(void)
              (int)driver_manager.sensor_count(),
              (int)driver_manager.actuator_count());
 
-    // ── Step 7: Register all modules (auto-generated from project.json) ──
-    equipment.bind_drivers(driver_manager);
-
-    // Display backend: resolved from bindings.json (role/driver), pins from
-    // board.json via HAL — same board+bindings abstraction as drivers.
-    display.bind_display(bindings, hal);
-
-    // Audio sink: resolved from bindings.json (role audio_main / driver) via
-    // AudioBackendRegistry, pins from board.json i2s_buses — same pattern.
-    player.bind_audio(bindings, hal);
-
     // ── Step 7a: Scenario engine wiring (Phase 3 rebuild; optional) ──
     //
     // Stack (constexpr-known у static locals, lifetime = program):
@@ -301,7 +290,13 @@ extern "C" void app_main(void)
     app.modules().register_module(scenario_engine);
 #endif // CONFIG_MODESP_SCENARIO_ENABLE
 
+    // ── Step 7: Register all modules (auto-generated from project.json) ──
     modesp_register_modules(app);
+
+    // Generic bind: кожен зареєстрований модуль із залізом резолвить свої
+    // драйвери/бекенди у своєму on_bind() за bindings.json — main.cpp не знає
+    // імен модулів (equipment/display/player більше не згадуються тут).
+    app.modules().bind_all(driver_manager, bindings, hal);
 
     ESP_LOGI(TAG, "Phase 2: Initializing WiFi + business modules...");
     app.modules().init_all(app.state());
@@ -341,7 +336,8 @@ extern "C" void app_main(void)
     http_service.set_wifi(&wifi_service);
     http_service.set_persist(&persist_service);
     http_service.set_hal(&hal);
-    http_service.set_datalogger(&datalogger);
+    // /api/log*: datalogger (чи будь-який log-модуль) самореєструється через
+    // modesp::log_source — main.cpp не називає модуль.
 #if defined(CONFIG_MODESP_SCENARIO_ENABLE)
     http_service.set_scenario_engine(&scenario_engine);
 #endif

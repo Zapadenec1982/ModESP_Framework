@@ -95,6 +95,12 @@ public:
     void update_all(uint32_t dt_ms);
     void stop_all();
 
+    // ── Binding (main кличе між реєстрацією модулів та init_all Phase 2) ──
+    // Кличе on_bind() кожного ще-не-ініціалізованого модуля (state == CREATED),
+    // передаючи готові DriverManager/BindingTable/HAL. Generic — жодних імен
+    // модулів у main.cpp.
+    void bind_all(DriverManager& drivers, const BindingTable& bindings, HAL& hal);
+
     // ── Перезапуск модуля (викликається WatchdogService) ──
     bool restart_module(BaseModule& module);
 

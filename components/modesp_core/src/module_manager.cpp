@@ -43,6 +43,15 @@ bool ModuleManager::register_module(BaseModule& module) {
     return true;
 }
 
+void ModuleManager::bind_all(DriverManager& drivers, const BindingTable& bindings, HAL& hal) {
+    for (auto* module : modules_) {
+        // Уже ініціалізовані (phase-1 сервіси) не ребайндяться — bind належить
+        // вікну "зареєстрований, ще не init" (two-phase boot).
+        if (module->state_ != BaseModule::State::CREATED) continue;
+        module->on_bind(drivers, bindings, hal);
+    }
+}
+
 bool ModuleManager::init_all(SharedState& state) {
     shared_state_ = &state;
 

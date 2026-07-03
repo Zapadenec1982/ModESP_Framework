@@ -32,10 +32,16 @@ public:
     void set_port(modesp::display::IDisplayPort* port);
 
     /// Резолвити активний backend з bindings.json (role/driver) через
-    /// DisplayBackendRegistry; піни — з board.json через HAL. Кличеться у
-    /// main.cpp після hal.init (як equipment.bind_drivers). Без binding —
+    /// DisplayBackendRegistry; піни — з board.json через HAL. Без binding —
     /// лишається LogPort. Має передувати on_init().
     void bind_display(const modesp::BindingTable& bindings, modesp::HAL& hal);
+
+    /// Generic bind-хук: ModuleManager::bind_all() кличе між реєстрацією та
+    /// init_all — main.cpp більше не знає про display.
+    void on_bind(modesp::DriverManager&, const modesp::BindingTable& bindings,
+                 modesp::HAL& hal) override {
+        bind_display(bindings, hal);
+    }
 
 private:
     // IMenuStateIO — місток до SharedState
