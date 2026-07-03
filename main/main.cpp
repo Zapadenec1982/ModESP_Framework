@@ -54,11 +54,11 @@
 #include "scenario_persist.h"      // local off-loop NVS persistence (main/)
 #endif
 
-// Cloud backend (compile-time Kconfig choice; MODESP_CLOUD_NONE → no cloud at all)
-#if defined(CONFIG_MODESP_CLOUD_AWS)
-  #include "modesp/net/aws_iot_service.h"
-#elif defined(CONFIG_MODESP_CLOUD_MQTT)
-  #include "modesp/net/mqtt_service.h"
+// Cloud backend — обраний Kconfig-choice бекенд надає modesp::cloud_backend()
+// (ICloudService). main НЕ називає конкретного класу (MqttService/AwsIotService).
+// MODESP_CLOUD_NONE → секцію не компілюємо взагалі.
+#if defined(CONFIG_MODESP_CLOUD_MQTT) || defined(CONFIG_MODESP_CLOUD_AWS)
+  #include "modesp/net/cloud_service.h"
 #endif
 
 // BLE transport service (optional, compile-time Kconfig toggle — menu "ModESP BLE")
@@ -111,12 +111,6 @@ static modesp::scenario::ActionRegistry     scenario_actions;
 static modesp::scenario::ContinuousRegistry scenario_continuous;
 #endif
 
-// Cloud backend (compile-time Kconfig choice; none → no instance)
-#if defined(CONFIG_MODESP_CLOUD_AWS)
-static modesp::AwsIotService   cloud_service;
-#elif defined(CONFIG_MODESP_CLOUD_MQTT)
-static modesp::MqttService     cloud_service;
-#endif
 
 // BLE transport (optional — single NimBLE host owner)
 #if defined(CONFIG_MODESP_BLE_ENABLE)
@@ -216,9 +210,13 @@ extern "C" void app_main(void)
 #if defined(CONFIG_MODESP_NET_ENABLE)
     app.modules().register_module(wifi_service);
 #endif
+    // Cloud-бекенд надає компонент, що злінкувався (generic — без імен класів).
+    // Оголошення під guard'ом на рівні функції — видиме у Step 9 нижче; для
+    // MODESP_CLOUD_NONE секції немає взагалі (нуль unused-змінних).
 #if defined(CONFIG_MODESP_CLOUD_MQTT) || defined(CONFIG_MODESP_CLOUD_AWS)
-    cloud_service.set_state(&app.state());
-    app.modules().register_module(cloud_service);
+    modesp::ICloudService* cloud = modesp::cloud_backend();
+    cloud->set_state(&app.state());
+    app.modules().register_module(*cloud);
 #endif
 
     // BLE transport (optional) — after Wi-Fi so NimBLE host inits after the Wi-Fi
@@ -357,7 +355,7 @@ extern "C" void app_main(void)
     if (http_service.server()) {
         ws_service.set_http_server(http_service.server());
 #if defined(CONFIG_MODESP_CLOUD_MQTT) || defined(CONFIG_MODESP_CLOUD_AWS)
-        cloud_service.set_http_server(http_service.server());
+        cloud->set_http_server(http_service.server());
 #endif
         http_service.register_static_handler();  // Must be last (wildcard catch-all)
     } else {

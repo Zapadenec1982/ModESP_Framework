@@ -1044,4 +1044,11 @@ void MqttService::publish_ha_discovery() {
     ESP_LOGI(TAG, "HA discovery complete");
 }
 
+// Cloud-бекенд цієї прошивки (Kconfig MODESP_CLOUD_MQTT) — main бере його
+// через generic modesp::cloud_backend(), не знаючи класу MqttService.
+ICloudService* cloud_backend() {
+    static MqttService instance;
+    return &instance;
+}
+
 } // namespace modesp

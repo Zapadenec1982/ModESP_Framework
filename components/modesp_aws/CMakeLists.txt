@@ -9,8 +9,10 @@ endif()
 idf_component_register(
     SRCS ${aws_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES modesp_core modesp_services esp_event esp_http_server mqtt esp-tls
-    PRIV_REQUIRES jsmn modesp_net mbedtls esp_wifi
+    # modesp_net: public — aws_iot_service.h включає modesp/net/cloud_service.h
+    # (ICloudService). esp_http_server приходить транзитивно через нього.
+    REQUIRES modesp_core modesp_services modesp_net esp_event esp_http_server mqtt esp-tls
+    PRIV_REQUIRES jsmn mbedtls esp_wifi
 )
 
 # Доступ до згенерованих headers (mqtt_topics.h, state_meta.h)

@@ -9,8 +9,10 @@ endif()
 idf_component_register(
     SRCS ${mqtt_srcs}
     INCLUDE_DIRS "include"
-    REQUIRES modesp_core modesp_services esp_event esp_http_server mqtt esp-tls
-    PRIV_REQUIRES jsmn modesp_net mbedtls
+    # modesp_net: public — mqtt_service.h включає modesp/net/cloud_service.h
+    # (ICloudService). esp_http_server приходить транзитивно через нього.
+    REQUIRES modesp_core modesp_services modesp_net esp_event esp_http_server mqtt esp-tls
+    PRIV_REQUIRES jsmn mbedtls
 )
 
 # Доступ до згенерованих headers (mqtt_topics.h, state_meta.h)

@@ -950,4 +950,11 @@ void AwsIotService::register_http_handlers() {
     ESP_LOGI(TAG, "HTTP handlers registered (GET/POST /api/cloud)");
 }
 
+// Cloud-бекенд цієї прошивки (Kconfig MODESP_CLOUD_AWS) — main бере його через
+// generic modesp::cloud_backend(), не знаючи класу AwsIotService.
+ICloudService* cloud_backend() {
+    static AwsIotService instance;
+    return &instance;
+}
+
 } // namespace modesp

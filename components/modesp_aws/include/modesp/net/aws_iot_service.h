@@ -13,25 +13,24 @@
 
 #pragma once
 
-#include "modesp/base_module.h"
-#include "esp_http_server.h"
+#include "modesp/net/cloud_service.h"   // ICloudService (спільний контракт)
 #include "mqtt_client.h"
 
 namespace modesp {
 
 class SharedState;
 
-class AwsIotService : public BaseModule {
+class AwsIotService : public ICloudService {
 public:
-    AwsIotService() : BaseModule("cloud", ModulePriority::HIGH) {}
+    AwsIotService() : ICloudService("cloud", ModulePriority::HIGH) {}
 
     bool on_init() override;
     void on_update(uint32_t dt_ms) override;
     void on_stop() override;
 
-    // Dependency injection (сумісний інтерфейс з MqttService)
-    void set_state(SharedState* s) { state_ = s; }
-    void set_http_server(httpd_handle_t server);
+    // ICloudService
+    void set_state(SharedState* s) override { state_ = s; }
+    void set_http_server(httpd_handle_t server) override;
 
     // Public API
     bool is_connected() const { return connected_; }
