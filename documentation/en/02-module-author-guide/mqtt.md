@@ -140,33 +140,42 @@ when the broker detects connection loss (60-second keepalive).
 This gives external systems а cheap "is the device alive?" check без
 parsing the state stream.
 
-## Retained alarms
+## Alarms: QoS 1 + retain (manifest-driven)
 
-Critical alarms (over-temperature, sensor fault, etc.) get **republished
-every 5 minutes із retain flag**. Reasoning: а transient subscriber that
-connects late should immediately see active alarms, не wait для the next
-change. Periodic republish ensures retained value stays fresh.
+Alarm-class keys are declared in the manifest — `mqtt.alarm` section
+(a subset of `mqtt.publish`):
 
-The framework's alarm subsystem (Stage 1.5) marks specific keys as
-"alarm-class" — they go through це pathway. Regular state keys publish
-normally without retain.
+```json
+"mqtt": {
+  "publish": ["my_mod.overheat"],
+  "alarm":   ["my_mod.overheat"]
+}
+```
+
+The generator emits `gen::MQTT_PUBLISH_ALARM[]`; such keys publish with
+**QoS 1 + retain** — a subscriber that connects late immediately sees the
+active alarm. Regular state keys publish QoS 0 without retain.
 
 ## Home Assistant integration
 
-If `CONFIG_MODESP_MQTT_HA_DISCOVERY=y` (Kconfig), the service publishes
-HA discovery messages on first connect:
+HA discovery is **fully manifest-driven**: the `mqtt.ha` section maps a
+publish key to entity metadata (the generator emits `gen::HA_ENTITIES[]`;
+`MqttService` publishes discovery on every connect):
 
+```json
+"mqtt": {
+  "publish": ["my_mod.temp"],
+  "ha": {
+    "my_mod.temp": {"name": "Temperature", "component": "sensor",
+                    "device_class": "temperature", "state_class": "measurement"}
+  }
+}
 ```
-homeassistant/sensor/modesp_a1b2c3_simple_thermo_temperature/config
-```
 
-Each `mqtt.publish` key emits an HA discovery payload із proper unit, device
-class, і device grouping. Home Assistant auto-creates entities — no manual
-configuration on the HA side.
-
-This is а Stage 1 feature; coverage details у
-[components/modesp_mqtt.md](../03-framework-reference/components/modesp_mqtt.md)
-*(planned)*.
+`component`: `sensor` | `binary_sensor`. `unit` defaults to the state key's
+declared unit. The key must be in `mqtt.publish` (validated). The topic /
+identifier root comes from `system.mqtt_topic_root` in project.json
+(default `modesp`).
 
 ## Cloud backend selection
 

@@ -90,25 +90,28 @@ Every `PUBLISH_INTERVAL_MS`:
 2. For each key, check SharedState's changed-keys set.
 3. Publish changed keys із QoS 0 (delta semantics).
 
-Heartbeat runs on its own timer. Reliable delivery (QoS 1 + retain) for
-alarm-class keys returns as a manifest-driven flag in Phase 2 of the
-universality roadmap; the old hardcoded 'protection.' prefix matched
-nothing and was removed.
+Heartbeat runs on its own timer. Keys listed in a manifest's `mqtt.alarm`
+section publish with QoS 1 + retain (generated `gen::MQTT_PUBLISH_ALARM[]`);
+a failed alarm enqueue is retried on the next tick (the cache is not
+updated). All other keys publish QoS 0 without retain.
 
 ### HA discovery
 
-Якщо `CONFIG_MODESP_MQTT_HA_DISCOVERY=y`, on connect MqttService publishes
-а discovery payload per state key:
+On every connect MqttService publishes a discovery payload for each entity
+declared in module manifests (`mqtt.ha` → generated `gen::HA_ENTITIES[]`):
 
 ```
-homeassistant/sensor/modesp_a1b2c3_simple_thermo_temperature/config
+homeassistant/sensor/<topic_root>_a1b2c3/simple_thermo_setpoint/config
 ```
 
-Payload includes unit (`°C`, `%`, etc.), device class (`temperature`,
-`humidity`, …), state topic, value template, і а common `device` block
-що groups all entities від one device.
+Payload includes unit (defaulted from the state key), device class,
+state class, state/availability topics and a common `device` block that
+groups all entities of one device. The topic/identifier root comes from
+`system.mqtt_topic_root` in project.json.
 
-HA auto-creates entities. No manual setup needed.
+HA auto-creates entities. No manual setup needed. NOTE: if an entity is
+removed from a manifest, its old retained discovery config stays on the
+broker — clear it once with `mosquitto_pub -r -n -t <config topic>`.
 
 ### TLS і AWS contrast
 

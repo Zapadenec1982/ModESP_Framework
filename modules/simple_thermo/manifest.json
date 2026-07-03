@@ -65,12 +65,17 @@
     "publish": [
       "simple_thermo.temperature",
       "simple_thermo.state",
-      "simple_thermo.output"
+      "simple_thermo.output",
+      "simple_thermo.setpoint"
     ],
     "subscribe": [
       "simple_thermo.setpoint",
       "simple_thermo.differential"
-    ]
+    ],
+    "ha": {
+      "simple_thermo.setpoint": {"name": "Setpoint", "component": "sensor",
+                                 "device_class": "temperature", "state_class": "measurement"}
+    }
   },
 
   "loggable": {

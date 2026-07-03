@@ -100,10 +100,13 @@ void MqttService::build_default_prefix() {
 
     if (prefix_[0] != '\0') return;  // Manual override from NVS
 
+    // Topic root — з project.json (gen::MQTT_TOPIC_ROOT), не бренд-літерал.
     if (tenant_[0] != '\0') {
-        snprintf(prefix_, sizeof(prefix_), "modesp/v1/%s/%s", tenant_, device_id_);
+        snprintf(prefix_, sizeof(prefix_), "%s/v1/%s/%s",
+                 gen::MQTT_TOPIC_ROOT, tenant_, device_id_);
     } else {
-        snprintf(prefix_, sizeof(prefix_), "modesp/v1/pending/%s", device_id_);
+        snprintf(prefix_, sizeof(prefix_), "%s/v1/pending/%s",
+                 gen::MQTT_TOPIC_ROOT, device_id_);
     }
 }
 
@@ -431,10 +434,18 @@ void MqttService::publish_state() {
         snprintf(topic, sizeof(topic), "%s/state/%s",
                  prefix_, gen::MQTT_PUBLISH[i]);
 
-        // QoS 0, no retain. Reliable delivery (QoS 1 + retain) for alarm-class
-        // keys returns as a manifest-driven flag — Phase 2 of the universality
-        // roadmap; the old hardcoded 'protection.' prefix matched nothing.
-        esp_mqtt_client_publish(client_, topic, payload, len, 0, 0);
+        // Manifest-driven надійність: mqtt.alarm-ключі → QoS1 + retain
+        // (аларм не має губитися і мусить пережити reconnect підписника);
+        // решта — QoS0 без retain.
+        const bool alarm = gen::MQTT_PUBLISH_ALARM[i];
+        int msg_id = esp_mqtt_client_publish(client_, topic, payload, len,
+                                             alarm ? 1 : 0, alarm ? 1 : 0);
+        if (alarm && msg_id < 0) {
+            // Не вдалося поставити в outbox (heap/зупинка клієнта) — НЕ кешуємо,
+            // щоб наступний тик повторив публікацію (контракт "не губиться").
+            ESP_LOGW(TAG, "alarm publish enqueue failed: %s", gen::MQTT_PUBLISH[i]);
+            continue;
+        }
 
         // Зберігаємо опубліковане значення в кеш
         strncpy(last_payloads_[i], payload, sizeof(last_payloads_[i]) - 1);
@@ -941,14 +952,15 @@ void MqttService::publish_ha_entity(
 
     char disc_topic[96];
     snprintf(disc_topic, sizeof(disc_topic),
-             "homeassistant/%s/modesp_%s/%s/config",
-             entity_type, device_id, object_id);
+             "homeassistant/%s/%s_%s/%s/config",
+             entity_type, gen::MQTT_TOPIC_ROOT, device_id, object_id);
 
     char state_topic[128];
     snprintf(state_topic, sizeof(state_topic), "%s/state/%s", prefix_, state_key);
 
     char unique_id[64];
-    snprintf(unique_id, sizeof(unique_id), "modesp_%s_%s", device_id, object_id);
+    snprintf(unique_id, sizeof(unique_id), "%s_%s_%s",
+             gen::MQTT_TOPIC_ROOT, device_id, object_id);
 
     char payload[512];
     int len = 0;
@@ -1009,38 +1021,22 @@ void MqttService::publish_ha_discovery() {
     }
 
     char device_name[32];
-    snprintf(device_name, sizeof(device_name), "ModESP %s", device_id);
+    snprintf(device_name, sizeof(device_name), "%s %s", gen::MQTT_TOPIC_ROOT, device_id);
 
-    // Таблиця entities: {state_key, name, entity_type, device_class, unit, state_class}
-    struct EntityDef {
-        const char* state_key;
-        const char* name;
-        const char* entity_type;
-        const char* device_class;
-        const char* unit;
-        const char* state_class;
-    };
+    // Entities — ЦІЛКОМ з маніфестів (mqtt.ha секції модулів) через
+    // згенерований gen::HA_ENTITIES[]. Жодних продуктових ключів у framework:
+    // нова entity з'являється правкою маніфеста, не цього файлу.
+    if (gen::HA_ENTITIES_COUNT == 0) {
+        ESP_LOGI(TAG, "HA discovery: no entities declared in manifests");
+        return;
+    }
 
-    // Framework-generic HA discovery entities. Refrigeration-specific entries
-    // (compressor, defrost, evap/cond fans, thermostat alarms, protection.*)
-    // були removed at framework cleanup — це template project не has refrigeration
-    // bizlogic. Якщо ваш domain module exposes additional entities, або add them
-    // here або (better) drive це від manifest's `mqtt` section programmatically
-    // (Stage 1.5 — currently це table is hardcoded).
-    static const EntityDef ENTITIES[] = {
-        // Generic temperature sensor (якщо ваш bindings включає temp sensor)
-        {"equipment.air_temp",          "Air Temperature",    "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        // Simple thermo setpoint (стандартний business module)
-        {"simple_thermo.setpoint",      "Setpoint",           "sensor",        "temperature", "\xc2\xb0" "C", "measurement"},
-        // Diagnostics
-        {"system.uptime",               "Uptime",             "sensor",        "duration",    "s",           "total_increasing"},
-        {"system.heap_free",            "Free Heap",          "sensor",        "",            "B",           "measurement"},
-    };
+    ESP_LOGI(TAG, "Publishing HA discovery (%d entities, device=%s)",
+             (int)gen::HA_ENTITIES_COUNT, device_id);
 
-    ESP_LOGI(TAG, "Publishing HA discovery (%d entities, device=%s)", (int)(sizeof(ENTITIES)/sizeof(ENTITIES[0])), device_id);
-
-    for (const auto& e : ENTITIES) {
-        publish_ha_entity(e.state_key, e.name, e.entity_type,
+    for (size_t i = 0; i < gen::HA_ENTITIES_COUNT; i++) {
+        const auto& e = gen::HA_ENTITIES[i];
+        publish_ha_entity(e.state_key, e.name, e.component,
                           e.device_class, e.unit, e.state_class,
                           device_id, device_name);
     }

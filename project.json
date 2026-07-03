@@ -14,6 +14,7 @@
   ],
   "system": {
     "device_name": "ModESP",
+    "mqtt_topic_root": "modesp",
     "pages": {
       "dashboard": true,
       "network": true,

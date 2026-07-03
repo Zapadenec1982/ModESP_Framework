@@ -147,35 +147,42 @@ modesp/v1/default/a1b2c3/status  →  "online" (з утриманням, QoS 1)
 Це дає зовнішнім системам дешеву перевірку "чи живий пристрій?" без
 розбору потоку стану.
 
-## Утримувані тривоги
+## Тривоги: QoS 1 + retain (manifest-driven)
 
-Критичні тривоги (перегрів, несправність сенсора тощо) **повторно
-публікуються кожні 5 хвилин із прапорцем retain**. Мотивація:
-короткочасний підписник, що під'єднується пізно, має одразу побачити
-активні тривоги, а не чекати наступної зміни. Періодична
-перепублікація гарантує, що утримуване значення залишається свіжим.
+Ключі alarm-класу декларуються в маніфесті — секція `mqtt.alarm`
+(підмножина `mqtt.publish`):
 
-Підсистема тривог фреймворку (Stage 1.5) позначає конкретні ключі як
-"alarm-class" — вони йдуть цим шляхом. Звичайні ключі стану
-публікуються без утримання.
+```json
+"mqtt": {
+  "publish": ["my_mod.overheat"],
+  "alarm":   ["my_mod.overheat"]
+}
+```
+
+Генератор емить `gen::MQTT_PUBLISH_ALARM[]`; такі ключі публікуються
+з **QoS 1 + retain** — підписник, що під'єднується пізно, одразу
+бачить активну тривогу. Звичайні ключі стану — QoS 0 без утримання.
 
 ## Інтеграція з Home Assistant
 
-Якщо `CONFIG_MODESP_MQTT_HA_DISCOVERY=y` (Kconfig), сервіс публікує
-повідомлення HA discovery при першому під'єднанні:
+HA discovery — **повністю з маніфестів**: секція `mqtt.ha` мапить
+publish-ключ на метадані entity (генератор емить `gen::HA_ENTITIES[]`,
+`MqttService` публікує discovery на кожному під'єднанні):
 
+```json
+"mqtt": {
+  "publish": ["my_mod.temp"],
+  "ha": {
+    "my_mod.temp": {"name": "Temperature", "component": "sensor",
+                    "device_class": "temperature", "state_class": "measurement"}
+  }
+}
 ```
-homeassistant/sensor/modesp_a1b2c3_simple_thermo_temperature/config
-```
 
-Кожен ключ з `mqtt.publish` випромінює корисне навантаження HA
-discovery з правильною одиницею, класом пристрою та групуванням
-пристроїв. Home Assistant автоматично створює сутності — жодних
-ручних налаштувань на стороні HA.
-
-Це функціональність Stage 1; деталі покриття в
-[components/modesp_mqtt.md](../03-framework-reference/components/modesp_mqtt.md)
-*(заплановано)*.
+`component`: `sensor` | `binary_sensor`. `unit` за замовчуванням
+береться з декларації state-ключа. Ключ мусить бути в `mqtt.publish`
+(валідується). Корінь топіків/ідентифікаторів — `system.mqtt_topic_root`
+у project.json (типово `modesp`).
 
 ## Вибір хмарного бекенда
 

@@ -26,7 +26,11 @@
     ],
     "subscribe": [
       "equipment.filter_coeff"
-    ]
+    ],
+    "ha": {
+      "equipment.air_temp": {"name": "Air Temperature", "component": "sensor",
+                             "device_class": "temperature", "state_class": "measurement"}
+    }
   },
 
   "loggable": {

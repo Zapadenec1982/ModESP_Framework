@@ -206,6 +206,39 @@ class ManifestValidator:
                     f"[{name}] MQTT subscribe key '{key}' has access="
                     f"'{state[key].get('access')}' — must be 'readwrite'")
 
+        # mqtt.alarm — QoS1+retain: лише для ключів, що публікуються
+        publish_set = set(mqtt.get("publish", []))
+        for key in mqtt.get("alarm", []):
+            if key not in publish_set:
+                self.errors.append(
+                    f"[{name}] MQTT alarm key '{key}' is not in mqtt.publish")
+
+        # mqtt.ha — HA discovery: ключ мусить публікуватися; component з
+        # переліку, який реально вміє MqttService.
+        HA_COMPONENTS = {"sensor", "binary_sensor"}
+        for key, ha in mqtt.get("ha", {}).items():
+            if key not in publish_set:
+                self.errors.append(
+                    f"[{name}] MQTT ha key '{key}' is not in mqtt.publish")
+            if not isinstance(ha, dict) or not ha.get("name"):
+                self.errors.append(
+                    f"[{name}] MQTT ha entry '{key}' needs a non-empty 'name'")
+                continue
+            comp = ha.get("component", "sensor")
+            if comp not in HA_COMPONENTS:
+                self.errors.append(
+                    f"[{name}] MQTT ha entry '{key}': component '{comp}' not "
+                    f"supported (allowed: {', '.join(sorted(HA_COMPONENTS))})")
+            # Значення потрапляють у C-літерали генерованого хедера і в
+            # discovery-JSON без escaping — лапки/бекслеші/керуючі заборонені.
+            for field in ("name", "device_class", "unit", "state_class"):
+                val = str(ha.get(field, ""))
+                if ('"' in val or '\\' in val
+                        or any(ord(c) < 0x20 for c in val)):
+                    self.errors.append(
+                        f"[{name}] MQTT ha entry '{key}': field '{field}' must "
+                        f"not contain quotes, backslashes or control characters")
+
         # Validate display section (main_value + hierarchical menu)
         display = manifest.get("display", {})
         mv = display.get("main_value", {})
@@ -1765,15 +1798,40 @@ class StateMetaGenerator:
 
 
 class MqttTopicsGenerator:
-    """Generates generated/mqtt_topics.h"""
+    """Generates generated/mqtt_topics.h.
 
-    def generate(self, manifests):
+    Inputs (module manifests, 'mqtt' section):
+      publish/subscribe — key lists (як і раніше);
+      alarm             — підмножина publish: QoS1 + retain (надійна доставка);
+      ha                — {state_key: {name, component, device_class?,
+                          state_class?, unit?}} — Home Assistant discovery;
+                          unit за замовчуванням береться зі state-ключа.
+    Plus project.json system.mqtt_topic_root → gen::MQTT_TOPIC_ROOT.
+    """
+
+    def generate(self, manifests, project=None):
         pub_keys = []
         sub_keys = []
+        alarm_keys = set()
+        ha_entities = []   # (state_key, name, component, device_class, unit, state_class)
         for m in manifests:
             mqtt = m.get("mqtt", {})
             pub_keys.extend(mqtt.get("publish", []))
             sub_keys.extend(mqtt.get("subscribe", []))
+            alarm_keys.update(mqtt.get("alarm", []))
+            state = m.get("state", {})
+            for key, ha in mqtt.get("ha", {}).items():
+                unit = ha.get("unit", state.get(key, {}).get("unit", ""))
+                ha_entities.append((
+                    key,
+                    ha.get("name", key),
+                    ha.get("component", "sensor"),
+                    ha.get("device_class", ""),
+                    unit,
+                    ha.get("state_class", ""),
+                ))
+        topic_root = ((project or {}).get("system", {}) or {}).get(
+            "mqtt_topic_root", "modesp")
 
         lines = [
             "#pragma once",
@@ -1803,6 +1861,45 @@ class MqttTopicsGenerator:
             lines.append('    "",  // empty')
         lines.append("};")
         lines.append(f"static constexpr size_t MQTT_SUBSCRIBE_COUNT = {len(sub_keys)};")
+        lines.append("")
+
+        # Alarm-class publish keys (manifest mqtt.alarm) — паралельний до
+        # MQTT_PUBLISH масив прапорців: true → QoS1 + retain.
+        lines.append("// QoS1+retain для alarm-класу ключів (manifest mqtt.alarm)")
+        lines.append("static constexpr bool MQTT_PUBLISH_ALARM[] = {")
+        if pub_keys:
+            for key in pub_keys:
+                lines.append(f"    {'true' if key in alarm_keys else 'false'},  // {key}")
+        else:
+            lines.append("    false,  // empty")
+        lines.append("};")
+        lines.append("")
+
+        # Topic root (project.json system.mqtt_topic_root; default "modesp")
+        lines.append("// Коренева назва топіків/ідентифікаторів (project.json)")
+        lines.append(f'static constexpr const char* MQTT_TOPIC_ROOT = "{topic_root}";')
+        lines.append("")
+
+        # Home Assistant discovery entities (manifest mqtt.ha)
+        lines.append("// HA discovery entities (manifest mqtt.ha) — MqttService")
+        lines.append("struct HaEntity {")
+        lines.append("    const char* state_key;")
+        lines.append("    const char* name;")
+        lines.append("    const char* component;     // sensor | binary_sensor")
+        lines.append('    const char* device_class;  // "" = none')
+        lines.append('    const char* unit;          // "" = none')
+        lines.append('    const char* state_class;   // "" = none')
+        lines.append("};")
+        lines.append("static constexpr HaEntity HA_ENTITIES[] = {")
+        if ha_entities:
+            for key, name, comp, dclass, unit, sclass in ha_entities:
+                lines.append(
+                    f'    {{"{key}", "{name}", "{comp}", "{dclass}", '
+                    f'"{unit}", "{sclass}"}},')
+        else:
+            lines.append('    {"", "", "", "", "", ""},  // empty')
+        lines.append("};")
+        lines.append(f"static constexpr size_t HA_ENTITIES_COUNT = {len(ha_entities)};")
         lines.append("")
         lines.append("} // namespace modesp::gen")
         lines.append("")
@@ -2183,6 +2280,16 @@ def main():
             print(f"  Examples: thermostat, heat_pump, data_logger")
             sys.exit(1)
 
+    # system.mqtt_topic_root: потрапляє в C-літерали, MQTT-топіки та HA
+    # node_id — жорсткий charset + ліміт довжини, щоб fixed-size буфери
+    # (prefix_[80], disc_topic[96], unique_id[64]) ніколи не обрізались.
+    _topic_root = (project.get("system", {}) or {}).get("mqtt_topic_root", "modesp")
+    if (not re.match(r"^[a-z][a-z0-9_-]*$", _topic_root)) or len(_topic_root) > 24:
+        print(f"ERROR: system.mqtt_topic_root '{_topic_root}' is invalid — "
+              f"must match ^[a-z][a-z0-9_-]*$ and be at most 24 chars "
+              f"(lands in MQTT topics, HA node ids and C string literals)")
+        sys.exit(1)
+
     # Load and validate module manifests
     print("\nLoading module manifests...")
     validator = ManifestValidator()
@@ -2320,7 +2427,7 @@ def main():
 
     # 3. mqtt_topics.h
     mqtt_gen = MqttTopicsGenerator()
-    mqtt_h = mqtt_gen.generate(manifests)
+    mqtt_h = mqtt_gen.generate(manifests, project)
     mqtt_path = gen_dir / "mqtt_topics.h"
     with open(mqtt_path, "w", encoding="utf-8") as f:
         f.write(mqtt_h)
