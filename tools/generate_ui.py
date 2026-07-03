@@ -2958,8 +2958,13 @@ def main():
         print(f"  + {out_path} ({len(merged)} keys, {out_path.stat().st_size} bytes)")
         files_written += 1
 
-    # Write i18n manifest
-    i18n_manifest = {"languages": ["uk"] + sorted(available_langs), "default": "uk"}
+    # Write i18n manifest. The SOURCE language (project.system.source_lang, default
+    # "uk") is the language the manifests are authored in — its strings live in ui.json
+    # directly; the other languages ship translation packs. Source goes first and is the
+    # default; it is never duplicated even if it also has a translation file.
+    source_lang = project.get("system", {}).get("source_lang", "uk")
+    other_langs = sorted(l for l in available_langs if l != source_lang)
+    i18n_manifest = {"languages": [source_lang] + other_langs, "default": source_lang}
     manifest_path = i18n_out / "manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(i18n_manifest, f, ensure_ascii=False, indent=2)

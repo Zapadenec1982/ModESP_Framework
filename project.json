@@ -15,6 +15,7 @@
   "system": {
     "device_name": "ModESP",
     "mqtt_topic_root": "modesp",
+    "source_lang": "uk",
     "pages": {
       "dashboard": true,
       "network": true,

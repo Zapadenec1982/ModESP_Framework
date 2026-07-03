@@ -38,6 +38,10 @@
             "aws"
           ]
         },
+        "source_lang": {
+          "type": "string",
+          "pattern": "^[a-z]{2}$"
+        },
         "pages": {
           "type": "object",
           "additionalProperties": {
