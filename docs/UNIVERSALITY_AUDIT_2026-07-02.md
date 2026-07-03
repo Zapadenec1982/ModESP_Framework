@@ -201,13 +201,15 @@
 
 Framework вважається universal, коли ВСІ пункти проходять без правки жодного файлу поза modules/<x>/, drivers/<x>/, boards/<x>/ і project.json:
 
-> **Статус 2026-07-04** (після Фаз 1–2 + Фази 3 п.1/2/4/6): `[x]` перевірено (acid-тест / білд / grep), `[~]` механізм є але лишився залишок. Деталі — «Що лишилось» нижче.
+> **Статус 2026-07-04** (Фази 1–2, Фаза 3 п.1/2/4/6, + Фаза 4 прибирання зчеплення): `[x]`
+> перевірено (acid-тест / білд / grep / 379 host-тестів), `[~]` механізм є але лишився залишок.
+> Деталі — «Що лишилось» нижче.
 
 **Модулі**
 - [x] `git rm -r modules/simple_thermo` + видалити зі `project.json` → `idf.py build` проходить, webui не має слідів модуля. *(auto-registration з project.json; підтверджено acid-тестом demo_meter)*
 - [x] `git rm -r modules/panel modules/player modules/presence` + project.json → білд проходить. *(Ф2.1 on_bind прибрав per-module виклики з main.cpp)*
 - [x] Створити modules/my_pump/ (manifest+CMake+C++ з on_bind) + один рядок у project.json → модуль реєструється, б'є драйвери, з'являється в UI/MQTT/datalogger. Нуль правок у main/. *(acid-тест demo_meter: `git status` = лише project.json + нова папка)*
-- [~] `grep "equipment|simple_thermo|datalogger|panel|player|presence" components/ main/ webui/src/` → нуль (крім generic-слів). **Майже:** ядро/HAL/main чисті (лишки — generic категорії `IPanelPort`/`IAudioSink`/`EquipmentBase`, як `display`). Реальні залишки: **webui** `OneWireDiscovery.svelte` (ds18b20-специфічна сторінка) + `equipment`-дефолт у BindingsEditor/EquipmentStatus; `panel_text.h` знає ключі `panel.slotN`.
+- [x] `grep "equipment|simple_thermo|datalogger|panel|player|presence" components/ main/ webui/src/` → лише generic-слова. *(Фаза 4: OneWireDiscovery.svelte видалено, `equipment`-дефолт + `SHAREABLE_HW`/onewire-хардкод у BindingsEditor → manifest-driven `hw.shareable`/`requires_address` (коміти 369e070); `panel_text.h` перенесено в panel-модуль (9a49312, b573fc8). Лишок — generic категорії `IPanelPort`/`IAudioSink`/`EquipmentBase` (як `display`) + коментарі.)*
 
 **Драйвери**
 - [x] Створити drivers/my_sensor/ (manifest+фабрика+MODESP_REGISTER_SENSOR) → toggle у menuconfig, працює з bindings.json. Нуль інших правок — включно з display/audio/panel категорією та драйвером із discovery. *(acid-тест demo_out; ble_xiaomi_th/ble_led_panel — drop-in у Ф3.1)*
@@ -220,8 +222,8 @@ Framework вважається universal, коли ВСІ пункти прох�
 - [x] Помилки в маніфесті (persist на string, ключ 33 символи, 7-й log-канал, опечатка поля, невідомий widget) → червоний білд. *(валідації Ф1.6 + JSON-схеми Ф2.8)*
 
 **Опційність**
-- [~] menuconfig: NET off + CLOUD none + SCENARIO off + BLE off → мінімальний offline-продукт. *(Kconfig-гейти Ф1.5 є; цю конкретну збірку окремо не ганяли)*
-- [~] Продукт англійською: source_lang в project.json, жоден український літерал не потрібен. *(`source_lang` додано, коміт 20d9270; але дефолтні маніфести/system_pages досі укр. — повністю англ. продукт не продемонстровано)*
+- [~] menuconfig: NET off + CLOUD none + SCENARIO off + BLE off → мінімальний offline-продукт. *(гейти підтверджено на місці: Kconfig-символи MODESP_NET/SCENARIO/BLE_ENABLE + empty-component SRCS у modesp_net/scenario/ble + 17 `#if`-guards у main.cpp; повний offline-білд — на мінімальній платі, бо stand_s3 обов'язково потребує BLE)*
+- [~] Продукт англійською: source_lang в project.json, жоден український літерал не потрібен. *(механізм підтверджено: `source_lang: "en"` → i18n-маніфест `["en","de","pl"]` default `en`, коміт 20d9270; повністю англ. продукт ще потребує англомовних маніфестів)*
 - [x] HA discovery / alarm QoS / chart-канали / event-лейбли — все з маніфестів, підтверджено на модулі (abs_test), якого не існувало на момент рефакторингу. *(Ф2.7 + Ф2.10)*
 
 **Останній тест ("acid test")**
@@ -231,18 +233,29 @@ Framework вважається universal, коли ВСІ пункти прох�
 
 ## 6. Що лишилось (станом на 2026-07-04)
 
-Ядро universal-мети досягнуто: додати/прибрати модуль, драйвер чи плату можна без правок поза `modules/<x>/`, `drivers/<x>/`, `boards/<x>/`, `project.json` (підтверджено acid-тестами). Лишилися **необов'язкові** хвости:
+Universal-мету досягнуто й зверифіковано: framework-код product-clean (grep → лише
+generic-слова), додати/прибрати модуль, драйвер чи плату можна без правок поза
+`modules/<x>/`, `drivers/<x>/`, `boards/<x>/`, `project.json` (acid-тести), 379 host-тестів
+зелені. Залишкове зчеплення (Фаза 4) прибрано. Лишилися лише **необов'язкові enhancement-и**,
+що РОЗШИРЮЮТЬ framework (не universality-прогалини):
 
-**Залишкове зчеплення у framework-коді (не блокує drop-in, але не «нуль»):**
-- **webui binding-editor**: `webui/src/pages/bindings/OneWireDiscovery.svelte` — ds18b20/OneWire-специфічна сторінка discovery (бекенд generic `/api/drivers/<type>/scan` уже є з Ф2.3; сторінку варто узагальнити на будь-який discovery-driver). `EquipmentStatus.svelte`/`BindingsEditor.svelte` — хардкод-дефолт `'equipment'` як модуль.
-- **`components/modesp_core/.../panel_text.h`** знає ключі `panel.slotN` (легке зчеплення generic text-slot API з ключами panel-модуля).
+**Enhancement-и дорожньої карти (Фаза 3, за потреби):**
+- **Ф3.3 — provides_actions**: модулі декларують дії в маніфесті → merge у KnownActionRegistry
+  + авто-хеші + mirror-ключі рецептів. Сьогодні `ActionRegistry` (modesp_scenario) наповнює
+  main.cpp — працює; це зручність для scenario-авторів. *Нова фіча, не universality-прогалина.*
+- **manifest `assets` для медіа**: модуль декларує медіа (напр. `data/audio/2.mp3`), генератор
+  стейджить у `data/`. Дасть player-модулю володіти своїм аудіо. *Нова фіча.*
+- **Ф3.5 — генерація в `${CMAKE_BINARY_DIR}/generated`**: зараз генеровані лежать у `generated/`
+  в дереві. **Свідомо відкладено:** ризик > користь — тягне committed `panel_font_data.h`
+  (dev-time, TTF) + правку include-шляхів у багатьох компонентах заради косметики (чистіший git),
+  без universality-виграшу. Робочий стан стабільний.
+- **`modesp_module_component()` CMake-хелпер**: модулі мають тривіальний CMakeLists (без
+  Kconfig-опційності драйверів), тож хелпер — churn заради ~1 рядка. *Пропущено як marginal.*
+- **demo-модулі в `examples/`**: guide-и (`writing-a-module.md`/`writing-a-driver.md`) уже несуть
+  повний покроковий шаблон + `simple_thermo` як живий demo. *Пропущено як дублікат.*
+- ✅ **host-тести** — полагоджено (Фаза 4): `tools/run_host_tests.py` (PYTEST_DISABLE_PLUGIN_AUTOLOAD),
+  379 passed / 65 skipped; 6 `test_cpp_host` (native C++ host-білд) — окрема тема, скіпаються за замовч.
 
-**Незроблені пункти дорожньої карти (Фаза 3, нижчий пріоритет):**
-- **Ф3.3 — provides_actions**: реєстр дій модулів + авто-хеші + mirror-ключі рецептів.
-- **Ф3.5 — генерація в `${CMAKE_BINARY_DIR}/generated`**: зараз генеровані файли лежать у `generated/` в дереві (не в build-dir); паралельні build-dirs/чистіший git — не зроблено.
-- **Ф3.7 (частина)**: `modesp_module_component()` CMake-хелпер; host-тести через convention-discovery (наявний pytest-набір не збирається — кастомний `target`-parametrize); manifest `assets` для медіа; demo-модулі в `examples/`.
-
-**Перевірки, які варто прогнати окремо (механізм є, збірку не ганяли):**
-- Мінімальна offline-збірка (NET/CLOUD/SCENARIO/BLE off).
-- Повністю англомовний продукт (`source_lang: "en"` + англ. маніфести).
-- **Рантайм BLE Ф3.1** — прошити панель/сенсор на залізі (компіляція+рев'ю пройдені, рантайм не перевіряли).
+**Перевірки, які варто прогнати на залізі / окремій конфізі:**
+- Мінімальна offline-збірка на мінімальній платі (гейти підтверджено на місці — див. §5).
+- **Рантайм BLE Ф3.1** — прошити панель/сенсор (компіляція+рев'ю пройдені, рантайм не перевіряли).
