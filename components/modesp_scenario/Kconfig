@@ -1,0 +1,15 @@
+menu "ModESP Scenario Engine"
+
+    config MODESP_SCENARIO_ENABLE
+        bool "Enable scenario engine (recipes / .modr runtime)"
+        default y
+        help
+            Master switch for the modesp_scenario component (track-based
+            time-dependent algorithm runtime). When disabled, the component
+            compiles empty (zero sources), main.cpp skips the engine wiring
+            and the /api/scenario/* HTTP endpoints are not registered.
+
+            Products without recipe modules can disable this for a smaller
+            binary.
+
+endmenu

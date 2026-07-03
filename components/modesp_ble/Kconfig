@@ -17,11 +17,12 @@ menu "ModESP BLE"
 
     config MODESP_BLE_PROVISIONING
         bool "BLE Wi-Fi/cloud provisioning (GATT)"
-        depends on MODESP_BLE_ENABLE
+        depends on MODESP_BLE_ENABLE && MODESP_NET_ENABLE
         default n
         help
             GATT service to write Wi-Fi credentials / cloud config into NVS from a
-            phone during headless setup. Reuses wifi_service reconnect.
+            phone during headless setup. Reuses wifi_service reconnect — hence
+            requires networking (MODESP_NET_ENABLE).
 
     config MODESP_BLE_GATT_SERVER
         bool "BLE telemetry/control GATT server (SharedState mirror)"

@@ -1,0 +1,17 @@
+menu "ModESP Network"
+
+    config MODESP_NET_ENABLE
+        bool "Enable networking (WiFi + HTTP + WebSocket)"
+        default y
+        help
+            Master switch for the modesp_net component. When disabled, the
+            component compiles empty (zero sources) and main.cpp skips the
+            WiFi/HTTP/WebSocket wiring — for offline or BLE-only products.
+
+            Disabling networking also removes OTA-over-HTTP; the OTA rollback
+            watchdog then validates the firmware right after the main loop
+            starts (no network health check available).
+
+            Cloud backends (MQTT / AWS IoT) require this option.
+
+endmenu

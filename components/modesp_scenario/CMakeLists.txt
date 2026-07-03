@@ -10,8 +10,11 @@
 #
 # Phase 1: core lift, namespace rename, registry injection, mirror direct call.
 
-idf_component_register(
-    SRCS
+# Optional: when CONFIG_MODESP_SCENARIO_ENABLE is off, contributes zero sources
+# (empty component) — products without recipes carry no engine code.
+set(scenario_srcs "")
+if(CONFIG_MODESP_SCENARIO_ENABLE)
+    list(APPEND scenario_srcs
         # core
         "src/core/engine.cpp"
         "src/core/instance.cpp"
@@ -28,7 +31,11 @@ idf_component_register(
         # observers
         "src/observers/mirror.cpp"
         "src/observers/nvs_observer.cpp"
-        "src/observers/nvs_token.cpp"
+        "src/observers/nvs_token.cpp")
+endif()
+
+idf_component_register(
+    SRCS ${scenario_srcs}
     INCLUDE_DIRS
         "include"
         "${CMAKE_SOURCE_DIR}/generated"

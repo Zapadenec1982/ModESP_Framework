@@ -16,7 +16,9 @@
 #include "ds18b20_driver.h"   // OneWire scan endpoint — only when driver enabled
 #endif
 #include "datalogger_module.h"
+#ifdef CONFIG_MODESP_SCENARIO_ENABLE
 #include "modesp/scenario/engine.h"  // Phase 3: restored з modesp::scenario types
+#endif
 
 #include "esp_log.h"
 #include "esp_system.h"
@@ -1640,7 +1642,9 @@ esp_err_t HttpService::handle_post_auth(httpd_req_t* req) {
 }
 // ─────────────────────────────────────────────────────────────────
 // Scenario engine API handlers (Phase 3 restore — new modesp::scenario namespace)
+// Compiled only with the scenario engine (CONFIG_MODESP_SCENARIO_ENABLE).
 // ─────────────────────────────────────────────────────────────────
+#ifdef CONFIG_MODESP_SCENARIO_ENABLE
 //
 // REST surface для Engine:
 //   POST /api/scenario/load    {"path": "/lfs/scenarios/<recipe>.modr"} → {"handle": N}
@@ -1957,6 +1961,7 @@ esp_err_t HttpService::handle_post_scenario_unload(httpd_req_t* req) {
             return e->unload(h);
         });
 }
+#endif // CONFIG_MODESP_SCENARIO_ENABLE
 
 // ── Server setup ────────────────────────────────────────────────
 
@@ -1991,6 +1996,7 @@ void HttpService::register_api_handlers() {
         {"/api/auth", HTTP_GET,  handle_get_auth},
         {"/api/auth", HTTP_POST, handle_post_auth},
 
+#ifdef CONFIG_MODESP_SCENARIO_ENABLE
         // Scenario engine API (Phase 3 — modesp::scenario types)
         {"/api/scenario/list",   HTTP_GET,  handle_get_scenario_list},
         {"/api/scenario/info",   HTTP_GET,  handle_get_scenario_info},
@@ -2000,6 +2006,7 @@ void HttpService::register_api_handlers() {
         {"/api/scenario/resume", HTTP_POST, handle_post_scenario_resume},
         {"/api/scenario/abort",  HTTP_POST, handle_post_scenario_abort},
         {"/api/scenario/unload", HTTP_POST, handle_post_scenario_unload},
+#endif
     };
 
     // Реєструємо handlers + OPTIONS для CORS preflight

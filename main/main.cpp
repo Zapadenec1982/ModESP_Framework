@@ -33,14 +33,17 @@
 #include "modesp/hal/hal.h"
 #include "modesp/hal/driver_manager.h"
 
-// Phase 5a: Network
+// Phase 5a: Network (optional, compile-time Kconfig toggle — menu "ModESP Network")
+#if defined(CONFIG_MODESP_NET_ENABLE)
 #include "modesp/net/wifi_service.h"
 #include "modesp/net/http_service.h"
 #include "modesp/net/ws_service.h"
+#endif
 #include "modesp/services/nvs_helper.h"
 
 // Phase 5b: Scenario engine — track-based time-dependent algorithm runtime
-// (rebuilt у Phase 1-3 as modesp::scenario; replaces old modesp_sequence).
+// (optional, compile-time Kconfig toggle — menu "ModESP Scenario Engine")
+#if defined(CONFIG_MODESP_SCENARIO_ENABLE)
 #include "modesp/scenario/engine.h"
 #include "modesp/scenario/action_registry.h"
 #include "modesp/scenario/continuous_behavior.h"   // ContinuousRegistry
@@ -49,11 +52,12 @@
 #include "modesp/scenario/nvs_observer.h"
 #include "shared_state_backend.h"  // local adapter (main/)
 #include "scenario_persist.h"      // local off-loop NVS persistence (main/)
+#endif
 
-// Cloud backend (compile-time Kconfig choice)
+// Cloud backend (compile-time Kconfig choice; MODESP_CLOUD_NONE → no cloud at all)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
   #include "modesp/net/aws_iot_service.h"
-#else
+#elif defined(CONFIG_MODESP_CLOUD_MQTT)
   #include "modesp/net/mqtt_service.h"
 #endif
 
@@ -92,21 +96,25 @@ static modesp::SystemMonitor   system_monitor(error_service);
 static modesp::HAL             hal;
 static modesp::DriverManager   driver_manager;
 
-// Network services
+// Network services (optional)
+#if defined(CONFIG_MODESP_NET_ENABLE)
 static modesp::WiFiService     wifi_service;
 static modesp::HttpService     http_service;
 static modesp::WsService       ws_service;
+#endif
 
 // Scenario engine instances — registries owned at file scope (so они survive
 // outside app_main). Engine, backend, observer are static-local inside app_main
 // because they need app.state() reference at construction time.
+#if defined(CONFIG_MODESP_SCENARIO_ENABLE)
 static modesp::scenario::ActionRegistry     scenario_actions;
 static modesp::scenario::ContinuousRegistry scenario_continuous;
+#endif
 
-// Cloud backend (compile-time Kconfig choice)
+// Cloud backend (compile-time Kconfig choice; none → no instance)
 #if defined(CONFIG_MODESP_CLOUD_AWS)
 static modesp::AwsIotService   cloud_service;
-#else
+#elif defined(CONFIG_MODESP_CLOUD_MQTT)
 static modesp::MqttService     cloud_service;
 #endif
 
@@ -204,10 +212,14 @@ extern "C" void app_main(void)
              (int)board_cfg.gpio_outputs.size(),
              (int)board_cfg.onewire_buses.size());
 
-    // ── Step 4: Register WiFi + MQTT (HIGH priority) ──
+    // ── Step 4: Register WiFi + cloud (HIGH priority) ──
+#if defined(CONFIG_MODESP_NET_ENABLE)
     app.modules().register_module(wifi_service);
+#endif
+#if defined(CONFIG_MODESP_CLOUD_MQTT) || defined(CONFIG_MODESP_CLOUD_AWS)
     cloud_service.set_state(&app.state());
     app.modules().register_module(cloud_service);
+#endif
 
     // BLE transport (optional) — after Wi-Fi so NimBLE host inits after the Wi-Fi
     // stack (coexist init order, docs/ble/ipixel_nimble_spec.md §2.5).
@@ -244,7 +256,7 @@ extern "C" void app_main(void)
     // AudioBackendRegistry, pins from board.json i2s_buses — same pattern.
     player.bind_audio(bindings, hal);
 
-    // ── Step 7a: Scenario engine wiring (Phase 3 rebuild) ──
+    // ── Step 7a: Scenario engine wiring (Phase 3 rebuild; optional) ──
     //
     // Stack (constexpr-known у static locals, lifetime = program):
     //   shared_state_backend  IStateBackend adapter wrapping app.state()
@@ -254,6 +266,7 @@ extern "C" void app_main(void)
     //
     // Engine takes references to registries (action/continuous), backend, and
     // observers span. No singletons; constexpr-known set of observers.
+#if defined(CONFIG_MODESP_SCENARIO_ENABLE)
     static SharedStateBackend shared_state_backend(app.state());
 
     // NVS persistence: phase-change tokens are queued and flushed off the
@@ -286,6 +299,7 @@ extern "C" void app_main(void)
 
     // Register engine as а BaseModule (HIGH priority — ticks before NORMAL business).
     app.modules().register_module(scenario_engine);
+#endif // CONFIG_MODESP_SCENARIO_ENABLE
 
     modesp_register_modules(app);
 
@@ -302,6 +316,7 @@ extern "C" void app_main(void)
         setenv("TZ", tz, 1);
         tzset();
 
+#if defined(CONFIG_MODESP_NET_ENABLE)
         if (ntp_enabled) {
             esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
             esp_sntp_setservername(0, "pool.ntp.org");
@@ -310,11 +325,16 @@ extern "C" void app_main(void)
         } else {
             ESP_LOGI(TAG, "NTP disabled, manual time mode (TZ=%s)", tz);
         }
+#else
+        (void)ntp_enabled;  // no network — manual time mode only
+        ESP_LOGI(TAG, "Networking disabled, manual time mode (TZ=%s)", tz);
+#endif
         app.state().set("system.time", "--:--:--");
         app.state().set("system.date", "--.--.----");
     }
 
     // ── Step 8: Inject dependencies + register HTTP + WS ──
+#if defined(CONFIG_MODESP_NET_ENABLE)
     http_service.set_state(&app.state());
     http_service.set_config(&config_service);
     http_service.set_modules(&app.modules());
@@ -322,7 +342,9 @@ extern "C" void app_main(void)
     http_service.set_persist(&persist_service);
     http_service.set_hal(&hal);
     http_service.set_datalogger(&datalogger);
+#if defined(CONFIG_MODESP_SCENARIO_ENABLE)
     http_service.set_scenario_engine(&scenario_engine);
+#endif
 
     ws_service.set_state(&app.state());
 
@@ -338,11 +360,14 @@ extern "C" void app_main(void)
     // considers /* as already matching /ws for HTTP_GET.
     if (http_service.server()) {
         ws_service.set_http_server(http_service.server());
+#if defined(CONFIG_MODESP_CLOUD_MQTT) || defined(CONFIG_MODESP_CLOUD_AWS)
         cloud_service.set_http_server(http_service.server());
+#endif
         http_service.register_static_handler();  // Must be last (wildcard catch-all)
     } else {
         ESP_LOGW(TAG, "HTTP server not started, WebSocket unavailable");
     }
+#endif // CONFIG_MODESP_NET_ENABLE
 
     // ── Step 10: Main loop ──
     ESP_LOGI(TAG, "Registered %d modules total", (int)app.modules().module_count());
@@ -393,6 +418,7 @@ extern "C" void app_main(void)
 
         // 3. OTA rollback validation (60s timeout)
         if (ota_pending_verify) {
+#if defined(CONFIG_MODESP_NET_ENABLE)
             bool net_ok = wifi_service.is_connected() && http_service.server();
             if (net_ok) {
                 esp_ota_mark_app_valid_cancel_rollback();
@@ -403,6 +429,14 @@ extern "C" void app_main(void)
                 ESP_LOGE(TAG, "OTA: Validation timeout (60s) — rollback on next reboot");
                 esp_restart();
             }
+#else
+            // No network → no WiFi/HTTP health check. The first full
+            // driver+module update cycle completing is the best validity
+            // signal we have — accept the image at the END of cycle one.
+            esp_ota_mark_app_valid_cancel_rollback();
+            ota_pending_verify = false;
+            ESP_LOGI(TAG, "OTA: Firmware validated (first main-loop cycle OK; no net check)");
+#endif
         }
 
         // 4. Uptime + heap diagnostics in SharedState (once per second)
