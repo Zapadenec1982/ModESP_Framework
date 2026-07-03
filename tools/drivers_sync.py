@@ -149,8 +149,17 @@ def main(argv=None) -> int:
         print(f"WARNING: {w}")
 
     # Validate first — never reconcile a broken bindings set.
+    # project.json for the orphaned-binding check (binding → module not in
+    # project). File absent → None sentinel: SKIP the check (an empty set
+    # would falsely flag EVERY binding as orphaned), and say so.
+    project = load_json(ROOT / "project.json")
+    if project is None:
+        print(f"WARNING: {ROOT / 'project.json'} not found — "
+              "skipping the orphaned-binding (module in project) check.")
+    project_modules = set(project.get("modules", [])) if project else None
     errors, vwarn = [], []
-    validate_bindings(board, bindings, drivers, errors, vwarn)
+    validate_bindings(board, bindings, drivers, errors, vwarn,
+                      project_modules=project_modules)
     if errors:
         print("Bindings are invalid — fix these before reconciling:")
         for e in errors:

@@ -608,8 +608,13 @@ class DriverManifestLoader:
         """Load manifest for a single driver."""
         path = self.drivers_dir / name / "manifest.json"
         if not path.exists():
-            self.validator.errors.append(
-                f"No manifest for driver '{name}' at {path}")
+            # Не помилка: module requires — це whitelist того, що МОЖНА
+            # прив'язати; невідвантажений у цьому білді драйвер просто
+            # недоступний. Жорсткий інваріант (bindings → існуючий драйвер)
+            # перевіряє validate_bindings.
+            self.validator.warnings.append(
+                f"Driver '{name}' not present in drivers/ — roles listing it "
+                f"cannot bind it in this build")
             return None
 
         with open(path, "r", encoding="utf-8") as f:
@@ -685,7 +690,6 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings):
         for req in m.get("requires", []):
             role = req.get("role", "?")
             req_type = req.get("type", "")  # sensor / actuator
-            optional = req.get("optional", False)
 
             drivers = req.get("driver", [])
             if isinstance(drivers, str):
@@ -693,14 +697,14 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings):
 
             for drv_name in drivers:
                 if drv_name not in driver_manifests:
-                    if optional:
-                        warnings.append(
-                            f"[{mod_name}] Optional require '{role}' references "
-                            f"driver '{drv_name}' which has no manifest")
-                    else:
-                        errors.append(
-                            f"[{mod_name}] Require '{role}' references "
-                            f"driver '{drv_name}' which has no manifest")
+                    # Whitelist-запис на невідвантажений драйвер — не помилка:
+                    # роль просто не зможе прив'язати його в цьому білді.
+                    # validate_bindings ловить справжню проблему (binding на
+                    # неіснуючий драйвер) як ERROR.
+                    warnings.append(
+                        f"[{mod_name}] Require '{role}' lists driver "
+                        f"'{drv_name}' which is not present in drivers/ — "
+                        f"unavailable in this build")
                     continue
 
                 drv = driver_manifests[drv_name]
@@ -770,12 +774,16 @@ def load_all_driver_manifests(drivers_dir, warnings):
     return out
 
 
-def validate_bindings(board, bindings, all_driver_manifests, errors, warnings):
+def validate_bindings(board, bindings, all_driver_manifests, errors, warnings,
+                      project_modules=None):
     """Cross-validate bindings.json against board.json + driver manifests.
 
     Appends to mutable errors/warnings (same idiom as cross_validate). All checks
     are ERROR-level (fail the build): a mis-wired binding must not reach firmware
     as a silent runtime skip. board/bindings may be None (boardless build) → skip.
+    project_modules (set of names from project.json) — if given, a binding that
+    targets a module absent from the project is an ERROR (orphaned hardware
+    config would be silently ignored at runtime otherwise).
     """
     # Unknown top-level board.json sections are silently ignored by both this
     # generator and the on-device parser — a typo ('gpio_output' for
@@ -839,6 +847,14 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings):
         if missing:
             errors.append(
                 f"[bindings] binding '{tag}' missing required field(s): {', '.join(missing)}")
+            continue
+
+        # (i2) binding must target a module that is actually in the project —
+        # otherwise the hardware would be wired to nobody and silently ignored.
+        if project_modules is not None and module not in project_modules:
+            errors.append(
+                f"[bindings] binding '{tag}' targets module '{module}' which is "
+                f"not in project.json — remove the binding or add the module")
             continue
 
         # (c) hardware exists on board
@@ -2148,7 +2164,8 @@ def main():
 
     # Full driver set (not just module-required) for binding validation.
     all_driver_manifests = load_all_driver_manifests(args.drivers_dir, binding_warnings)
-    validate_bindings(board, bindings, all_driver_manifests, binding_errors, binding_warnings)
+    validate_bindings(board, bindings, all_driver_manifests, binding_errors, binding_warnings,
+                      project_modules=set(project.get("modules", [])))
 
     # DataLogger event-id validation (before any generated/ file is written)
     loggable_errors = []

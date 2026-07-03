@@ -258,3 +258,36 @@ class TestUnusedDrivers:
 
     def test_bindings_none_returns_empty(self):
         assert unused_drivers(None, _drivers()) == []
+
+
+# ── (i2) Orphaned bindings: binding → module absent from project.json ─
+
+class TestOrphanedBindings:
+    def _run_with_project(self, board, bindings, project_modules):
+        errors, warnings = [], []
+        validate_bindings(board, bindings, _drivers(), errors, warnings,
+                          project_modules=project_modules)
+        return errors, warnings
+
+    def test_binding_to_missing_module_is_error(self):
+        b = _b([
+            {"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp", "module": "equipment"},
+            {"hardware": "relay_1", "driver": "relay", "role": "backlight", "module": "display"},
+        ])
+        errors, _ = self._run_with_project(_dev_board(), b, {"equipment"})
+        assert any("display" in e and "not in project.json" in e for e in errors)
+
+    def test_all_modules_present_no_error(self):
+        b = _b([
+            {"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp", "module": "equipment"},
+        ])
+        errors, _ = self._run_with_project(_dev_board(), b, {"equipment", "display"})
+        assert errors == []
+
+    def test_none_project_modules_skips_check(self):
+        """None-сентинел (нема project.json) — перевірка вимкнена, не порожній set."""
+        b = _b([
+            {"hardware": "ow_1", "driver": "ds18b20", "role": "air_temp", "module": "ghost_mod"},
+        ])
+        errors, _ = self._run_with_project(_dev_board(), b, None)
+        assert not any("not in project.json" in e for e in errors)

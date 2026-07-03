@@ -208,7 +208,9 @@ class TestCrossValidation:
     """Cross-валідація module requires vs driver manifests."""
 
     def test_module_requires_missing_driver(self):
-        """Module requires driver що не існує → помилка."""
+        """Module requires driver що не існує → WARNING (whitelist каже, що
+        МОЖНА прив'язати; невідвантажений драйвер просто недоступний у білді).
+        Жорсткий інваріант (binding → існуючий драйвер) — у validate_bindings."""
         modules = [{
             "module": "test_mod",
             "requires": [
@@ -219,8 +221,9 @@ class TestCrossValidation:
         errors = []
         warnings = []
         cross_validate(modules, drivers, errors, warnings)
-        assert len(errors) == 1
-        assert "nonexistent" in errors[0]
+        assert len(errors) == 0
+        assert len(warnings) == 1
+        assert "nonexistent" in warnings[0]
 
     def test_module_requires_wrong_category(self):
         """Module requires actuator але driver.category=sensor → помилка."""
@@ -291,6 +294,7 @@ class TestCrossValidation:
         errors = []
         warnings = []
         cross_validate(modules, drivers, errors, warnings)
-        # ntc не знайдений — помилка (non-optional)
-        assert len(errors) == 1
-        assert "ntc" in errors[0]
+        # ntc не знайдений — WARNING (недоступний у цьому білді, не помилка)
+        assert len(errors) == 0
+        assert len(warnings) == 1
+        assert "ntc" in warnings[0]
