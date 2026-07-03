@@ -24,6 +24,7 @@ namespace modesp::display {
 // Forward-декларації опційних capability-інтерфейсів (повертаються як вказівники).
 class IVideoInputs;
 class IGraphicRenderer;
+class IDisplayPower;
 
 // ── Семантичні enum-и (намір, не presentation) ──
 
@@ -81,6 +82,8 @@ struct DisplayCaps {
     bool    has_backlight    = false;  ///< AMT630A: PWM-підсвітка
     bool    has_video_params = false;  ///< AMT630A: video brightness/contrast/saturation
     bool    has_inputs       = false;  ///< AMT630A: вибір CVBS-входу
+    bool    has_backdrop     = false;  ///< AMT630A: фон no-signal (Snow/Blue/Black)
+    bool    has_power        = false;  ///< AMT630A: power-gate чіпа (load-switch на GPIO)
     uint8_t input_count      = 0;
 };
 
@@ -122,6 +125,15 @@ public:
     /// Можливості — модуль читає ОДИН раз для фільтрації складу меню.
     virtual DisplayCaps caps() const { return {}; }
 
+    // ── Generic lifecycle hooks (семантично-нейтральні; НЕ знають про чіп/recovery) ──
+    /// Періодичний «пульс» (кликати з on_update). Порт ВНУТРІШНЬО робить housekeeping —
+    /// напр. chunked-відновлення після power-cycle (без блокування головного таску). Модуль
+    /// НЕ знає, що саме порт робить.
+    virtual void service(uint32_t dt_ms) { (void)dt_ms; }
+    /// true, поки порт зайнятий внутрішньою роботою — модуль цей цикл НЕ подає present_*/set_*
+    /// і на спаді busy→false повторно подає повний кадр + параметри (стан міг скинутись).
+    virtual bool busy() const { return false; }
+
     // present_* — модуль штовхає ПОВНИЙ семантичний стан кадру.
     // Diff / тіньовий буфер — приватна справа драйвера (дельти через шов НЕ передавати).
     virtual void present_main(const MainView& view) = 0;
@@ -137,11 +149,14 @@ public:
     virtual void set_contrast(uint8_t pct)   { (void)pct; }
     virtual void set_brightness(uint8_t pct) { (void)pct; }
     virtual void set_saturation(uint8_t pct) { (void)pct; }
+    /// Фон no-signal: 0=Snow, 1=Blue, 2=Black (лише за has_backdrop).
+    virtual void set_backdrop(uint8_t mode)  { (void)mode; }
 
     // ── Структурно-чужорідні можливості: capability-інтерфейси через as_*()→nullptr
     //    (zero-cost, без RTTI). Реалізує лише той backend, що вміє. ──
     virtual IVideoInputs*     as_video_inputs() { return nullptr; }  ///< CVBS select (AMT630A)
     virtual IGraphicRenderer* as_graphic()      { return nullptr; }  ///< icon/bar  (AMT630A)
+    virtual IDisplayPower*    as_power()        { return nullptr; }  ///< power-gate (AMT630A)
 };
 
 // ── Опційні capability-інтерфейси (тягнуть власні методи поза базовим vtable) ──
@@ -158,6 +173,14 @@ public:
     virtual ~IGraphicRenderer() = default;
     virtual void draw_icon(uint8_t win, uint8_t x, uint8_t y, uint16_t tile) = 0;
     virtual void draw_bar (uint8_t win, uint8_t x, uint8_t y, uint8_t pct)  = 0;
+};
+
+/// Power-gate чіпа (load-switch на GPIO). `set_rail(true)` вмикає живлення + запускає
+/// внутрішнє відновлення OSD; `set_rail(false)` — 0 мА. Лише backend із `caps().has_power`.
+class IDisplayPower {
+public:
+    virtual ~IDisplayPower() = default;
+    virtual void set_rail(bool on) = 0;
 };
 
 } // namespace modesp::display

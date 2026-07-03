@@ -654,6 +654,7 @@ BOARD_SECTION_TO_HW_TYPE = {
     "gpio_inputs": "gpio_input",
     "onewire_buses": "onewire_bus",
     "adc_channels": "adc_channel",
+    "encoders": "encoder",
     "i2c_buses": "i2c_bus",
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
@@ -1813,6 +1814,7 @@ class DisplayScreensGenerator:
                     "max": float(info.get("max", 0)),
                     "step": float(info.get("step", 0)),
                     "options": self._options_for(item["key"], info),
+                    "cap": item.get("cap", ""),   # capability-gate (DisplayCaps); "" = завжди
                 })
             if items:
                 submenus.append({"label": menu_label, "items": items})
@@ -1862,6 +1864,12 @@ class DisplayScreensGenerator:
             "    EDIT_INT,    // editable int (min/max/step)",
             "    EDIT_BOOL,   // editable bool (toggle)",
             "    EDIT_ENUM,   // editable int with named options",
+            "};",
+            "",
+            "// Capability-gate per menu item (mirrors modesp::display::DisplayCaps).",
+            "// MENU_NODE_CAPS[i] != NONE => show node i only if the backend has that cap.",
+            "enum class DisplayCap : uint8_t {",
+            "    NONE = 0, COLOR, BACKLIGHT, VIDEO_PARAMS, INPUTS, BACKDROP, POWER,",
             "};",
             "",
             "struct DisplayEnumOption {",
@@ -1937,6 +1945,30 @@ class DisplayScreensGenerator:
                          "0, 0, 0, nullptr, 0, 0, 0},  // empty")
         lines.append("};")
         lines.append(f"static constexpr size_t MENU_NODES_COUNT = {total_nodes};")
+        lines.append("")
+
+        # Parallel capability-gate array (same order as MENU_NODES): submenus first (NONE),
+        # then items per submenu (their cap). Struct DisplayMenuNode stays unchanged → no
+        # blast radius on test fixtures; MenuEngine reads this when DisplayCaps are provided.
+        CAP_VALUES = {"": "NONE", "color": "COLOR", "backlight": "BACKLIGHT",
+                      "video_params": "VIDEO_PARAMS", "inputs": "INPUTS",
+                      "backdrop": "BACKDROP", "power": "POWER"}
+        cap_seq = []
+        for s in submenus:
+            cap_seq.append("NONE")                       # submenu node itself — always shown
+        for s in submenus:
+            for it in s["items"]:
+                cap = it.get("cap", "")
+                if cap not in CAP_VALUES:
+                    raise SystemExit(
+                        f"display: menu item '{it['label']}' has unknown cap '{cap}' "
+                        f"(allowed: {', '.join(k for k in CAP_VALUES if k)})")
+                cap_seq.append(CAP_VALUES[cap])
+        if not cap_seq:
+            cap_seq = ["NONE"]
+        lines.append("static constexpr DisplayCap MENU_NODE_CAPS[] = {")
+        lines.append("    " + ", ".join(f"DisplayCap::{c}" for c in cap_seq) + ",")
+        lines.append("};")
         lines.append("")
         lines.append("// Root children: MENU_NODES[MENU_ROOT_FIRST .. +MENU_ROOT_COUNT)")
         lines.append("static constexpr uint8_t MENU_ROOT_FIRST = 0;")

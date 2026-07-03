@@ -41,6 +41,10 @@ struct MenuData {
     uint8_t                      root_count;
     const gen::DisplayMainValue* main_values;
     size_t                       main_count;
+    // Capability-gate (ADR-003 §3.3): паралельний масив cap-вимог на вузол + поточні caps
+    // backend-у. node_caps == nullptr → гейтингу немає (фікстури тестів не зачеплені).
+    const gen::DisplayCap*       node_caps = nullptr;
+    DisplayCaps                  caps = {};
 };
 
 class MenuEngine {
@@ -52,6 +56,9 @@ public:
     static constexpr size_t   MAX_DEPTH       = 4;
 
     MenuEngine(IMenuStateIO& io, const MenuData& data);
+
+    /// Оновити можливості backend-у (гейтинг складу меню). Кличеться після resolve порту.
+    void set_caps(const DisplayCaps& caps);
 
     /// Обробити подію кнопки (скидає idle-таймер, перебудовує View).
     void handle_event(MenuEvent ev);
@@ -79,8 +86,9 @@ private:
     };
 
     // ── навігація ──
-    uint8_t list_count() const;             // items + 1 (back)
-    uint8_t child_node(uint8_t i) const;    // index у data_.nodes
+    bool    cap_visible_(uint8_t node_idx) const;  // вузол видимий за поточних caps (ADR-003 §3.3)
+    uint8_t list_count() const;             // ВИДИМІ items + 1 (back)
+    uint8_t child_node(uint8_t i) const;    // index у data_.nodes (i-й ВИДИМИЙ child)
     void    nav_up();
     void    nav_down();
     void    nav_select();

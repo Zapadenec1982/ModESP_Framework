@@ -140,20 +140,53 @@ bool MenuEngine::consume_dirty() {
     return d;
 }
 
+void MenuEngine::set_caps(const DisplayCaps& caps) {
+    data_.caps = caps;   // склад меню гейтиться capability (ADR-003 §3.3)
+    rebuild();
+}
+
 // ── навігація ──────────────────────────────────────────────────
 
-uint8_t MenuEngine::list_count() const {
-    if (stack_.empty()) {
-        return static_cast<uint8_t>(data_.root_count + 1);  // + "назад"
+// Вузол видимий, якщо немає cap-вимоги або backend має відповідну можливість.
+// node_caps == nullptr (фікстури тестів) → гейтингу немає.
+bool MenuEngine::cap_visible_(uint8_t node_idx) const {
+    if (!data_.node_caps) return true;
+    switch (data_.node_caps[node_idx]) {
+    case gen::DisplayCap::NONE:         return true;
+    case gen::DisplayCap::COLOR:        return data_.caps.has_color;
+    case gen::DisplayCap::BACKLIGHT:    return data_.caps.has_backlight;
+    case gen::DisplayCap::VIDEO_PARAMS: return data_.caps.has_video_params;
+    case gen::DisplayCap::INPUTS:       return data_.caps.has_inputs;
+    case gen::DisplayCap::BACKDROP:     return data_.caps.has_backdrop;
+    case gen::DisplayCap::POWER:        return data_.caps.has_power;
     }
-    return static_cast<uint8_t>(data_.nodes[stack_.back().node].child_count + 1);
+    return true;
+}
+
+uint8_t MenuEngine::list_count() const {
+    const uint8_t base = stack_.empty()
+        ? data_.root_first : static_cast<uint8_t>(data_.nodes[stack_.back().node].first_child);
+    const uint8_t raw = stack_.empty()
+        ? data_.root_count : data_.nodes[stack_.back().node].child_count;
+    uint8_t vis = 0;
+    for (uint8_t i = 0; i < raw; ++i)
+        if (cap_visible_(static_cast<uint8_t>(base + i))) ++vis;
+    return static_cast<uint8_t>(vis + 1);  // + "назад"
 }
 
 uint8_t MenuEngine::child_node(uint8_t i) const {
-    if (stack_.empty()) {
-        return static_cast<uint8_t>(data_.root_first + i);
+    const uint8_t base = stack_.empty()
+        ? data_.root_first : static_cast<uint8_t>(data_.nodes[stack_.back().node].first_child);
+    const uint8_t raw = stack_.empty()
+        ? data_.root_count : data_.nodes[stack_.back().node].child_count;
+    uint8_t vis = 0;
+    for (uint8_t k = 0; k < raw; ++k) {
+        const uint8_t idx = static_cast<uint8_t>(base + k);
+        if (!cap_visible_(idx)) continue;   // пропустити прихований capability-вузол
+        if (vis == i) return idx;
+        ++vis;
     }
-    return static_cast<uint8_t>(data_.nodes[stack_.back().node].first_child + i);
+    return base;  // fallback (для i < list_count()-1 не досягається)
 }
 
 void MenuEngine::nav_up() {

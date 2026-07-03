@@ -57,6 +57,8 @@ DisplayModule::DisplayModule()
           modesp::gen::MENU_ROOT_COUNT,
           modesp::gen::MAIN_VALUES,
           modesp::gen::MAIN_VALUES_COUNT,
+          modesp::gen::MENU_NODE_CAPS,   // capability-gate складу меню (ADR-003 §3.3)
+          {},                            // caps — оновлюються set_caps() у on_init (після resolve порту)
       })
     , port_(&s_log_port)   // fallback; bind_display() підмінює за bindings.json
 {}
@@ -102,6 +104,7 @@ bool DisplayModule::on_init() {
     }
 
     caps_ = port_->caps();   // A2: можливості backend — для маршрутизації параметрів екрана
+    engine_.set_caps(caps_); // ADR-003 §3.3: гейтимо склад меню (показуємо лише доступні пункти)
 
     ESP_LOGI(TAG, "Initialized (%u menu nodes, %u main values)",
              static_cast<unsigned>(modesp::gen::MENU_NODES_COUNT),
@@ -135,6 +138,14 @@ void DisplayModule::apply_screen_params() {
         const int32_t v = read_int("display.backlight", -1);
         if (v >= 0 && v != last_backlight_) { port_->set_backlight(static_cast<uint8_t>(v)); last_backlight_ = v; }
     }
+    // Backdrop (режим): FFD2 — зворотний blank. 0x4F=відео+OSD, 0x54=лише меню (чорний).
+    // Це і є перемикач «два режими». Не робить off→on, тож відео не ламає.
+    if (caps_.has_backdrop) {
+        const int32_t v = read_int("display.backdrop", -1);
+        if (v >= 0 && v != last_backdrop_) { port_->set_backdrop(static_cast<uint8_t>(v)); last_backdrop_ = v; }
+    }
+    // Video-параметри декодера (FFD3/D4/D6, банк 0x5A) — діють на ЖИВЕ відео (не OSD).
+    // Це параметри у вузькому діапазоні, НЕ роблять off→on, тож відео не ламають.
     if (caps_.has_video_params) {
         int32_t v = read_int("display.contrast", -1);
         if (v >= 0 && v != last_contrast_)   { port_->set_contrast(static_cast<uint8_t>(v));   last_contrast_ = v; }
@@ -143,6 +154,9 @@ void DisplayModule::apply_screen_params() {
         v = read_int("display.saturation", -1);
         if (v >= 0 && v != last_saturation_) { port_->set_saturation(static_cast<uint8_t>(v)); last_saturation_ = v; }
     }
+    // Вибір входу: тепер БЕЗПЕЧНИЙ. select_input за замовчуванням НЕ робить FED7 off→on брекет
+    // (міняє лише мукс-біти FED8/FEDC через RMW, відео лишається ON), тож більше не глушить
+    // відеотракт незворотньо. Лог драйвера покаже lock-статус (FE2A) після перемикання.
     if (caps_.has_inputs) {
         const int32_t v = read_int("display.input", -1);
         if (v >= 0 && v != last_input_) {
@@ -150,6 +164,15 @@ void DisplayModule::apply_screen_params() {
             last_input_ = v;
         }
     }
+    // Power-gate (load-switch): display.power on/off → as_power()->set_rail(); recovery усередині порту.
+    if (caps_.has_power) {
+        const int32_t v = read_int("display.power", 1);   // 1=on (дефолт)
+        if (v != last_power_) {
+            if (auto* p = port_->as_power()) p->set_rail(v != 0);
+            last_power_ = v;
+        }
+    }
+    // Калібровка OSD (overscan) — per-panel у board.json (i2c_displays cal_x/cal_y), НЕ runtime.
 }
 
 void DisplayModule::on_message(const etl::imessage& msg) {
@@ -162,7 +185,32 @@ void DisplayModule::on_message(const etl::imessage& msg) {
 }
 
 void DisplayModule::on_update(uint32_t dt_ms) {
-    if (!read_bool("display.enabled", true)) {
+    // Generic heartbeat порту: внутрішнє housekeeping (chunked-відновлення після power-cycle).
+    // Модуль НЕ знає, що саме порт робить — лише дає пульс і реагує на busy.
+    port_->service(dt_ms);
+    const bool busy = port_->busy();
+    if (was_busy_ && !busy) {
+        // порт щойно завершив внутрішнє відновлення (cold boot) → чіп втратив параметри:
+        // форсуємо повторну подачу всього + перемалювання.
+        last_backlight_ = last_contrast_ = last_brightness_ = last_saturation_ = -1;
+        last_input_ = last_backdrop_ = -1;
+        if (read_bool("display.enabled", true)) { apply_screen_params(); present_current(); }
+        else                                     { port_->set_backlight(0); }
+    }
+    was_busy_ = busy;
+    if (busy) return;   // порт зайнятий — нічого не подавати цього циклу
+
+    const bool enabled = read_bool("display.enabled", true);
+    if (enabled != prev_enabled_) {
+        prev_enabled_ = enabled;
+        if (!enabled) {
+            port_->set_backlight(0);          // вимкнути: погасити підсвітку
+        } else {
+            last_backlight_ = -1;             // увімкнути: форсувати повторне застосування підсвітки
+            present_current();                // і негайно перемалювати екран
+        }
+    }
+    if (!enabled) {
         return;
     }
 

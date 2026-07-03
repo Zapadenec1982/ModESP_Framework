@@ -19,14 +19,18 @@
 
 namespace modesp::display {
 
-class Amt630aPort : public IDisplayPort, public IVideoInputs {
+class Amt630aPort : public IDisplayPort, public IVideoInputs, public IDisplayPower {
 public:
     /// Шину + швидкість надає HAL (board.json i2c_buses); cols/rows — board.json
-    /// i2c_displays. Жодних Kconfig-пінів — конфіг приходить через board+bindings.
-    Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz, uint8_t cols, uint8_t rows);
+    /// i2c_displays. cal_x/cal_y — overscan-зсув (board.json). power_gpio — GPIO load-switch
+    /// живлення чіпа (bindings settings.power_gpio; -1 = немає). Жодних Kconfig-пінів.
+    Amt630aPort(i2c_master_bus_handle_t bus, uint32_t freq_hz, uint8_t cols, uint8_t rows,
+                int8_t cal_x = 0, int8_t cal_y = 0, int power_gpio = -1);
 
     bool init() override;
     DisplayCaps caps() const override;
+    void service(uint32_t dt_ms) override;        // generic heartbeat: крутить внутрішнє відновлення
+    bool busy() const override;                   // true поки порт зайнятий (present/set не подавати)
 
     void present_main(const MainView& view) override;
     void present_menu(const MenuView& view) override;
@@ -38,19 +42,41 @@ public:
     void set_contrast(uint8_t pct) override;
     void set_brightness(uint8_t pct) override;
     void set_saturation(uint8_t pct) override;
+    void set_backdrop(uint8_t mode) override;
 
-    IVideoInputs* as_video_inputs() override { return this; }
+    IVideoInputs*  as_video_inputs() override { return this; }
+    IDisplayPower* as_power() override { return this; }
 
     // IVideoInputs
     void    select_input(uint8_t n) override;
     uint8_t input_count() const override;
 
+    // IDisplayPower — power-gate чіпа (load-switch на GPIO з bindings).
+    void set_rail(bool on) override;
+
 private:
     void render(const CharGrid& g);
+    // Конфігурація OSD поверх OEM-прошивки (unlock+вікна+палітра+шрифт+підсвітка) — спільне
+    // для init() і відновлення після холодного старту заліза.
+    void configure_chip_();
+    void start_recovery_();    // запустити внутрішню chunked-reconfig (після rail on / cold boot)
+    // Розмістити вікно зі зсувом калібровки (cal_x_/cal_y_), з клемпом у [0,255].
+    void win0_(uint8_t cols, uint8_t rows, int x, int y);
+    void win_(uint8_t win, uint8_t cols, uint8_t rows, int x, int y, uint16_t vram);
 
     osd::Amt630a dev_;
     uint8_t      cols_;
     uint8_t      rows_;
+    int          cal_x_ = 0;   // overscan-калібровка: піксельний зсув усього OSD
+    int          cal_y_ = 0;
+    int          power_gpio_ = -1;     // load-switch живлення чіпа (-1 = немає)
+    uint8_t      backlight_pct_ = 70;  // остання яскравість — відновити після cold boot
+
+    // Неблокуюче відновлення після cold boot (chunked state-machine).
+    enum class Recov : uint8_t { IDLE, WAIT, SETUP, FONT };
+    Recov    recov_        = Recov::IDLE;
+    uint32_t recov_wait_   = 0;        // лічильник затримки/таймауту
+    uint16_t recov_cursor_ = 0;        // індекс наступного гліфа для заливки
 };
 
 } // namespace modesp::display
