@@ -26,6 +26,7 @@ DisplayEntry   s_displays[DriverRegistry::MAX_DRIVER_TYPES];
 size_t         s_display_n = 0;
 AudioEntry     s_audios[DriverRegistry::MAX_DRIVER_TYPES];
 size_t         s_audio_n = 0;
+panel::IPanelPort* s_panel_port = nullptr;   // single connect-panel backend
 
 bool sensor_has(const char* type) {
     for (size_t i = 0; i < s_sensor_n; ++i)
@@ -137,8 +138,12 @@ bool DriverRegistry::has_audio(const char* type) {
     return false;
 }
 
+void DriverRegistry::set_panel_port(panel::IPanelPort* port) { s_panel_port = port; }
+panel::IPanelPort* DriverRegistry::panel_port() { return s_panel_port; }
+
 void DriverRegistry::reset() {
     s_sensor_n = s_actuator_n = s_discovery_n = s_display_n = s_audio_n = 0;
+    s_panel_port = nullptr;
 }
 
 } // namespace modesp

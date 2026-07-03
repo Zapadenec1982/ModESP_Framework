@@ -59,7 +59,7 @@ public:
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
     // NimBLE GAP scan callback (C-ABI). PUBLIC so the file-static observer-scan
-    // starter (start_observer_scan) and BlePanel can pass it to ble_gap_disc.
+    // starter (start_observer_scan) and BleCentralLink can pass it to ble_gap_disc.
     static int gap_scan_event(struct ble_gap_event* event, void* arg);
 #endif
 

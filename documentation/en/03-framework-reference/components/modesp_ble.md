@@ -9,7 +9,7 @@ The host serves **three roles simultaneously**:
 | Role | What it does |
 |---|---|
 | **Observer** | Passive scan. Hands each advertisement's 16-bit service-data to the decoders that BLE sensor drivers register (`adv_decoder.h`); a recognized reading is cached **per MAC** for the bound driver. The transport knows no device format — the decoders themselves (e.g. BTHome `0xFCD2`, pvvx/ATC `0x181A`) live in the driver, e.g. `ble_xiaomi_th`. |
-| **Central** | Connects to a device (the iPixel LED panel) and writes commands. Exposed as the `BlePanel` singleton. Connecting **pauses** the observer scan, then **resumes** it afterwards. |
+| **Central** | Connects to a device and writes/subscribes to its GATT characteristics. A CONNECT driver registers a `ConnectProfile` (adv-name + write/notify UUIDs) via `central_link.h` and gets a generic `ICentralLink` — the transport knows no device format. Connecting **pauses** the observer scan, then **resumes** it afterwards. |
 | **Peripheral** | Its own GATT server (telemetry/control + Wi-Fi provisioning), advertising the name `"ModESP"`. |
 
 Modules never touch BLE (or GPIO) directly — **drivers do the I/O, modules read/write SharedState**. The Xiaomi sensor (`ble_xiaomi_th`, passive observer) and the iPixel panel (`ble_led_panel` connect + `panel` module content) are two independent features riding on this one host.
@@ -28,20 +28,35 @@ Menu **"ModESP BLE"**:
 
 Targets ESP-IDF v5.5 / v6.0, NimBLE host.
 
-## `BlePanel` API (central role)
+## Central link (`central_link.h` seam)
 
-The central role is exposed as the `BlePanel` singleton — the single point through which the `ble_led_panel` driver owns the BLE link target, and through which the `panel` module — the single writer of power, brightness, effect and content — drives the panel. This decouples **transport** (driver) from **control + displayed content** (module).
+The central role is exposed **generically** — the transport owns the radio and the
+connect/discover/write state machine but no device knowledge. A CONNECT driver
+registers a profile at factory time (idempotent) and writes through the returned link:
 
 ```cpp
-void set_target(const char* adv_name_prefix);  // adv-name prefix to scan & connect
-bool is_connected();
-void write_cmd(const uint8_t* data, size_t len, bool with_response);
-void show_text(const char* s,
-               uint8_t r = 255, uint8_t g = 255, uint8_t b = 255,
-               uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
+struct ConnectProfile {                 // driver-supplied device knowledge (DATA)
+    const char*       name_prefix;      // adv-name prefix to scan & connect
+    const ble_uuid_t* write_uuid;       // characteristic captured as the write handle
+    const ble_uuid_t* notify_uuid;      // subscribe (CCCD enable); nullptr = write-only
+    CentralNotifyCb   on_notify; void* ctx;   // notify RX sink (host task); nullptr ok
+};
+ICentralLink* register_connect_profile(const ConnectProfile&);
+
+class ICentralLink {
+    bool connected() const;
+    bool write(const uint8_t* data, uint16_t len, bool with_response);
+    bool write_frame(bool (*body)(ICentralLink*, void*), void* arg);   // atomic multi-write
+};
 ```
 
-`show_text` renders via the native iPixel TEXT frame (font glyphs + icons + colour + animation). The full panel-control byte protocol lives in [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
+`write_frame` holds the transport's recursive write-mutex across the whole `body`, so a
+driver can build **and chunk** a multi-write frame (e.g. an image/text frame) atomically
+against control writes from other callers. All device byte-encoding, GATT UUIDs and fonts
+live in the driver. This is the CONNECT analogue of `adv_decoder.h` (observer sensors).
+The `panel` module drives content through the driver's [`IPanelPort`](../../../../components/modesp_hal/include/modesp/hal/panel_port.h)
+(resolved via `DriverRegistry::panel_port()`), never touching BLE. Panel byte protocol:
+[`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
 
 ## Features riding on the host
 
@@ -51,7 +66,7 @@ A **sensor** driver (`hardware_type "ble_device"`) that reads a Xiaomi LYWSD03MM
 
 ### Panel — `ble_led_panel` (central) + `panel` module
 
-An **actuator** driver (`hardware_type "ble_device"`, a **connect** device matched by **adv-name**, not MAC) drives a Chinese iPixel Color / LED_BLE 64x16 RGB matrix. It owns only the BLE link target via `BlePanel` (scan adv-name prefix `"LED_BLE_"` → connect → discover write char `fa02` + notify char `fa03`, service `0x00FA` → READY). The `panel` **module** is the single writer of power, brightness *and* what is shown (clock / temperature / humidity rotation, icons, threshold colours, animation), pushing it all through `BlePanel` via `write_cmd` / `show_text`. See [drivers/ble_led_panel.md](../drivers/ble_led_panel.md) and [modules/panel.md](../modules/panel.md).
+A driver (`hardware_type "ble"`, a **connect** device matched by **adv-name**, not MAC) drives a Chinese iPixel Color / LED_BLE 64x16 RGB matrix. It registers a `ConnectProfile` (adv-name prefix `"LED_BLE_"` + write char `fa02` / notify char `fa03`) with the central link, and **owns all the iPixel wire format**: the control byte-commands, the native text-frame encoder + glyph font, and a background render task. It also implements `IPanelPort`, which the `panel` **module** — the content owner (clock / temperature / humidity rotation, icons, threshold colours, animation) — resolves via `DriverRegistry::panel_port()` and drives with `set_power` / `set_brightness` / `show_text`. The module never mentions BLE. See [drivers/ble_led_panel.md](../drivers/ble_led_panel.md) and [modules/panel.md](../modules/panel.md).
 
 ## See also
 

@@ -11,7 +11,7 @@ idf_component_register(
     SRCS ${ble_srcs}
     INCLUDE_DIRS "include"
     REQUIRES modesp_core
-    PRIV_REQUIRES bt esp_coex nvs_flash jsmn modesp_net esp_rom
+    PRIV_REQUIRES bt esp_coex nvs_flash jsmn modesp_net
 )
 
 # Phase 1 GATT server reuses the generated key lists (mqtt_topics.h) +

@@ -2,7 +2,12 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/drivers/ble_led_panel.md](../../../en/03-framework-reference/drivers/ble_led_panel.md)
 
-Драйвер керує китайською RGB LED-матрицею **iPixel Color / LED_BLE 64×16** через BLE. Це **actuator** з `hardware_type: ble_device`, який підключається до панелі **за ім'ям реклами (ADV-NAME)**, а не за MAC. Драйвер володіє **лише BLE-лінком** (ціллю підключення); живлення, яскравість, ефект і **контент** (що саме світиться) належать модулю [`panel`](../modules/panel.md) і подаються через синглтон `BlePanel`.
+Драйвер керує китайською RGB LED-матрицею **iPixel Color / LED_BLE 64×16** через BLE. Це **actuator** з `hardware_type: ble_device`, який підключається до панелі **за ім'ям реклами (ADV-NAME)**, а не за MAC. Драйвер володіє **всім форматом дротового протоколу iPixel**: GATT-UUID'ами, control-байтами (живлення / яскравість), нативним кодером TEXT-кадру (гліфи + CRC32 + чанкінг) і фоновою render-задачею. BLE-лінк він отримує, реєструючи **connect-профіль** у загальному central-link seam хоста `modesp_ble` (`central_link.h`) — цей транспорт **не знає** жодного формату пристрою. Модуль [`panel`](../modules/panel.md) володіє **лише контентом** (що показувати) і керує драйвером через інтерфейс `IPanelPort`.
+
+Драйвер носить **два капелюхи**:
+
+- **`modesp::IActuatorDriver`** — досі прив'язаний до модуля `equipment`; `EquipmentBase` подає `set_value` = яскравість (0..1 → 5..100 %). Його `update()` лише логує фронт підключення, а `set()` (живлення) — no-op: живленням володіє модуль `panel`.
+- **`modesp::panel::IPanelPort`** — публікується у фабриці через `DriverRegistry::set_panel_port(this)`; модуль `panel` резолвить його і подає контент (живлення / яскравість / текст) крізь нього.
 
 Драйвер їде на спільному BLE-хості [`modesp_ble`](../../03-framework-reference/components/modesp_ble.md) (роль **CENTRAL**). Підключення до панелі ставить на паузу пасивний скан observer'а, потім відновлює його. Модулі ніколи не торкаються BLE напряму — I/O робить драйвер, модуль читає/пише SharedState.
 
@@ -38,20 +43,20 @@
 
 ## Control-plane
 
-Драйвер володіє лінком; control-plane (живлення/яскравість) пише **модуль** через `BlePanel`. Послідовність виходу на READY:
+Драйвер віддає свій `ConnectProfile` (префікс ADV-NAME + write/notify UUID) загальному central-link'у `modesp_ble`, який далі веде машину станів connect/discover/READY:
 
 ```
-скан ADV-NAME "LED_BLE_" ──▶ connect ──▶ discover (service 0x00FA)
-   write char fa02 + notify char fa03 ──▶ READY
+скан ADV-NAME "LED_BLE_" ──▶ connect ──▶ discover
+   write char fa02 (write-хендл) + notify char fa03 ──▶ READY
 ```
 
-- **service** `0x00FA`, **write** характеристика `fa02`, **notify** характеристика `fa03`.
-- `update()` драйвера лише **логує** фронт підключення; `set()` — no-op. Драйвер **не** надсилає живлення чи яскравість сам.
-- Живленням (ON/OFF) та яскравістю (0..100 %) керує модуль [`panel`](../modules/panel.md): він єдиний писар і повторно застосовує їх на кожному (пере)підключенні (скидання sentinel), тож налаштування користувача переживають реконект, без гонки на фронті підключення.
+- **write** характеристика `fa02` (прив'язана як write-хендл), **notify** характеристика `fa03` (підписана).
+- `update()` драйвера лише **логує** фронт підключення; `set()` (живлення) — no-op: живленням володіє модуль.
+- Живлення (ON/OFF) та яскравість (0..100 %) **кодує сам драйвер** (`set_power` / `set_brightness`), а *викликає* їх модуль [`panel`](../modules/panel.md) через `IPanelPort`. Модуль — єдиний писар контенту і повторно застосовує power+brightness на кожному (пере)підключенні (скидання sentinel), тож налаштування переживають реконект, без гонки на фронті. (Драйвер *також* пише яскравість через `EquipmentBase` `set_value` — як і раніше.)
 
 ## Команди (control-байти)
 
-Байти незмінні — але надсилає їх **модуль** `panel` (через `BlePanel`), а не драйвер:
+Байти незмінні — кодує і надсилає їх **драйвер** (`set_power` / `set_brightness`), які модуль `panel` викликає через `IPanelPort`:
 
 | Дія | Байти |
 |---|---|
@@ -61,21 +66,33 @@
 
 ## Розподіл відповідальності: драйвер vs модуль
 
-Драйвер відповідає **лише за транспорт** (BLE-лінк, ціль підключення). Живлення, яскравість, ефект і **контент** — текст, іконки, кольори, анімація — належать модулю [`panel`](../modules/panel.md), який є єдиним писарем над `BlePanel`. Зв'язок розв'язаний через синглтон `BlePanel`:
+Драйвер володіє **всім форматом дротового протоколу** (UUID'и, control-байти, кодер тексту, шрифт, render-задача) і реалізує **`IPanelPort`**. Модуль [`panel`](../modules/panel.md) володіє **лише контентом** — що показувати (текст, іконки, кольори, ефект) — і подає його через `IPanelPort`; він повністю BLE-агностичний. Два seam'и, що зустрічаються в драйвері:
 
 ```cpp
-// власник лінку (драйвер) → лише ціль підключення:
-BlePanel::set_target("LED_BLE_");   // префікс ADV-NAME
-bool ready = BlePanel::is_connected();
+// до транспорту (modesp::ble, central_link.h) — драйвер реєструє профіль і пише крізь лінк:
+struct ConnectProfile {
+    const char*       name_prefix;   // префікс ADV-NAME ("LED_BLE_")
+    const ble_uuid_t* write_uuid;    // fa02 — write-хендл
+    const ble_uuid_t* notify_uuid;   // fa03 — підписка
+    CentralNotifyCb   on_notify;     // приймач notify (тут nullptr)
+    void*             ctx;
+};
+ICentralLink* register_connect_profile(const ConnectProfile&);  // виклик із фабрики
+class ICentralLink {
+    bool connected() const;
+    bool write(const uint8_t* data, uint16_t len, bool with_response);
+    bool write_frame(bool (*body)(ICentralLink*, void*), void* arg);  // атомарний багаточанковий кадр
+};
 
-// control-plane + контент (модуль panel):
-BlePanel::write_cmd(data, len, with_response);   // живлення / яскравість
-void show_text(const char* s,                    // нативний TEXT-кадр
-               uint8_t r = 255, uint8_t g = 255, uint8_t b = 255,
-               uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
+// до модуля (modesp::panel::IPanelPort) — модуль викликає, драйвер кодує байти:
+bool connected() const;
+void set_power(bool on);                       // кодує 05 00 07 01 <on>
+void set_brightness(int pct);                  // кодує 05 00 04 80 <pct>
+void show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
+               uint8_t anim, uint8_t speed, uint8_t rainbow);  // enqueue → render-задача
 ```
 
-Модуль читає `panel.power` (bool), `panel.brightness` (int %), `panel.anim` (int 0..7 ефект) і `panel.rotate` (bool) з SharedState (їх задає веб-вкладка «iPixel» / MQTT) і пише їх через `BlePanel`. Таке розділення дає єдиного писаря без гонки на фронті підключення, а драйвер тримає фізичний BLE-лінк живим незалежно від того, що саме модуль вирішує показати.
+У фабриці драйвер реєструє `ConnectProfile` (через `register_connect_profile`), а потім публікує себе як `IPanelPort` модуля через `DriverRegistry::set_panel_port(this)`. Модуль читає `panel.power` (bool), `panel.brightness` (int %), `panel.anim` (int 0..7 ефект) і `panel.rotate` (bool) з SharedState (їх задає веб-вкладка «iPixel» / MQTT) і викликає `set_power` / `set_brightness` / `show_text` на `IPanelPort` — жодного control-байта сам не кодує і BLE не торкається. Таке розділення дає єдиного писаря контенту без гонки на фронті підключення, а драйвер тримає фізичний BLE-лінк живим незалежно від того, що вирішує показати модуль.
 
 ## Опційність (Kconfig)
 
@@ -86,7 +103,7 @@ CONFIG_MODESP_BLE_ENABLE     (master — спільний BLE-хост)
 CONFIG_MODESP_BLE_CENTRAL    (connect до панелі)
 ```
 
-Без `CONFIG_MODESP_BLE_CENTRAL` драйвер не має чим під'єднатися до панелі. Сам BLE-хост (`modesp_ble`) лінкується у `main` лише при `CONFIG_MODESP_BLE_ENABLE`.
+Без `CONFIG_MODESP_BLE_CENTRAL` central-connect шлях (`central_link.h`) недоступний — драйверу немає де зареєструвати профіль і взяти лінк. Сам BLE-хост (`modesp_ble`) лінкується у `main` лише при `CONFIG_MODESP_BLE_ENABLE`.
 
 ## Що далі
 

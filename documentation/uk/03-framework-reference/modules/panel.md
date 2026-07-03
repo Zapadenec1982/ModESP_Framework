@@ -2,7 +2,7 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/modules/panel.md](../../../en/03-framework-reference/modules/panel.md)
 
-Бізнес-модуль, що володіє **тим, ЩО показує** BLE LED-панель iPixel Color / LED_BLE 64×16 RGB. **Чистий споживач SharedState** (як [`presence`](presence.md) / [`simple_thermo`](simple_thermo.md)): сам BLE не чіпає — драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) тримає лише BLE-лінк, а цей модуль володіє і контентом, **і живленням/яскравістю/ефектом** (через singleton `BlePanel`). Транспорт і керування розв'язані саме через `BlePanel` (фіча на гілці `feat/ble-led-panel`).
+Бізнес-модуль, що володіє **тим, ЩО показує** BLE LED-панель iPixel Color / LED_BLE 64×16 RGB. **Чистий споживач SharedState** (як [`presence`](presence.md) / [`simple_thermo`](simple_thermo.md)): сам BLE не чіпає і **не має жодного BLE-хедера**. Драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) володіє BLE-лінком і всім форматом дротового протоколу iPixel (UUID'и, control-байти, кодер тексту, шрифт, render-задача); цей модуль володіє **лише контентом**. Backend панелі модуль резолвить в override `on_bind` через `modesp::DriverRegistry::panel_port()` → `modesp::panel::IPanelPort*` і подає все крізь цей порт (`connected()` / `set_power()` / `set_brightness()` / `show_text()`). Якщо драйвер панелі не прив'язано — порт `null`, і модуль не дає виводу. Фіча на гілці `feat/ble-led-panel`.
 
 Модуль ротує **три поля** кожні ~4 c — настінний **ГОДИННИК** (HH:MM з локального часу SNTP), **ТЕМПЕРАТУРА** (`equipment.room_temp`) і **ВОЛОГІСТЬ** (`equipment.room_humid`). Кожне поле health-гейтнуте (`equipment.<role>_ok`), де-дублюється і переоцінюється ~4 Гц.
 
@@ -13,19 +13,19 @@ SNTP local time ─┐
 equipment.room_temp  (equipment.room_temp_ok)  ─┼─▶ panel-модуль
 equipment.room_humid (equipment.room_humid_ok) ─┘   (ротація ~4 c · health-gate · de-dup · ~4 Гц)
                                                           │
-                                          BlePanel::show_text (нативний iPixel TEXT-кадр)
+                                          port_->show_text (IPanelPort)
                                                           │
-                                       ble_led_panel ──BLE──▶ LED_BLE 64×16
+                              ble_led_panel (кодер TEXT-кадру) ──BLE──▶ LED_BLE 64×16
 ```
 
-## Рендер (BlePanel::show_text)
+## Рендер (port_->show_text)
 
-Текст рендериться нативним iPixel **TEXT-кадром** (по-символьні блоки гліфів 8×16 + CRC32). Шрифт генерується `tools/gen_osd_font.py --target panel` → `generated/panel_font_data.h`.
+Модуль подає текст через `port_->show_text(...)` на резолвнутому `IPanelPort`. Далі *драйвер* рендерить його нативним iPixel **TEXT-кадром** (по-символьні блоки гліфів 8×16 + CRC32). Шрифт генерується `tools/gen_osd_font.py --target panel` → `generated/panel_font_data.h` (володіє драйвер, не модуль).
 
 ```cpp
-void show_text(const char* s,
-               uint8_t r = 255, g = 255, b = 255,
-               uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
+// modesp::panel::IPanelPort — поверхня, яку подає модуль (сам байтів не кодує):
+void show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
+               uint8_t anim, uint8_t speed, uint8_t rainbow);
 ```
 
 ## Піктограми (іконки)
@@ -84,7 +84,7 @@ HW-підтверджено на `LED_BLE_E6C5EBE2`:
 | `panel.message` | string ≤31 · rw (деф. порожнє) | **text_input** | Свій текст (порожнє = ротація) |
 | `panel.color` | string `#RRGGBB` · rw (деф. білий) | **color_picker** | Колір повідомлення |
 
-**Єдиний власник:** живлення/яскравість/ефект пише цей модуль через `BlePanel` (драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) більше **не self-driving** — лише тримає лінк), тож немає гонки двох письменників. На (пере)конекті модуль перевідправляє power+brightness зі стану (sentinel-скид), тож налаштування користувача переживають реконект.
+**Єдиний власник:** живлення/яскравість/ефект/контент подає цей модуль через `IPanelPort` (`set_power` / `set_brightness` / `show_text`); драйвер кодує байти, але контент не вирішує. На (пере)конекті модуль перевідправляє power+brightness зі стану (sentinel-скид), тож налаштування користувача переживають реконект. (Драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) *також* пише яскравість через `EquipmentBase` `set_value` — як і раніше — але модуль лишається єдиним писарем контенту, тож гонки на тексті немає.)
 
 > ℹ️ **Вільний текст** дає віджет `text_input` (доданий у фреймворк: `webui/src/components/widgets/TextInput.svelte` + `WIDGET_TYPE_COMPAT["text_input"]={string}`; bundle перебілдено `npm run deploy`). Непорожнє `panel.message` показується **замість** ротації (у кольорі `panel.color` — нативний `color_picker`, деф. білий, парситься `parse_hex_color` у модулі; з обраним ефектом); очистити поле → ротація відновлюється. Колір — лише для повідомлення; сенсори лишають порогові кольори. Кап **31 символ** (стеля — `etl::string<32>` у SharedState; рендер `n<31` у `ble_service.cpp`); панель скролить довгий текст ефектом; POST на blur/Enter (не щоклавішу).
 
@@ -124,11 +124,11 @@ state_set(modesp::panel_text::slot(0), "");          // очистити сло�
 
 1. `project.json` → `"modules"` += `"panel"`.
 
-Контент панелі дає цей модуль, а лінк/живлення/яскравість — драйвер [`ble_led_panel`](../drivers/ble_led_panel.md); сам BLE-host — спільна інфраструктура [`modesp_ble`](../components/modesp_ble.md).
+Контент панелі дає цей модуль, а BLE-лінк і весь формат дротового протоколу (UUID'и, control-байти, кодер тексту, шрифт) — драйвер [`ble_led_panel`](../drivers/ble_led_panel.md), який публікує свій `IPanelPort`; сам BLE-host — спільна інфраструктура [`modesp_ble`](../components/modesp_ble.md). Вивід зʼявляється лише коли драйвер панелі прив'язано (`on_bind` резолвить непорожній порт).
 
 ## Джерела
 
 - [`modules/panel/manifest.json`](../../../../modules/panel/manifest.json)
 - [`modules/panel/src/panel_module.cpp`](../../../../modules/panel/src/panel_module.cpp)
-- [`drivers/ble_led_panel.md`](../drivers/ble_led_panel.md) — драйвер панелі (транспорт + control-plane).
+- [`drivers/ble_led_panel.md`](../drivers/ble_led_panel.md) — драйвер панелі (BLE-лінк + формат протоколу + `IPanelPort`).
 - [`tools/gen_osd_font.py`](../../../../tools/gen_osd_font.py) — генератор шрифту (`--target panel`).

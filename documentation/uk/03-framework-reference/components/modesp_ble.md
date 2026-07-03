@@ -11,7 +11,7 @@
 | Роль | Призначення |
 |---|---|
 | **OBSERVER** | Пасивне сканування. Роздає кожен кадр 16-бітного service-data декодерам, які реєструють BLE-сенсорні драйвери (`adv_decoder.h`); впізнаний показник кешується **за MAC** для прив'язаного драйвера. Транспорт формату пристрою не знає — самі декодери (напр. BTHome `0xFCD2`, pvvx/ATC `0x181A`) живуть у драйвері, напр. `ble_xiaomi_th`. |
-| **CENTRAL** | Підключається до пристрою (LED-панель iPixel) і пише команди. Доступна як singleton `BlePanel`. Підключення **ставить на паузу** сканування observer, потім **відновлює** його. |
+| **CENTRAL** | Підключається до пристрою, пише/підписується на його GATT-характеристики. Connect-драйвер реєструє `ConnectProfile` (adv-name + write/notify UUID) через `central_link.h` і отримує генеричний `ICentralLink` — транспорт формату пристрою не знає. Підключення **ставить на паузу** сканування observer, потім **відновлює** його. |
 | **PERIPHERAL** | Власний GATT-сервер (телеметрія/керування + Wi-Fi provisioning), рекламує ім'я `"ModESP"`. |
 
 ## Kconfig
@@ -24,20 +24,34 @@
 | `CONFIG_MODESP_BLE_CENTRAL` | Central — підключення до панелі. |
 | `CONFIG_MODESP_BLE_PROVISIONING` | Wi-Fi provisioning через peripheral GATT. |
 
-## `BlePanel` — central API
+## Central link (`central_link.h` seam)
 
-Singleton, через який драйвери/модулі керують підключеним пристроєм. Драйвер `ble_led_panel` володіє лише BLE-лінком (ціллю підключення); модуль `panel` — єдиний писар живлення, яскравості, ефекту й контенту через `BlePanel` — розв'язка йде саме через цей singleton.
+Central-роль генерична: транспорт володіє радіо й машиною connect/discover/write, але
+знань про пристрій не має. Connect-драйвер реєструє профіль на етапі factory
+(ідемпотентно) і пише через повернений лінк:
 
 ```cpp
-void    set_target(const char* adv_name_prefix);   // префікс adv-name для підключення
-bool    is_connected();
-void    write_cmd(const uint8_t* data, size_t len, bool with_response);
-void    show_text(const char* s,
-                  uint8_t r = 255, uint8_t g = 255, uint8_t b = 255,
-                  uint8_t anim = 0, uint8_t speed = 0x32, uint8_t rainbow = 0);
+struct ConnectProfile {                 // знання про пристрій дає драйвер (це ДАНІ)
+    const char*       name_prefix;      // префікс adv-name для скан+connect
+    const ble_uuid_t* write_uuid;       // характеристика → write handle
+    const ble_uuid_t* notify_uuid;      // підписка (CCCD); nullptr = лише write
+    CentralNotifyCb   on_notify; void* ctx;   // приймач notify (host task); nullptr ок
+};
+ICentralLink* register_connect_profile(const ConnectProfile&);
+
+class ICentralLink {
+    bool connected() const;
+    bool write(const uint8_t* data, uint16_t len, bool with_response);
+    bool write_frame(bool (*body)(ICentralLink*, void*), void* arg);   // атомарний багатозапис
+};
 ```
 
-`set_target()` задає префікс рекламного імені; central сканує його, підключається й відкриває control char. `show_text()` рендерить нативний TEXT-кадр iPixel (гліфи + колір + анімація — деталі див. у модулі `panel`). Байтовий протокол керування панеллю описано в [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
+`write_frame` тримає recursive write-mutex транспорту через увесь `body`, тож драйвер
+будує **й ріже на чанки** багатозаписний кадр (напр. текст/зображення) атомарно проти
+control-записів інших писачів. Усе байтове кодування, GATT UUID і шрифт живуть у драйвері —
+це connect-аналог `adv_decoder.h` (observer-сенсори). Модуль `panel` керує контентом через
+драйверний `IPanelPort` (резолв через `DriverRegistry::panel_port()`), не торкаючись BLE.
+Байтовий протокол панелі: [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
 
 ## Фічі поверх хоста
 
@@ -54,7 +68,7 @@ void    show_text(const char* s,
 
 ### Central → панель
 
-`ble_led_panel` (actuator) — це **connect**-пристрій, що матчиться за **adv-name**, не за MAC. Драйвер володіє лише BLE-лінком (ціллю підключення); живлення (ON/OFF), яскравість (0..100 %), ефект і відображуваний контент належать **модулю** `panel`, який є єдиним писарем через `BlePanel`. Декомпозиція йде через singleton `BlePanel`: драйвер відповідає за транспорт, модуль — за керування й «що показати».
+`ble_led_panel` — це **connect**-пристрій, що матчиться за **adv-name**, не за MAC. Драйвер реєструє `ConnectProfile` (adv-name + write/notify UUID) у central-лінку й **володіє всім iPixel-форматом**: control-байти, нативний енкодер текст-кадру + шрифт, фонова render-задача. Він також реалізує `IPanelPort`, який **модуль** `panel` (власник контенту — годинник/темп/вологість, іконки, порогові кольори, анімація) резолвить через `DriverRegistry::panel_port()` і керує через `set_power` / `set_brightness` / `show_text`. Модуль BLE не торкається. Транспорт (central-лінк) знань про панель не має.
 
 ## Що далі
 

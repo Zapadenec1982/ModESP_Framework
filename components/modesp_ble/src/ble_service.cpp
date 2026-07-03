@@ -53,17 +53,16 @@
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 #include "esp_timer.h"
-#include "esp_rom_crc.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_uuid.h"
+#include "os/os_mbuf.h"               // OS_MBUF_PKTLEN + os_mbuf_copydata (notify RX)
 #include "modesp/ble/ble_central.h"
-#include "modesp/ble/adv_decoder.h"   // transport ↔ sensor-driver decoder registry
-#include "modesp/ble/ble_panel.h"
-#include "panel_font_data.h"          // generated: PANEL_FONT 8x16 LSB-first + panel_font_index()
+#include "modesp/ble/adv_decoder.h"   // transport ↔ sensor-driver decoder registry (observer)
+#include "modesp/ble/central_link.h"  // transport ↔ connect-driver seam (central connect)
 #endif
 
 static const char* TAG = "modesp_ble";
@@ -493,6 +492,62 @@ void BleService::apply_provisioning(const char* json, int len) {
 
 #if defined(CONFIG_MODESP_BLE_CENTRAL)
 
+// ── BleCentralLink: generic central-CONNECT link (central_link.h seam) ────────
+// Scans for a driver-supplied adv-name, connects, discovers the driver's write/
+// notify characteristics, and writes through them. Owns NO device format — the
+// connect driver supplies the name + UUIDs (ConnectProfile) and frames the bytes.
+// Single link (one radio). Methods split across two threads: the ICentralLink
+// write surface runs on caller tasks; name_matches/on_scan_hit/gap_event/on_chr/
+// on_dsc run on the NimBLE host task.
+class BleCentralLink : public modesp::ble::ICentralLink {
+public:
+    static BleCentralLink& instance();
+
+    /// Adopt a connect profile (driver factory side). Copies the adv-name prefix and
+    /// stores the characteristic UUIDs + notify sink. Empty name → dormant.
+    void set_profile(const modesp::ble::ConnectProfile& p);
+    bool target_set() const { return name_len_ > 0; }
+
+    // ── ICentralLink (caller tasks) ──
+    bool connected() const override { return state_ == State::READY; }
+    bool write(const uint8_t* data, uint16_t len, bool with_response) override;
+    bool write_frame(bool (*body)(modesp::ble::ICentralLink*, void*), void* arg) override;
+
+    // ── NimBLE host task (scan/connect internals) ──
+    bool name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const;
+    void on_scan_hit(const void* addr);            // ble_addr_t* — begin connect
+    static int gap_event(struct ble_gap_event* event, void* arg);
+
+private:
+    enum class State : uint8_t { IDLE, CONNECTING, DISCOVERING, READY };
+
+    void reset_link();                             // back to IDLE, resume observer scan
+    // Match a discovered characteristic UUID to the profile's write/notify role.
+    // 0 = none, 1 = write, 2 = notify. Accepts a 16-bit form of a 128-bit profile UUID.
+    uint8_t chr_role(const ble_uuid_t* u) const;
+    static int on_chr(uint16_t conn, const struct ble_gatt_error* err,
+                      const struct ble_gatt_chr* chr, void* arg);   // disc-all-chrs: match write/notify
+    static int on_dsc(uint16_t conn, const struct ble_gatt_error* err,
+                      uint16_t chr_val_handle, const struct ble_gatt_dsc* dsc, void* arg);
+
+    // profile (device-supplied)
+    char     name_[24]      = {0};
+    uint8_t  name_len_      = 0;
+    const ble_uuid_t* write_uuid_  = nullptr;   // characteristic captured as write handle
+    const ble_uuid_t* notify_uuid_ = nullptr;   // characteristic subscribed (nullptr = none)
+    modesp::ble::CentralNotifyCb on_notify_ = nullptr;
+    void*    notify_ctx_    = nullptr;
+    // link state
+    State    state_         = State::IDLE;
+    uint16_t conn_handle_   = 0xFFFF;   // BLE_HS_CONN_HANDLE_NONE
+    uint16_t svc_start_     = 0;
+    uint16_t svc_end_       = 0;
+    uint16_t write_handle_  = 0;
+    uint8_t  write_props_   = 0;        // WRITE 0x08 / WRITE_NO_RSP 0x04 → picks write type
+    uint16_t notify_handle_ = 0;
+    int64_t  cooldown_until_us_ = 0;    // after a failed discovery, suppress reconnect until this time
+};
+
 // ── BLE central: passive-scan observer for broadcast sensors ──────────────────
 // Runs the passive scan and hands each 16-bit service-data frame to the decoders
 // that BLE-sensor drivers register (adv_decoder.h); a decoded reading is cached
@@ -657,8 +712,8 @@ void log_raw(const uint8_t* mac, int8_t rssi, uint16_t uuid,
 
 } // namespace ble
 
-// ── start_observer_scan: shared passive-scan starter (sensors + panel name-match).
-// Used by BleService::start_scan() and resumed by BlePanel after (dis)connect. ──
+// ── start_observer_scan: shared passive-scan starter (sensors + connect name-match).
+// Used by BleService::start_scan() and resumed by BleCentralLink after (dis)connect. ──
 static void start_observer_scan() {
     uint8_t own_addr_type;
     if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
@@ -673,97 +728,102 @@ static void start_observer_scan() {
         ESP_LOGE(TAG, "ble_gap_disc rc=%d", rc);
 }
 
-// ── BlePanel: central-CONNECT link to one iPixel/LED_BLE panel (docs/ble/panel_protocol.md) ──
-// The panel exposes its service+chars as FULL 128-bit base-derived UUIDs
-// (0000faXX-0000-1000-8000-00805f9b34fb) and its firmware does NOT expand a 16-bit
-// discovery request to match them (HW-confirmed: 16-bit disc → "service 0xFA00 not
-// found"). Query with the 128-bit form — exactly what the working OSS (bleak/go-ipxl) use.
-// BLE_UUID128_INIT takes the 16 bytes little-endian (LSB first); byte[12] carries the
-// 16-bit value's low byte (0x00/0x02/0x03), byte[13]=0xfa.
-#define PANEL_UUID128(lo) BLE_UUID128_INIT( \
-    0xfb,0x34,0x9b,0x5f, 0x80,0x00, 0x00,0x80, 0x00,0x10, 0x00,0x00, (lo),0xfa,0x00,0x00)
-[[maybe_unused]] static const ble_uuid128_t PANEL_SVC_UUID = PANEL_UUID128(0x00);  // 0000fa00- (doc; disc is char-wide now)
-static const ble_uuid128_t PANEL_WR_UUID  = PANEL_UUID128(0x02);   // 0000fa02-... (write)
-static const ble_uuid128_t PANEL_NT_UUID  = PANEL_UUID128(0x03);   // 0000fa03-... (notify)
+// ── BleCentralLink methods (generic central-connect; central_link.h seam) ─────
+// The connect driver supplies the adv-name + write/notify UUIDs (a ConnectProfile)
+// and frames its own bytes. This link owns only the radio + connect state machine.
+BleCentralLink& BleCentralLink::instance() { static BleCentralLink s; return s; }
 
-BlePanel& BlePanel::instance() { static BlePanel s; return s; }
-
-void BlePanel::set_target(const char* prefix) {
-    if (!prefix) { name_len_ = 0; return; }
-    size_t n = strlen(prefix);
+void BleCentralLink::set_profile(const modesp::ble::ConnectProfile& p) {
+    const char* prefix = p.name_prefix;
+    size_t n = prefix ? strlen(prefix) : 0;
     if (n >= sizeof(name_)) n = sizeof(name_) - 1;
-    memcpy(name_, prefix, n); name_[n] = '\0'; name_len_ = (uint8_t)n;
-    ESP_LOGI(TAG, "panel target name='%s'", name_);
+    if (n) memcpy(name_, prefix, n);
+    name_[n] = '\0'; name_len_ = (uint8_t)n;
+    write_uuid_  = p.write_uuid;
+    notify_uuid_ = p.notify_uuid;
+    on_notify_   = p.on_notify;
+    notify_ctx_  = p.ctx;
+    ESP_LOGI(TAG, "central-link target name='%s'", name_);
 }
 
-bool BlePanel::name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const {
+bool BleCentralLink::name_matches(const uint8_t* adv_name, uint8_t adv_name_len) const {
     if (name_len_ == 0 || !adv_name || adv_name_len < name_len_) return false;
     return memcmp(adv_name, name_, name_len_) == 0;
 }
 
-// Serialized write-WITH-response. pypixelcolor writes every 244-byte chunk with
-// response=True and relies on the BLE write-response for flow control (no sleeps) —
-// the panel drops back-to-back no-response writes. We mirror that by BLOCKING here
-// until the GATT write completes: one outstanding write at a time → no GATTC-proc-pool
-// exhaustion, no dropped frames. Never call from the NimBLE host task (the wait below
-// would deadlock against the callback that releases it).
+// Serialized write-WITH-response — transport-owned flow control. Some peripherals drop
+// back-to-back no-response writes and rely on the BLE write-response to pace frames; we
+// mirror that by BLOCKING here until the GATT write completes: one outstanding write at a
+// time → no GATTC-proc-pool exhaustion, no dropped frames. Never call the blocking form
+// from the NimBLE host task (the wait below would deadlock against the callback).
 //
-// With-response is reached from TWO tasks: the panel_render task (text frames) and the
-// driver's control writes (power/brightness) on the main loop. The completion semaphore
-// below carries no caller identity, so a mutex serializes them — without it, one task's
-// drain (take,0) can steal the other's completion give → false 3 s timeouts + two
-// outstanding writes on one handle (the very flow-control breakage this design prevents).
-static SemaphoreHandle_t s_panel_write_sem   = nullptr;
-static SemaphoreHandle_t s_panel_write_mutex = nullptr;   // RECURSIVE — a whole frame holds it across N writes
-static int panel_on_write_done(uint16_t /*conn*/, const struct ble_gatt_error* /*err*/,
-                               struct ble_gatt_attr* /*attr*/, void* /*arg*/) {
-    if (s_panel_write_sem) xSemaphoreGive(s_panel_write_sem);
+// With-response is reached from several tasks (a driver's render task for framed writes;
+// driver/module control writes on their loops). The completion semaphore carries no caller
+// identity, so a RECURSIVE mutex serializes them — without it, one task's drain (take,0)
+// can steal the other's completion give → false 3 s timeouts + two outstanding writes on
+// one handle (the very flow-control breakage this design prevents).
+static SemaphoreHandle_t s_link_write_sem   = nullptr;
+static SemaphoreHandle_t s_link_write_mutex = nullptr;   // RECURSIVE — a whole frame holds it across N writes
+static int link_on_write_done(uint16_t /*conn*/, const struct ble_gatt_error* /*err*/,
+                              struct ble_gatt_attr* /*attr*/, void* /*arg*/) {
+    if (s_link_write_sem) xSemaphoreGive(s_link_write_sem);
     return 0;
 }
 
-// Hold the recursive write mutex across a WHOLE multi-command frame so the render task's
-// text/DIY frame (enter+clear+pixels, or header+payload chunks) is atomic against the
-// driver's power/brightness control writes on the main loop — interleaving a control write
-// mid-frame corrupts the in-progress frame. write_cmd takes it recursively per command; the
-// outer frame lock keeps it held the whole time. False if allocation failed.
-static bool panel_write_lock() {
-    if (!s_panel_write_mutex) s_panel_write_mutex = xSemaphoreCreateRecursiveMutex();
-    if (!s_panel_write_sem)   s_panel_write_sem   = xSemaphoreCreateBinary();
-    if (!s_panel_write_mutex || !s_panel_write_sem) return false;
-    return xSemaphoreTakeRecursive(s_panel_write_mutex, portMAX_DELAY) == pdTRUE;
+// Hold the recursive write mutex across a WHOLE multi-command frame so a driver's framed
+// write (built + chunked in the driver via ICentralLink::write_frame) is atomic against a
+// control write from another caller — interleaving mid-frame corrupts reassembly. write()
+// takes it recursively per command; write_frame keeps it held across the body. False if
+// allocation failed.
+static bool link_write_lock() {
+    if (!s_link_write_mutex) s_link_write_mutex = xSemaphoreCreateRecursiveMutex();
+    if (!s_link_write_sem)   s_link_write_sem   = xSemaphoreCreateBinary();
+    if (!s_link_write_mutex || !s_link_write_sem) return false;
+    return xSemaphoreTakeRecursive(s_link_write_mutex, portMAX_DELAY) == pdTRUE;
 }
-static void panel_write_unlock() {
-    if (s_panel_write_mutex) xSemaphoreGiveRecursive(s_panel_write_mutex);
+static void link_write_unlock() {
+    if (s_link_write_mutex) xSemaphoreGiveRecursive(s_link_write_mutex);
 }
 
-bool BlePanel::write_cmd(const uint8_t* data, uint16_t len, bool with_response) {
+bool BleCentralLink::write(const uint8_t* data, uint16_t len, bool with_response) {
     if (state_ != State::READY || conn_handle_ == 0xFFFF || write_handle_ == 0) return false;
-    // fa02 advertises both WRITE (0x08) and WRITE_NO_RSP (0x04). No-response is the fast
-    // fire-and-forget path (caller opts out of flow control); with-response blocks below.
+    // The write char may advertise both WRITE (0x08) and WRITE_NO_RSP (0x04). No-response is
+    // the fast fire-and-forget path (caller opts out of flow control); with-response blocks.
     if (!(with_response && (write_props_ & 0x08 /*WRITE*/)))
         return ble_gattc_write_no_rsp_flat(conn_handle_, write_handle_, data, len) == 0;
 
-    if (!panel_write_lock()) return false;   // recursive: a multi-command frame may already hold it
+    if (!link_write_lock()) return false;   // recursive: a multi-command frame may already hold it
     bool ok = false;
     // Re-check under the lock: the link may have dropped while we waited for the mutex.
     if (state_ == State::READY && conn_handle_ != 0xFFFF && write_handle_ != 0) {
-        xSemaphoreTake(s_panel_write_sem, 0);   // drain any stale completion
-        if (ble_gattc_write_flat(conn_handle_, write_handle_, data, len, &panel_on_write_done, NULL) == 0)
-            ok = (xSemaphoreTake(s_panel_write_sem, pdMS_TO_TICKS(3000)) == pdTRUE);  // flow control
+        xSemaphoreTake(s_link_write_sem, 0);   // drain any stale completion
+        if (ble_gattc_write_flat(conn_handle_, write_handle_, data, len, &link_on_write_done, NULL) == 0)
+            ok = (xSemaphoreTake(s_link_write_sem, pdMS_TO_TICKS(3000)) == pdTRUE);  // flow control
     }
-    panel_write_unlock();
+    link_write_unlock();
     return ok;
 }
 
-void BlePanel::reset_link() {
+// Atomic multi-write frame: hold the recursive write-mutex across the WHOLE body so the
+// driver can build + chunk its bytes (calling link->write(...) per chunk) without a control
+// write from another caller interleaving. C fn-ptr + arg → zero heap.
+bool BleCentralLink::write_frame(bool (*body)(modesp::ble::ICentralLink*, void*), void* arg) {
+    if (!body) return false;
+    if (!link_write_lock()) return false;
+    bool ok = body(this, arg);
+    link_write_unlock();
+    return ok;
+}
+
+void BleCentralLink::reset_link() {
     state_ = State::IDLE;
     conn_handle_ = 0xFFFF;
     write_handle_ = 0; notify_handle_ = 0;
     svc_start_ = 0; svc_end_ = 0;
-    start_observer_scan();   // resume scanning (re-find panel + keep sensors)
+    start_observer_scan();   // resume scanning (re-find target + keep sensors)
 }
 
-void BlePanel::on_scan_hit(const void* addr) {
+void BleCentralLink::on_scan_hit(const void* addr) {
     if (state_ != State::IDLE) return;
     if (cooldown_until_us_ != 0 && esp_timer_get_time() < cooldown_until_us_) return;  // back off after a failed discovery
     state_ = State::CONNECTING;
@@ -771,88 +831,104 @@ void BlePanel::on_scan_hit(const void* addr) {
     uint8_t own_addr_type;
     if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) { reset_link(); return; }
     int rc = ble_gap_connect(own_addr_type, static_cast<const ble_addr_t*>(addr),
-                             30000, NULL, &BlePanel::gap_event, NULL);
-    if (rc != 0) { ESP_LOGE(TAG, "panel ble_gap_connect rc=%d", rc); reset_link(); }
-    else         ESP_LOGI(TAG, "panel connecting to '%s'...", name_);
+                             30000, NULL, &BleCentralLink::gap_event, NULL);
+    if (rc != 0) { ESP_LOGE(TAG, "central-link ble_gap_connect rc=%d", rc); reset_link(); }
+    else         ESP_LOGI(TAG, "central-link connecting to '%s'...", name_);
 }
 
-int BlePanel::gap_event(struct ble_gap_event* event, void* /*arg*/) {
-    BlePanel& p = instance();
+int BleCentralLink::gap_event(struct ble_gap_event* event, void* /*arg*/) {
+    BleCentralLink& p = instance();
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             p.conn_handle_ = event->connect.conn_handle;
             p.state_ = State::DISCOVERING;
-            ESP_LOGI(TAG, "panel connected (handle=%u), enumerating all characteristics...", p.conn_handle_);
+            ESP_LOGI(TAG, "central-link connected (handle=%u), enumerating characteristics...", p.conn_handle_);
             ble_gattc_exchange_mtu(p.conn_handle_, NULL, NULL);
-            // Discover ALL characteristics (1..0xffff) and match fa02/fa03 wherever they
-            // live — robust to the panel's actual service layout (16- or 128-bit UUIDs).
+            // Discover ALL characteristics (1..0xffff) and match the profile's write/notify
+            // UUIDs wherever they live — robust to the peripheral's actual service layout.
             p.write_handle_ = 0; p.notify_handle_ = 0;
-            ble_gattc_disc_all_chrs(p.conn_handle_, 1, 0xffff, &BlePanel::on_chr, NULL);
+            ble_gattc_disc_all_chrs(p.conn_handle_, 1, 0xffff, &BleCentralLink::on_chr, NULL);
         } else {
-            ESP_LOGW(TAG, "panel connect failed (status=%d)", event->connect.status);
+            ESP_LOGW(TAG, "central-link connect failed (status=%d)", event->connect.status);
             p.reset_link();
         }
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGW(TAG, "panel disconnected (reason=%d)", event->disconnect.reason);
+        ESP_LOGW(TAG, "central-link disconnected (reason=%d)", event->disconnect.reason);
         p.reset_link();
         return 0;
     case BLE_GAP_EVENT_NOTIFY_RX:
-        return 0;   // fa03 ACKs — consumed in Increment 2 (image/text)
+        // Route to the profile's sink (if any); the transport never interprets the bytes.
+        if (p.on_notify_ && event->notify_rx.om) {
+            uint8_t buf[64];
+            uint16_t om_len = OS_MBUF_PKTLEN(event->notify_rx.om);
+            uint16_t n = om_len < sizeof(buf) ? om_len : (uint16_t)sizeof(buf);
+            if (os_mbuf_copydata(event->notify_rx.om, 0, n, buf) == 0)
+                p.on_notify_(buf, n, p.notify_ctx_);
+        }
+        return 0;
     default:
         return 0;
     }
 }
 
-// Match a characteristic UUID to the panel's write(fa02)/notify(fa03) role, handling
-// both 16-bit and 128-bit base-derived forms. Returns 0xFA02 / 0xFA03 / 0.
-static uint16_t panel_chr_match(const ble_uuid_t* u) {
+// Match a discovered characteristic UUID to the profile's write/notify role. Direct
+// UUID compare first (any type); then a 16-bit fallback for a peripheral that exposes a
+// base-derived 128-bit UUID in its short 16-bit form (bytes[12..13], little-endian).
+// Returns 0 = none, 1 = write, 2 = notify.
+uint8_t BleCentralLink::chr_role(const ble_uuid_t* u) const {
+    if (write_uuid_  && ble_uuid_cmp(u, write_uuid_)  == 0) return 1;
+    if (notify_uuid_ && ble_uuid_cmp(u, notify_uuid_) == 0) return 2;
     if (u->type == BLE_UUID_TYPE_16) {
         uint16_t v = ble_uuid_u16(u);
-        if (v == 0xFA02 || v == 0xFA03) return v;
-    } else if (u->type == BLE_UUID_TYPE_128) {
-        if (ble_uuid_cmp(u, &PANEL_WR_UUID.u) == 0) return 0xFA02;
-        if (ble_uuid_cmp(u, &PANEL_NT_UUID.u) == 0) return 0xFA03;
+        if (write_uuid_ && write_uuid_->type == BLE_UUID_TYPE_128) {
+            const ble_uuid128_t* w = (const ble_uuid128_t*)write_uuid_;
+            if (((uint16_t)w->value[12] | ((uint16_t)w->value[13] << 8)) == v) return 1;
+        }
+        if (notify_uuid_ && notify_uuid_->type == BLE_UUID_TYPE_128) {
+            const ble_uuid128_t* nn = (const ble_uuid128_t*)notify_uuid_;
+            if (((uint16_t)nn->value[12] | ((uint16_t)nn->value[13] << 8)) == v) return 2;
+        }
     }
     return 0;
 }
 
-int BlePanel::on_chr(uint16_t conn, const struct ble_gatt_error* err,
-                     const struct ble_gatt_chr* chr, void* /*arg*/) {
-    BlePanel& p = instance();
+int BleCentralLink::on_chr(uint16_t conn, const struct ble_gatt_error* err,
+                           const struct ble_gatt_chr* chr, void* /*arg*/) {
+    BleCentralLink& p = instance();
     if (err->status == 0 && chr) {
         char ub[BLE_UUID_STR_LEN];
         ble_uuid_to_str(&chr->uuid.u, ub);
-        ESP_LOGI(TAG, "panel chr def=%u val=%u props=0x%02x uuid=%s",
+        ESP_LOGI(TAG, "central-link chr def=%u val=%u props=0x%02x uuid=%s",
                  chr->def_handle, chr->val_handle, chr->properties, ub);
-        uint16_t m = panel_chr_match(&chr->uuid.u);
-        if      (m == 0xFA02) { p.write_handle_ = chr->val_handle; p.write_props_ = chr->properties; }
-        else if (m == 0xFA03) p.notify_handle_ = chr->val_handle;
+        uint8_t role = p.chr_role(&chr->uuid.u);
+        if      (role == 1) { p.write_handle_ = chr->val_handle; p.write_props_ = chr->properties; }
+        else if (role == 2) p.notify_handle_ = chr->val_handle;
     } else if (err->status == BLE_HS_EDONE) {
         if (p.write_handle_ == 0) {
-            ESP_LOGE(TAG, "panel: fa02 write char not found among chrs (see uuids above) — back off 15s");
+            ESP_LOGE(TAG, "central-link: write char not found among chrs (see uuids above) — back off 15s");
             p.cooldown_until_us_ = esp_timer_get_time() + 15000000;   // avoid hammering reconnect
             if (ble_gap_terminate(conn, 0x13) != 0) p.reset_link();
             return 0;
         }
         if (p.notify_handle_ != 0) {
-            ble_gattc_disc_all_dscs(conn, p.notify_handle_, 0xffff, &BlePanel::on_dsc, NULL);
+            ble_gattc_disc_all_dscs(conn, p.notify_handle_, 0xffff, &BleCentralLink::on_dsc, NULL);
         } else {
             p.state_ = State::READY;   // write-only is enough for control
-            ESP_LOGI(TAG, "panel READY (fa02 write=%u; no fa03 notify)", p.write_handle_);
+            ESP_LOGI(TAG, "central-link READY (write=%u; no notify)", p.write_handle_);
             start_observer_scan();
         }
     } else {
-        ESP_LOGW(TAG, "panel on_chr err=%d — terminating link", err->status);
+        ESP_LOGW(TAG, "central-link on_chr err=%d — terminating link", err->status);
         if (ble_gap_terminate(conn, 0x13) != 0) p.reset_link();
     }
     return 0;
 }
 
-int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
-                     uint16_t /*chr_val_handle*/, const struct ble_gatt_dsc* dsc, void* /*arg*/) {
-    BlePanel& p = instance();
+int BleCentralLink::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
+                           uint16_t /*chr_val_handle*/, const struct ble_gatt_dsc* dsc, void* /*arg*/) {
+    BleCentralLink& p = instance();
     if (err->status == 0 && dsc) {
         if (ble_uuid_u16(&dsc->uuid.u) == 0x2902) {                  // CCCD
             static const uint8_t cccd_on[2] = {0x01, 0x00};         // enable notifications
@@ -860,119 +936,32 @@ int BlePanel::on_dsc(uint16_t conn, const struct ble_gatt_error* err,
         }
     } else if (err->status == BLE_HS_EDONE) {
         p.state_ = State::READY;
-        ESP_LOGI(TAG, "panel READY (fa02 write + fa03 notify)");
+        ESP_LOGI(TAG, "central-link READY (write + notify)");
         start_observer_scan();   // resume sensor observation alongside the connection
     } else {
-        ESP_LOGW(TAG, "panel on_dsc err=%d — terminating link", err->status);
+        ESP_LOGW(TAG, "central-link on_dsc err=%d — terminating link", err->status);
         if (ble_gap_terminate(conn, 0x13) != 0) p.reset_link();
     }
     return 0;
 }
 
-// ── Background render task ────────────────────────────────────────────────────
-// show_text() enqueues (latest-wins, non-blocking) so the 100 Hz main loop never
-// stalls on BLE; this task does the blocking chunked with-response sends.
-namespace {
-struct PanelMsg { char text[32]; uint8_t rgb[3]; uint8_t anim; uint8_t speed; uint8_t rainbow; };  // 32 = SharedState string cap (etl::string<32>) — fits a full panel.message
-QueueHandle_t s_panel_queue       = nullptr;   // length 1 → xQueueOverwrite (newest wins)
-TaskHandle_t  s_panel_render_task = nullptr;
-// Producer-side build buffer — show_text runs only on the main loop, and xQueueOverwrite copies
-// it by value, so the render task reads its own snapshot (no shared-buffer race).
-PanelMsg s_build;
+// ── Connect-profile registry (central_link.h seam) ────────────────────────────
+// A single central-connect link (one radio). A connect driver registers its profile
+// (adv name + write/notify UUIDs) at factory time and writes THROUGH the returned link.
+// Idempotent: re-registering just re-adopts the profile (last caller wins — one link).
+namespace ble {
+
+static bool s_profile_registered = false;
+
+ICentralLink* register_connect_profile(const ConnectProfile& p) {
+    BleCentralLink::instance().set_profile(p);
+    s_profile_registered = true;
+    return &BleCentralLink::instance();
 }
 
-void BlePanel::render_text_blocking(const char* s, uint8_t r, uint8_t g, uint8_t b,
-                                    uint8_t anim, uint8_t speed, uint8_t rainbow) {
-    if (state_ != State::READY || s == nullptr) return;
-    using namespace modesp::panel;
+size_t connect_profile_count() { return s_profile_registered ? 1 : 0; }
 
-    int n = 0;
-    while (s[n] && n < 31) n++;                     // up to 31 chars (panel.message cap; the panel scrolls them)
-    const uint8_t R = r, G = g, B = b;
-
-    // payload: [num_chars][3 rsv][anim/speed/rainbow 3][fg RGB 3][bg_en][bg RGB 3] + glyph blocks
-    // static: render_text_blocking runs only on the single panel_render task, so these large
-    // buffers live off the 4 KB task stack and are not re-created per call.
-    static uint8_t payload[700];   // 14-byte header + 31*20 glyph blocks = 634
-    size_t pl = 0;
-    payload[pl++] = static_cast<uint8_t>(n);
-    payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // reserved
-    payload[pl++] = anim; payload[pl++] = speed; payload[pl++] = rainbow;  // native effect/speed/rainbow
-    payload[pl++] = R; payload[pl++] = G; payload[pl++] = B;       // fg RGB
-    payload[pl++] = 0;                                             // bg_enable=0
-    payload[pl++] = 0; payload[pl++] = 0; payload[pl++] = 0;       // bg RGB
-    for (int i = 0; i < n; i++) {
-        uint8_t idx = panel_font_index(static_cast<uint8_t>(s[i]));
-        payload[pl++] = 0x00;                                     // glyph block type: char 16x8
-        payload[pl++] = R; payload[pl++] = G; payload[pl++] = B;  // per-char color
-        for (int row = 0; row < PANEL_FONT_H; row++)
-            payload[pl++] = PANEL_FONT[idx * PANEL_FONT_H + row];
-    }
-
-    uint32_t crc = esp_rom_crc32_le(0, payload, pl);
-
-    // frame: [total_len u16][00 01][has_next 00][payload_size u32][crc u32][00][slot 0x65] + payload
-    static uint8_t frame[720];   // payload + 15-byte header (<=649 for 31 chars); static, same single-task reason
-    size_t fl = 0;
-    uint16_t total = static_cast<uint16_t>(pl + 15);
-    frame[fl++] = total & 0xFF;          frame[fl++] = (total >> 8) & 0xFF;
-    frame[fl++] = 0x00;                  frame[fl++] = 0x01;       // text type
-    frame[fl++] = 0x00;                                           // has_next (single frame)
-    frame[fl++] = pl & 0xFF;  frame[fl++] = (pl >> 8) & 0xFF;  frame[fl++] = (pl >> 16) & 0xFF;  frame[fl++] = (pl >> 24) & 0xFF;
-    frame[fl++] = crc & 0xFF; frame[fl++] = (crc >> 8) & 0xFF; frame[fl++] = (crc >> 16) & 0xFF; frame[fl++] = (crc >> 24) & 0xFF;
-    frame[fl++] = 0x00;                  frame[fl++] = 0x65;       // 0x00, slot
-    memcpy(frame + fl, payload, pl);     fl += pl;
-
-    // chunked (244 B) with-response; the whole frame holds the write lock so a driver control
-    // write can't interleave between chunks and corrupt the panel's frame reassembly.
-    if (!panel_write_lock()) return;
-    bool ok = true;
-    for (size_t off = 0; off < fl && ok; off += 244) {
-        size_t clen = (fl - off < 244) ? (fl - off) : 244;
-        ok = write_cmd(frame + off, static_cast<uint16_t>(clen), /*with_response=*/true);
-    }
-    panel_write_unlock();
-    if (!ok) return;   // link dropped mid-send — abort; the next show_text retries
-    ESP_LOGI(TAG, "panel show_text '%s' (%d chars, rgb=%02x%02x%02x, %u-byte frame)",
-             s, n, R, G, B, (unsigned)fl);
-}
-
-// Lazy one-time creation of the render queue + task (first show_text, always from
-// the main loop → no creation race). False if allocation failed.
-bool BlePanel::ensure_render_task() {
-    if (s_panel_queue) return true;
-    s_panel_queue = xQueueCreate(1, sizeof(PanelMsg));
-    if (!s_panel_queue) return false;
-    if (xTaskCreate(&BlePanel::render_task_fn, "panel_render", 4096, this, 4,
-                    &s_panel_render_task) != pdPASS) {
-        vQueueDelete(s_panel_queue);
-        s_panel_queue = nullptr;
-        ESP_LOGE(TAG, "panel render task create failed");
-        return false;
-    }
-    return true;
-}
-
-void BlePanel::render_task_fn(void* arg) {
-    auto* self = static_cast<BlePanel*>(arg);
-    static PanelMsg m;   // static (single consumer)
-    for (;;) {
-        if (xQueueReceive(s_panel_queue, &m, portMAX_DELAY) == pdTRUE)
-            self->render_text_blocking(m.text, m.rgb[0], m.rgb[1], m.rgb[2], m.anim, m.speed, m.rainbow);
-    }
-}
-
-void BlePanel::show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
-                         uint8_t anim, uint8_t speed, uint8_t rainbow) {
-    if (s == nullptr) return;
-    if (!ensure_render_task()) return;
-    size_t i = 0;
-    for (; s[i] && i < sizeof(s_build.text) - 1; i++) s_build.text[i] = s[i];
-    s_build.text[i] = '\0';
-    s_build.rgb[0] = r; s_build.rgb[1] = g; s_build.rgb[2] = b;
-    s_build.anim = anim; s_build.speed = speed; s_build.rainbow = rainbow;
-    xQueueOverwrite(s_panel_queue, &s_build);      // latest-wins, non-blocking
-}
+} // namespace ble
 
 int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
     if (event->type != BLE_GAP_EVENT_DISC) return 0;
@@ -981,12 +970,13 @@ int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
     struct ble_hs_adv_fields fields;
     if (ble_hs_adv_parse_fields(&fields, d->data, d->length_data) != 0) return 0;
 
-    // Panel (CONNECT device) advertises a NAME and no service-data: match the name
-    // BEFORE the sensor service-data early-return below.
-    if (BlePanel::instance().target_set() && !BlePanel::instance().is_connected() &&
+    // A CONNECT target advertises a NAME and no service-data: if a connect profile is
+    // registered, match its adv-name BEFORE the sensor service-data early-return below.
+    if (ble::connect_profile_count() > 0 &&
+        BleCentralLink::instance().target_set() && !BleCentralLink::instance().connected() &&
         fields.name != NULL &&
-        BlePanel::instance().name_matches(fields.name, fields.name_len)) {
-        BlePanel::instance().on_scan_hit(&d->addr);
+        BleCentralLink::instance().name_matches(fields.name, fields.name_len)) {
+        BleCentralLink::instance().on_scan_hit(&d->addr);
         return 0;
     }
 
@@ -1009,7 +999,7 @@ int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
 }
 
 void BleService::start_scan() {
-    start_observer_scan();   // shared starter; BlePanel resumes it after (dis)connect
+    start_observer_scan();   // shared starter; BleCentralLink resumes it after (dis)connect
 }
 
 #endif // CONFIG_MODESP_BLE_CENTRAL

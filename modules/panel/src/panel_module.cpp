@@ -4,17 +4,14 @@
  *        iPixel BLE LED panel, with a threshold-based colour per value.
  */
 #include "panel_module.h"
-#include "modesp/panel_text.h"    // shared text-output slots API (other modules post here)
-#include "sdkconfig.h"            // CONFIG_* must be defined before the guards below
+#include "modesp/panel_text.h"           // shared text-output slots API (other modules post here)
+#include "modesp/hal/panel_port.h"       // IPanelPort — the panel backend a driver publishes
+#include "modesp/hal/driver_registry.h"  // DriverRegistry::panel_port()
 #include "esp_log.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <ctime>
-
-#if defined(CONFIG_MODESP_BLE_CENTRAL)
-#include "modesp/ble/ble_panel.h"
-#endif
 
 static const char* TAG = "Panel";
 
@@ -51,6 +48,15 @@ PanelModule::PanelModule()
     : BaseModule("panel", modesp::ModulePriority::LOW)
 {}
 
+void PanelModule::on_bind(modesp::DriverManager& /*drivers*/,
+                          const modesp::BindingTable& /*bindings*/,
+                          modesp::HAL& /*hal*/) {
+    // The panel driver (if bound) published its IPanelPort at factory time. No panel
+    // driver → null → the module runs but produces no output.
+    port_ = modesp::DriverRegistry::panel_port();
+    ESP_LOGI(TAG, "panel backend %s", port_ ? "resolved" : "absent (no output)");
+}
+
 bool PanelModule::on_init() {
     state_set("panel.text", "");
     state_set("panel.connected", false);
@@ -61,27 +67,24 @@ bool PanelModule::on_init() {
 }
 
 void PanelModule::on_update(uint32_t dt_ms) {
-#if defined(CONFIG_MODESP_BLE_CENTRAL)
-    auto& panel = modesp::BlePanel::instance();
+    if (!port_) { (void)dt_ms; return; }   // no panel backend bound → nothing to drive
 
     // ── Web/MQTT control: connection status + power + brightness (applied on change) ──
-    bool conn = panel.is_connected();
+    bool conn = port_->connected();
     if (conn != last_connected_) { last_connected_ = conn; state_set("panel.connected", conn); }
     if (!conn) { shown_[0] = '\0'; last_power_ = -1; last_bright_ = -1; return; }
 
     int power = read_bool("panel.power", true) ? 1 : 0;
     if (power != last_power_) {
         last_power_ = power;
-        const uint8_t cmd[5] = {0x05, 0x00, 0x07, 0x01, static_cast<uint8_t>(power)};   // power ON/OFF
-        panel.write_cmd(cmd, sizeof(cmd), true);
+        port_->set_power(power != 0);
         ESP_LOGI(TAG, "panel power %s (web)", power ? "ON" : "OFF");
     }
     int bright = read_int("panel.brightness", 80);
     if (bright < 5) bright = 5; else if (bright > 100) bright = 100;
     if (bright != last_bright_) {
         last_bright_ = bright;
-        const uint8_t cmd[5] = {0x05, 0x00, 0x04, 0x80, static_cast<uint8_t>(bright)};   // brightness %
-        panel.write_cmd(cmd, sizeof(cmd), true);
+        port_->set_brightness(bright);
         ESP_LOGI(TAG, "panel brightness %d%% (web)", bright);
     }
     if (power == 0) { shown_[0] = '\0'; return; }                              // panel off → nothing
@@ -100,7 +103,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
             web_anim != shown_anim_) {
             strncpy(shown_, msg, sizeof(shown_) - 1); shown_[sizeof(shown_) - 1] = '\0';
             shown_rgb_[0] = mc[0]; shown_rgb_[1] = mc[1]; shown_rgb_[2] = mc[2]; shown_anim_ = web_anim;
-            panel.show_text(msg, mc[0], mc[1], mc[2], web_anim, kSpeed, kRainbow);
+            port_->show_text(msg, mc[0], mc[1], mc[2], web_anim, kSpeed, kRainbow);
             state_set("panel.text", msg);
         }
         return;
@@ -122,7 +125,7 @@ void PanelModule::on_update(uint32_t dt_ms) {
         rot_++;
         char tbuf[12];
         snprintf(tbuf, sizeof(tbuf), "ANIM%u", static_cast<unsigned>(anim));
-        panel.show_text(tbuf, 0, 255, 0, anim, /*speed=*/80, /*rainbow=*/0);
+        port_->show_text(tbuf, 0, 255, 0, anim, /*speed=*/80, /*rainbow=*/0);
         ESP_LOGI(TAG, "ANIM TEST: animation=%u speed=80 rainbow=0 -> '%s'",
                  static_cast<unsigned>(anim), tbuf);
         return;
@@ -208,13 +211,10 @@ void PanelModule::on_update(uint32_t dt_ms) {
         shown_[sizeof(shown_) - 1] = '\0';
         shown_rgb_[0] = r; shown_rgb_[1] = g; shown_rgb_[2] = b;
         shown_anim_ = anim;
-        panel.show_text(buf, r, g, b, anim, kSpeed, kRainbow);
+        port_->show_text(buf, r, g, b, anim, kSpeed, kRainbow);
         // panel.text state + log: drop the leading icon byte so the value stays valid ASCII/UTF-8
         const char* clean = (static_cast<uint8_t>(buf[0]) >= 0x80) ? buf + 1 : buf;
         state_set("panel.text", clean);
         ESP_LOGI(TAG, "panel <- '%s' (rgb=%02x%02x%02x)", clean, r, g, b);
     }
-#else
-    (void)dt_ms;
-#endif
 }

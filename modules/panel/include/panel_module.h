@@ -1,24 +1,31 @@
 /**
  * @file panel_module.h
  * @brief LED-panel content module — rotates equipment.room_temp / room_humid / presence
- *        (health-gated, threshold-coloured) to the iPixel BLE panel via BlePanel::show_text().
+ *        (health-gated, threshold-coloured) to a text panel via IPanelPort::show_text().
  *
- * The panel DRIVER (drivers/ble_led_panel) owns transport/control; this MODULE owns
- * "what to show" (reads SharedState, which drivers cannot). Decoupled via the
- * BlePanel singleton in modesp_ble.
+ * The panel DRIVER owns transport + wire format (it publishes an IPanelPort); this
+ * MODULE owns "what to show" (reads SharedState, which drivers cannot). Fully
+ * hardware-agnostic: it resolves the port in on_bind and never mentions BLE. No panel
+ * driver bound → port is null → the module produces no output.
  */
 #pragma once
 
 #include "modesp/base_module.h"
 
+namespace modesp::panel { class IPanelPort; }
+
 class PanelModule : public modesp::BaseModule {
 public:
     PanelModule();
 
+    void on_bind(modesp::DriverManager& drivers,
+                 const modesp::BindingTable& bindings,
+                 modesp::HAL& hal) override;
     bool on_init() override;
     void on_update(uint32_t dt_ms) override;
 
 private:
+    modesp::panel::IPanelPort* port_ = nullptr;   // resolved in on_bind; owned by the driver
     char     shown_[32]   = {0};   // last text pushed to the panel (de-dupe; 32 = string-state cap)
     uint8_t  shown_rgb_[3] = {0};  // last colour pushed (de-dupe on colour-only changes)
     uint8_t  shown_anim_  = 0;     // last effect pushed (de-dupe on web anim change)
