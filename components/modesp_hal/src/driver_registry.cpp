@@ -13,6 +13,8 @@ namespace {
 struct SensorEntry    { const char* type; SensorFactory   fn; };
 struct ActuatorEntry  { const char* type; ActuatorFactory fn; };
 struct DiscoveryEntry { const char* type; DiscoveryFn     fn; };
+struct DisplayEntry   { const char* type; DisplayFactory  fn; };
+struct AudioEntry     { const char* type; AudioFactory    fn; };
 
 SensorEntry    s_sensors[DriverRegistry::MAX_DRIVER_TYPES];
 size_t         s_sensor_n = 0;
@@ -20,6 +22,10 @@ ActuatorEntry  s_actuators[DriverRegistry::MAX_DRIVER_TYPES];
 size_t         s_actuator_n = 0;
 DiscoveryEntry s_discoveries[DriverRegistry::MAX_DRIVER_TYPES];
 size_t         s_discovery_n = 0;
+DisplayEntry   s_displays[DriverRegistry::MAX_DRIVER_TYPES];
+size_t         s_display_n = 0;
+AudioEntry     s_audios[DriverRegistry::MAX_DRIVER_TYPES];
+size_t         s_audio_n = 0;
 
 bool sensor_has(const char* type) {
     for (size_t i = 0; i < s_sensor_n; ++i)
@@ -85,6 +91,54 @@ const char* DriverRegistry::discovery_type_at(size_t i) {
 
 DiscoveryFn DriverRegistry::discovery_fn_at(size_t i) {
     return i < s_discovery_n ? s_discoveries[i].fn : nullptr;
+}
+
+bool DriverRegistry::register_display(const char* type, DisplayFactory fn) {
+    if (!type || !fn) return false;
+    if (has_display(type)) return true;                 // idempotent
+    if (s_display_n >= MAX_DRIVER_TYPES) return false;
+    s_displays[s_display_n++] = {type, fn};
+    return true;
+}
+
+bool DriverRegistry::register_audio(const char* type, AudioFactory fn) {
+    if (!type || !fn) return false;
+    if (has_audio(type)) return true;                   // idempotent
+    if (s_audio_n >= MAX_DRIVER_TYPES) return false;
+    s_audios[s_audio_n++] = {type, fn};
+    return true;
+}
+
+display::IDisplayPort* DriverRegistry::create_display(const char* type, const Binding& b, HAL& h) {
+    if (!type) return nullptr;
+    for (size_t i = 0; i < s_display_n; ++i)
+        if (strcmp(s_displays[i].type, type) == 0) return s_displays[i].fn(b, h);
+    return nullptr;
+}
+
+audio::IAudioSink* DriverRegistry::create_audio(const char* type, const Binding& b, HAL& h) {
+    if (!type) return nullptr;
+    for (size_t i = 0; i < s_audio_n; ++i)
+        if (strcmp(s_audios[i].type, type) == 0) return s_audios[i].fn(b, h);
+    return nullptr;
+}
+
+bool DriverRegistry::has_display(const char* type) {
+    if (!type) return false;
+    for (size_t i = 0; i < s_display_n; ++i)
+        if (strcmp(s_displays[i].type, type) == 0) return true;
+    return false;
+}
+
+bool DriverRegistry::has_audio(const char* type) {
+    if (!type) return false;
+    for (size_t i = 0; i < s_audio_n; ++i)
+        if (strcmp(s_audios[i].type, type) == 0) return true;
+    return false;
+}
+
+void DriverRegistry::reset() {
+    s_sensor_n = s_actuator_n = s_discovery_n = s_display_n = s_audio_n = 0;
 }
 
 } // namespace modesp

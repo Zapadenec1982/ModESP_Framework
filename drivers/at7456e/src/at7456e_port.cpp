@@ -1,14 +1,14 @@
 /**
  * @file at7456e_port.cpp
- * @brief At7456ePort — реалізація (компілюється лише з Kconfig-опцією).
+ * @brief At7456ePort — реалізація (driver-компонент; SRCS гейтиться
+ *        generated-опцією CONFIG_MODESP_DRIVER_AT7456E).
  */
 
 #include "sdkconfig.h"
 
-#ifdef CONFIG_MODESP_DISPLAY_AT7456E
 
-#include "display/at7456e_port.h"
-#include "display/display_backend_registry.h"
+#include "at7456e_port.h"
+#include "modesp/hal/driver_registry.h"
 #include "modesp/osd/osd_charmap.h"
 #include "modesp/osd/osd_font_data.h"
 #include "esp_log.h"
@@ -135,4 +135,4 @@ MODESP_REGISTER_DISPLAY(at7456e, &at7456e_factory)
 
 } // namespace modesp::display
 
-#endif // CONFIG_MODESP_DISPLAY_AT7456E
+

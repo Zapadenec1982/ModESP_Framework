@@ -21,7 +21,7 @@
 #include <cstddef>
 #include "etl/string.h"
 #include "etl/vector.h"
-#include "display/display_port.h"
+#include "modesp/hal/display_port.h"
 
 namespace modesp::display {
 

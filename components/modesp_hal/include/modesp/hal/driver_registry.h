@@ -25,8 +25,17 @@ namespace modesp {
 
 class HAL;
 
-using SensorFactory   = ISensorDriver*   (*)(const Binding&, HAL&);
-using ActuatorFactory = IActuatorDriver* (*)(const Binding&, HAL&);
+// Display/audio backends are drivers too (drivers/<name>/ + manifest category
+// display/audio). Їхні інтерфейси — доменні шви (modesp/hal/display_port.h,
+// modesp/hal/audio_sink.h); тут достатньо forward-декларацій — фабрики
+// повертають вказівники.
+namespace display { class IDisplayPort; }
+namespace audio   { class IAudioSink; }
+
+using SensorFactory   = ISensorDriver*          (*)(const Binding&, HAL&);
+using ActuatorFactory = IActuatorDriver*        (*)(const Binding&, HAL&);
+using DisplayFactory  = display::IDisplayPort*  (*)(const Binding&, HAL&);
+using AudioFactory    = audio::IAudioSink*      (*)(const Binding&, HAL&);
 
 /// One device found by a driver's discovery scan (bus enumeration before any
 /// binding exists). `value` is an optional preview sample (e.g. temperature).
@@ -57,7 +66,27 @@ public:
     static IActuatorDriver* create_actuator(const char* type, const Binding&, HAL&);
 
     /// True if any (sensor or actuator) factory is registered for this type.
+    /// НЕ покриває display/audio — DriverManager створює лише sensors/actuators;
+    /// display/audio backend-и модулі беруть самі через create_display/create_audio
+    /// у своєму on_bind().
     static bool is_known(const char* type);
+
+    // ── Display/audio backends (module-bound: створюються НЕ DriverManager-ом,
+    //    а модулем-власником у on_bind за bindings.json) ──
+    static bool register_display(const char* type, DisplayFactory fn);
+    static bool register_audio(const char* type, AudioFactory fn);
+    static display::IDisplayPort* create_display(const char* type, const Binding&, HAL&);
+    static audio::IAudioSink*     create_audio(const char* type, const Binding&, HAL&);
+    static bool has_display(const char* type);
+    static bool has_audio(const char* type);
+    /// True для типів, що є module-bound backend-ами (display/audio) — щоб
+    /// DriverManager міг тихо пропустити їхні bindings без хибного WARN.
+    static bool is_module_backend(const char* type) {
+        return has_display(type) || has_audio(type);
+    }
+
+    /// Тест-хук: очистити ВСІ реєстри (host-тести). Не використовувати на девайсі.
+    static void reset();
 
     // ── Discovery (optional per driver) ──
     // A discovery-capable driver (manifest: discovery.supported=true) also
@@ -99,4 +128,17 @@ public:
     extern "C" void modesp_register_driver_##name(void) {                     \
         ::modesp::DriverRegistry::register_sensor(#name, (factory_fn));        \
         ::modesp::DriverRegistry::register_discovery(#name, (discovery_fn));   \
+    }
+
+// Display backend driver (manifest category "display"). The module that owns
+// the seam (DisplayModule) resolves it in on_bind via create_display().
+#define MODESP_REGISTER_DISPLAY(name, factory_fn)                          \
+    extern "C" void modesp_register_driver_##name(void) {                  \
+        ::modesp::DriverRegistry::register_display(#name, (factory_fn));    \
+    }
+
+// Audio sink driver (manifest category "audio") — resolved by PlayerModule.
+#define MODESP_REGISTER_AUDIO(name, factory_fn)                            \
+    extern "C" void modesp_register_driver_##name(void) {                  \
+        ::modesp::DriverRegistry::register_audio(#name, (factory_fn));      \
     }

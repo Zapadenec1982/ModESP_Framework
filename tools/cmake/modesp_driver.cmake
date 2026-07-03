@@ -33,9 +33,16 @@ macro(modesp_driver_component)
         set(_mdc_srcs "")   # disabled → register empty (no code compiled)
     endif()
 
+    # include/ is optional — a driver with no public headers (e.g. an audio
+    # sink registered purely via its factory) simply doesn't have one.
+    set(_mdc_incs "")
+    if(IS_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/include")
+        set(_mdc_incs "include")
+    endif()
+
     idf_component_register(
         SRCS ${_mdc_srcs}
-        INCLUDE_DIRS "include"
+        INCLUDE_DIRS ${_mdc_incs}
         REQUIRES modesp_hal ${_MDC_REQUIRES}
         PRIV_REQUIRES ${_MDC_PRIV_REQUIRES}
     )

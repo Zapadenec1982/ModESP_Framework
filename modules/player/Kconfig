@@ -1,19 +1,8 @@
 menu "ModESP Audio"
 
-    # Sink backends are COMPILATION switches (like display backends): they enable
-    # building the backend code. The ACTIVE sink is chosen in bindings.json (field
-    # "driver" on role audio_main, module "player"); pins/sample-rate — board.json
-    # i2s_buses. Without a binding the player uses NullSink (silent). Several
-    # backends may be built at once — the board picks one.
-
-    config MODESP_AUDIO_MAX98357A
-        bool "Build MAX98357A I2S audio sink"
-        default n
-        help
-            MAX98357A I²S Class-D mono amplifier as the audio output sink.
-            Activate: bindings.json driver "max98357a" on hardware from board.json
-            section i2s_buses (role audio_main, module player). Pins/sample-rate —
-            board.json i2s_buses. No pins in Kconfig.
+    # Sink backends are DRIVERS now (drivers/max98357a, ...) — their build
+    # toggles are generated into components/modesp_hal/Kconfig (menu "ModESP
+    # Drivers"). The ACTIVE sink is chosen in bindings.json; pins — board.json.
 
     config MODESP_AUDIO_MP3
         bool "MP3 clip playback (libhelix)"

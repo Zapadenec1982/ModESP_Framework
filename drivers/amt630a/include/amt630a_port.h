@@ -13,8 +13,8 @@
 
 #pragma once
 
-#include "display/display_port.h"
-#include "display/char_grid.h"
+#include "modesp/hal/display_port.h"
+#include "modesp/hal/char_grid.h"
 #include "modesp/osd/amt630a.h"
 
 namespace modesp::display {

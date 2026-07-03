@@ -1,14 +1,13 @@
 /**
  * @file amt630a_port.cpp
- * @brief Amt630aPort — реалізація (компілюється лише з Kconfig-опцією).
+ * @brief Amt630aPort — реалізація (driver-компонент; SRCS гейтиться
+ *        generated-опцією CONFIG_MODESP_DRIVER_AMT630A).
  */
 
 #include "sdkconfig.h"
 
-#ifdef CONFIG_MODESP_DISPLAY_AMT630A
-
-#include "display/amt630a_port.h"
-#include "display/display_backend_registry.h"
+#include "amt630a_port.h"
+#include "modesp/hal/driver_registry.h"
 #include "modesp/hal/hal.h"                 // HAL + Binding (board.json/bindings)
 #include "modesp/osd/amt630a_font_data.h"
 #include "modesp/osd/amt630a_charmap.h"
@@ -343,4 +342,4 @@ MODESP_REGISTER_DISPLAY(amt630a, &amt630a_factory)
 
 } // namespace modesp::display
 
-#endif // CONFIG_MODESP_DISPLAY_AMT630A
+

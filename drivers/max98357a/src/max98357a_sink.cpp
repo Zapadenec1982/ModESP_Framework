@@ -1,7 +1,7 @@
 /**
  * @file max98357a_sink.cpp
  * @brief MAX98357A I²S Class-D amplifier as an IAudioSink (compiled only with
- *        CONFIG_MODESP_AUDIO_MAX98357A — like the display backends).
+ *        the generated CONFIG_MODESP_DRIVER_MAX98357A — like every driver).
  *
  * Pure PCM transport: owns the I²S TX channel + DMA and the SD/shutdown pin
  * (hardware mute). It knows nothing about clips, decoders, tones or volume —
@@ -11,10 +11,9 @@
 
 #include "sdkconfig.h"
 
-#ifdef CONFIG_MODESP_AUDIO_MAX98357A
 
-#include "player/audio_sink.h"
-#include "player/audio_backend_registry.h"
+#include "modesp/hal/audio_sink.h"
+#include "modesp/hal/driver_registry.h"
 #include "modesp/hal/hal.h"            // HAL + Binding (board.json/bindings)
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
@@ -159,4 +158,4 @@ MODESP_REGISTER_AUDIO(max98357a, &max98357a_factory)
 
 } // namespace modesp::audio
 
-#endif // CONFIG_MODESP_AUDIO_MAX98357A
+

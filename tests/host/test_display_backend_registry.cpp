@@ -1,16 +1,19 @@
 /**
  * @file test_display_backend_registry.cpp
- * @brief HOST tests for DisplayBackendRegistry (type-string → factory dispatch).
+ * @brief HOST tests for DriverRegistry display-backend dispatch
+ *        (type-string → factory; колишній module-local DisplayBackendRegistry).
  *
- * Чиста логіка реєстру (як DriverRegistry). Фабрики backend-ів самі —
- * device-only (#ifdef CONFIG_*), тож тут перевіряємо реєстр через фейк-фабрику.
+ * Чиста логіка реєстру. Фабрики backend-ів самі — device-only, тож тут
+ * перевіряємо реєстр через фейк-фабрику.
  */
 
 #include "doctest.h"
-#include "display/display_backend_registry.h"
+#include "modesp/hal/driver_registry.h"
+#include "modesp/hal/display_port.h"
 #include "modesp/hal/hal.h"        // modesp::Binding, modesp::HAL (mocked на host)
 
 using namespace modesp::display;
+using modesp::DriverRegistry;
 
 namespace {
 
@@ -33,73 +36,76 @@ IDisplayPort* factory_null(const modesp::Binding&, modesp::HAL&) { return nullpt
 
 } // namespace
 
-TEST_CASE("registry: register + is_known + create dispatch") {
-    DisplayBackendRegistry::reset();
-    CHECK(DisplayBackendRegistry::register_backend("amt630a", &factory_a));
-    CHECK(DisplayBackendRegistry::register_backend("ssd1306", &factory_b));
+TEST_CASE("display registry: register + has + create dispatch") {
+    DriverRegistry::reset();
+    CHECK(DriverRegistry::register_display("amt630a", &factory_a));
+    CHECK(DriverRegistry::register_display("ssd1306", &factory_b));
 
-    CHECK(DisplayBackendRegistry::is_known("amt630a"));
-    CHECK(DisplayBackendRegistry::is_known("ssd1306"));
-    CHECK_FALSE(DisplayBackendRegistry::is_known("at7456e"));
-
-    modesp::Binding b;
-    modesp::HAL hal;
-    CHECK(DisplayBackendRegistry::create("amt630a", b, hal) == &g_port_a);
-    CHECK(DisplayBackendRegistry::create("ssd1306", b, hal) == &g_port_b);
-}
-
-TEST_CASE("registry: unknown type → nullptr, not known") {
-    DisplayBackendRegistry::reset();
-    DisplayBackendRegistry::register_backend("amt630a", &factory_a);
+    CHECK(DriverRegistry::has_display("amt630a"));
+    CHECK(DriverRegistry::has_display("ssd1306"));
+    CHECK_FALSE(DriverRegistry::has_display("at7456e"));
+    // display-типи НЕ видимі для sensor/actuator-шляху DriverManager-а
+    CHECK_FALSE(DriverRegistry::is_known("amt630a"));
+    CHECK(DriverRegistry::is_module_backend("amt630a"));
 
     modesp::Binding b;
     modesp::HAL hal;
-    CHECK(DisplayBackendRegistry::create("nope", b, hal) == nullptr);
-    CHECK_FALSE(DisplayBackendRegistry::is_known("nope"));
-    CHECK(DisplayBackendRegistry::create(nullptr, b, hal) == nullptr);
+    CHECK(DriverRegistry::create_display("amt630a", b, hal) == &g_port_a);
+    CHECK(DriverRegistry::create_display("ssd1306", b, hal) == &g_port_b);
 }
 
-TEST_CASE("registry: registration is idempotent (first factory wins)") {
-    DisplayBackendRegistry::reset();
-    CHECK(DisplayBackendRegistry::register_backend("amt630a", &factory_a));
+TEST_CASE("display registry: unknown type → nullptr, not known") {
+    DriverRegistry::reset();
+    DriverRegistry::register_display("amt630a", &factory_a);
+
+    modesp::Binding b;
+    modesp::HAL hal;
+    CHECK(DriverRegistry::create_display("nope", b, hal) == nullptr);
+    CHECK_FALSE(DriverRegistry::has_display("nope"));
+    CHECK(DriverRegistry::create_display(nullptr, b, hal) == nullptr);
+}
+
+TEST_CASE("display registry: registration is idempotent (first factory wins)") {
+    DriverRegistry::reset();
+    CHECK(DriverRegistry::register_display("amt630a", &factory_a));
     // Повторна реєстрація того ж типу — no-op (true), фабрика не підмінюється.
-    CHECK(DisplayBackendRegistry::register_backend("amt630a", &factory_b));
+    CHECK(DriverRegistry::register_display("amt630a", &factory_b));
 
     modesp::Binding b;
     modesp::HAL hal;
-    CHECK(DisplayBackendRegistry::create("amt630a", b, hal) == &g_port_a);
+    CHECK(DriverRegistry::create_display("amt630a", b, hal) == &g_port_a);
 }
 
-TEST_CASE("registry: null args rejected") {
-    DisplayBackendRegistry::reset();
-    CHECK_FALSE(DisplayBackendRegistry::register_backend(nullptr, &factory_a));
-    CHECK_FALSE(DisplayBackendRegistry::register_backend("x", nullptr));
+TEST_CASE("display registry: null args rejected") {
+    DriverRegistry::reset();
+    CHECK_FALSE(DriverRegistry::register_display(nullptr, &factory_a));
+    CHECK_FALSE(DriverRegistry::register_display("x", nullptr));
 }
 
-TEST_CASE("registry: factory returning nullptr propagates (create can fail)") {
-    DisplayBackendRegistry::reset();
-    DisplayBackendRegistry::register_backend("broken", &factory_null);
+TEST_CASE("display registry: factory returning nullptr propagates") {
+    DriverRegistry::reset();
+    DriverRegistry::register_display("broken", &factory_null);
     modesp::Binding b;
     modesp::HAL hal;
-    CHECK(DisplayBackendRegistry::is_known("broken"));        // тип відомий
-    CHECK(DisplayBackendRegistry::create("broken", b, hal) == nullptr);  // але фабрика не змогла
+    CHECK(DriverRegistry::has_display("broken"));                       // тип відомий
+    CHECK(DriverRegistry::create_display("broken", b, hal) == nullptr); // але фабрика не змогла
 }
 
-TEST_CASE("registry: capacity bound + reset") {
-    DisplayBackendRegistry::reset();
+TEST_CASE("display registry: capacity bound + reset") {
+    DriverRegistry::reset();
     // Реєстр зберігає const char* (string-літерали з MODESP_REGISTER_DISPLAY),
     // тож імена мають бути окремими стабільними рядками (не один буфер).
     static const char* names[] = {
         "b0","b1","b2","b3","b4","b5","b6","b7",
         "b8","b9","b10","b11","b12","b13","b14","b15",
     };
-    REQUIRE(DisplayBackendRegistry::MAX_BACKENDS <= 16);
-    for (size_t i = 0; i < DisplayBackendRegistry::MAX_BACKENDS; ++i) {
-        CHECK(DisplayBackendRegistry::register_backend(names[i], &factory_a));
+    REQUIRE(DriverRegistry::MAX_DRIVER_TYPES <= 16);
+    for (size_t i = 0; i < DriverRegistry::MAX_DRIVER_TYPES; ++i) {
+        CHECK(DriverRegistry::register_display(names[i], &factory_a));
     }
     // Понад місткість — відмова (не мовчазне переповнення).
-    CHECK_FALSE(DisplayBackendRegistry::register_backend("overflow", &factory_a));
+    CHECK_FALSE(DriverRegistry::register_display("overflow", &factory_a));
 
-    DisplayBackendRegistry::reset();
-    CHECK_FALSE(DisplayBackendRegistry::is_known("b0"));
+    DriverRegistry::reset();
+    CHECK_FALSE(DriverRegistry::has_display("b0"));
 }

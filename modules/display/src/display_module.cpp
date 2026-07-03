@@ -4,7 +4,7 @@
  */
 
 #include "display_module.h"
-#include "display/display_backend_registry.h"
+#include "modesp/hal/driver_registry.h"
 #include "modesp/hal/hal.h"            // HAL + BindingTable (board.json/bindings)
 #include "modesp/message_types.h"
 #include "esp_log.h"
@@ -69,16 +69,16 @@ void DisplayModule::set_port(modesp::display::IDisplayPort* port) {
 
 void DisplayModule::bind_display(const modesp::BindingTable& bindings, modesp::HAL& hal) {
     using namespace modesp::display;
-    register_all_display_backends();   // заповнити реєстр (ідемпотентно)
+    // Display-драйвери зареєстровані generated register-all (DriverManager::init).
 
     for (const auto& b : bindings.bindings) {
         if (!(b.module_name == "display")) continue;   // тільки наш модуль
         const char* type = b.driver_type.c_str();
-        if (!DisplayBackendRegistry::is_known(type)) {
+        if (!modesp::DriverRegistry::has_display(type)) {
             ESP_LOGW(TAG, "backend '%s' unknown/disabled in menuconfig — LogPort", type);
             return;
         }
-        if (IDisplayPort* p = DisplayBackendRegistry::create(type, b, hal)) {
+        if (IDisplayPort* p = modesp::DriverRegistry::create_display(type, b, hal)) {
             port_ = p;
             ESP_LOGI(TAG, "backend '%s' [hw=%s, role=%s]",
                      type, b.hardware_id.c_str(), b.role.c_str());
@@ -99,7 +99,11 @@ bool DisplayModule::on_init() {
     state_set("display.banner_level", static_cast<int32_t>(0));
 
     if (!port_->init()) {
-        ESP_LOGW(TAG, "Display port init failed — display disabled");
+        // Порт створено, але залізо не відповіло (чіп відсутній/знеструмлений).
+        // Відкочуємось на LogPort — інакше on_update() довбав би мертву шину
+        // кожні 500 мс до кінця життя системи.
+        ESP_LOGW(TAG, "Display port init failed — falling back to LogPort");
+        set_port(nullptr);
         return true;  // не валимо систему через дисплей
     }
 

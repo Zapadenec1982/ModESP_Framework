@@ -6,7 +6,7 @@
  * з ролями. Ширина рахується в ГЛІФАХ (кодпойнтах), обрізання UTF-8-aware.
  */
 
-#include "display/char_grid.h"
+#include "modesp/hal/char_grid.h"
 
 namespace modesp::display {
 

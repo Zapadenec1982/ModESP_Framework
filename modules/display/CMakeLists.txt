@@ -1,22 +1,14 @@
-# Display module — on-device screen menu generated from manifests
-# Hardware-agnostic core (MenuEngine + DisplayModule); concrete renderers optional.
-#
-# NOTE: REQUIRES cannot depend on Kconfig — ESP-IDF resolves component
-# dependencies in an early pass before sdkconfig is available. So modesp_osd
-# is required unconditionally; at7456e_port.cpp is an empty TU unless
-# CONFIG_MODESP_DISPLAY_AT7456E is set (guarded inside the source). The linker
-# drops the unused driver via -ffunction-sections/gc-sections when disabled.
+# Display module — on-device screen menu generated from manifests.
+# Hardware-agnostic: MenuEngine + DisplayModule over the IDisplayPort seam
+# (modesp/hal/display_port.h). Concrete backends are DRIVERS (drivers/amt630a,
+# drivers/at7456e) registered via MODESP_REGISTER_DISPLAY; DisplayModule
+# resolves the active one from bindings.json in on_bind. No binding -> LogPort.
 idf_component_register(
     SRCS "src/display_module.cpp"
          "src/menu_engine.cpp"
-         "src/char_grid.cpp"
          "src/notification_queue.cpp"
-         "src/display_backend_registry.cpp"
-         "src/at7456e_port.cpp"
-         "src/amt630a_port.cpp"
     INCLUDE_DIRS "include" "${CMAKE_SOURCE_DIR}/generated"
-    REQUIRES modesp_core modesp_osd
-    # modesp_hal: backend factory резолвить шину через HAL (find_i2c_bus/
-    # find_i2c_display) + Binding/BindingTable у bind_display. Лише у .cpp → PRIV.
-    PRIV_REQUIRES modesp_hal
+    # modesp_hal is PUBLIC: display_module.h/menu_engine.h include the
+    # IDisplayPort seam (modesp/hal/display_port.h).
+    REQUIRES modesp_core modesp_hal
 )

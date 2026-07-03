@@ -11,7 +11,7 @@
  */
 
 #include "player_module.h"
-#include "player/audio_backend_registry.h"
+#include "modesp/hal/driver_registry.h"
 #include "modesp/hal/hal.h"          // HAL + BindingTable
 #include "modesp/types.h"            // StringValue
 #include "esp_log.h"
@@ -56,16 +56,16 @@ PlayerModule::PlayerModule()
 
 void PlayerModule::bind_audio(const modesp::BindingTable& bindings, modesp::HAL& hal) {
     using namespace modesp::audio;
-    register_all_audio_backends();   // idempotent
+    // Audio-драйвери зареєстровані generated register-all (DriverManager::init).
 
     for (const auto& b : bindings.bindings) {
         if (!(b.module_name == "player")) continue;
         const char* type = b.driver_type.c_str();
-        if (!AudioBackendRegistry::is_known(type)) {
+        if (!modesp::DriverRegistry::has_audio(type)) {
             ESP_LOGW(TAG, "backend '%s' unknown/disabled in menuconfig — NullSink", type);
             return;
         }
-        if (IAudioSink* s = AudioBackendRegistry::create(type, b, hal)) {
+        if (IAudioSink* s = modesp::DriverRegistry::create_audio(type, b, hal)) {
             sink_ = s;
             ESP_LOGI(TAG, "backend '%s' [hw=%s, role=%s]",
                      type, b.hardware_id.c_str(), b.role.c_str());

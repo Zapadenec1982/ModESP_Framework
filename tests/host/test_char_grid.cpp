@@ -14,7 +14,7 @@
 #include <string>
 
 #include "doctest.h"
-#include "display/char_grid.h"
+#include "modesp/hal/char_grid.h"
 
 using namespace modesp::display;
 

@@ -13,6 +13,7 @@ include("${_modesp_root}/generated/drivers.cmake")   # MODESP_ALL_DRIVERS
 
 idf_component_register(
     SRCS "src/hal.cpp" "src/driver_manager.cpp" "src/driver_registry.cpp"
+         "src/char_grid.cpp"
     INCLUDE_DIRS "include"
     # PUBLIC header hal_types.h includes driver/gpio.h + driver/i2c_master.h, so the
     # components providing them must be PUBLIC REQUIRES (propagated to dependents).

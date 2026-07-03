@@ -548,14 +548,13 @@ VALID_HARDWARE_TYPES = {
     "gpio_output", "gpio_input", "onewire_bus",
     "adc_channel", "i2c_bus",
     "i2c_expander_output", "i2c_expander_input",
-    "i2c_display", "uart_bus", "i2s_bus",
+    "i2c_display", "spi_display", "uart_bus", "i2s_bus",
     "ble",
 }
-# Категорії, що мають компільований driver-компонент у drivers/ (Kconfig toggle +
-# register-all). Решта (display/audio) — лише маніфест для валідації bindings + UI;
-# код backend-у живе у своєму модулі (modules/display CONFIG_MODESP_DISPLAY_*,
-# modules/player CONFIG_MODESP_AUDIO_*).
-DRIVER_COMPONENT_CATEGORIES = {"sensor", "actuator", "io"}
+# Категорії з компільованим driver-компонентом у drivers/ (Kconfig toggle +
+# register-all). Display/audio — теж повноцінні драйвери: їхні фабрики модулі
+# беруть із DriverRegistry (create_display/create_audio) у своєму on_bind().
+DRIVER_COMPONENT_CATEGORIES = {"sensor", "actuator", "io", "display", "audio"}
 VALID_KEY_RE = re.compile(r'^[a-z0-9_]+$')
 
 
@@ -712,6 +711,7 @@ BOARD_SECTION_TO_HW_TYPE = {
     "expander_outputs": "i2c_expander_output",
     "expander_inputs": "i2c_expander_input",
     "i2c_displays": "i2c_display",
+    "spi_displays": "spi_display",
     "uart_buses": "uart_bus",
     "i2s_buses": "i2s_bus",
     "ble_devices": "ble",
@@ -2500,9 +2500,7 @@ def main():
             continue
         category = dm.get("category", "sensor")
         if category not in DRIVER_COMPONENT_CATEGORIES:
-            # display backends: manifest is validation/UI metadata only — no
-            # driver component, no MODESP_DRIVER_<NAME> toggle, no register-all.
-            # Code lives in its module (e.g. modules/display, CONFIG_MODESP_DISPLAY_*).
+            # Невідома категорія — валідатор уже зарепортив; без компонента.
             continue
         drivers_meta.append((name, category, dm.get("description", name),
                              dm.get("hardware_type", "")))

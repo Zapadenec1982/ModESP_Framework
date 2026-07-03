@@ -13,14 +13,14 @@
  * preempt normal clips; while an alarm plays, normal requests are ignored.
  *
  * The active sink backend is resolved from bindings.json via
- * AudioBackendRegistry (mirror of DisplayModule::bind_display). No binding →
+ * DriverRegistry audio drivers (mirror of DisplayModule::bind_display). No binding →
  * NullSink (no sound, system lives).
  */
 
 #pragma once
 
 #include "modesp/base_module.h"
-#include "player/audio_sink.h"
+#include "modesp/hal/audio_sink.h"
 #include "player/wav_decoder.h"
 #include "player/mp3_decoder.h"
 #include "freertos/FreeRTOS.h"
@@ -40,7 +40,7 @@ public:
     void on_update(uint32_t dt_ms) override;
 
     /// Resolve the active audio sink from bindings.json (role/driver) via
-    /// AudioBackendRegistry; pins from board.json via HAL. No binding → NullSink.
+    /// DriverRegistry (audio drivers); pins from board.json via HAL. No binding → NullSink.
     void bind_audio(const modesp::BindingTable& bindings, modesp::HAL& hal);
 
     /// Generic bind hook: called by ModuleManager::bind_all() between

@@ -77,6 +77,10 @@ bool DriverManager::init(const BindingTable& bindings, HAL& hal) {
     for (const auto& binding : bindings.bindings) {
         const char* type = binding.driver_type.c_str();
 
+        // Display/audio backends — module-bound: їх створює модуль-власник у
+        // своєму on_bind() (create_display/create_audio), не DriverManager.
+        if (DriverRegistry::is_module_backend(type)) continue;
+
         if (!DriverRegistry::is_known(type)) {
             ESP_LOGW(TAG, "  Driver type '%s' unknown or disabled in menuconfig "
                      "— binding '%s' skipped", type, binding.role.c_str());

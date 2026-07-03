@@ -14,7 +14,7 @@
 
 #include "modesp/base_module.h"
 #include "display/menu_engine.h"
-#include "display/display_port.h"
+#include "modesp/hal/display_port.h"
 #include "display/notification_queue.h"
 
 namespace modesp { struct BindingTable; class HAL; }
@@ -32,7 +32,7 @@ public:
     void set_port(modesp::display::IDisplayPort* port);
 
     /// Резолвити активний backend з bindings.json (role/driver) через
-    /// DisplayBackendRegistry; піни — з board.json через HAL. Без binding —
+    /// DriverRegistry (display-драйвери); піни — з board.json через HAL. Без binding —
     /// лишається LogPort. Має передувати on_init().
     void bind_display(const modesp::BindingTable& bindings, modesp::HAL& hal);
 

@@ -7,10 +7,12 @@
 # Toggle any of these in `idf.py menuconfig` if you want a different S3 profile.
 CONFIG_MODESP_BOARD_STAND_S3=y
 CONFIG_MODESP_BLE_ENABLE=y
-# NOTE: AMT630A display backend (stand_s3 binds it) is default-n and intentionally
-# NOT forced here — the display is not currently connected, so the LogPort fallback
-# is expected/correct. When you attach the AMT630A, enable CONFIG_MODESP_DISPLAY_AMT630A
-# via `idf.py menuconfig` (or add it here) and rebuild.
+# NOTE: display/audio backends are DRIVERS now — generated toggles
+# CONFIG_MODESP_DRIVER_AMT630A / CONFIG_MODESP_DRIVER_MAX98357A (default y),
+# so both compile out of the box and stand_s3 bindings resolve them at boot.
+# If the AMT630A chip is absent/unpowered, its port init fails gracefully and
+# the display falls back to LogPort at runtime. Audio: role audio_main ->
+# board i2s_0 (BCLK=15 WS=16 DOUT=7 SD=17).
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"

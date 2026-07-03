@@ -18,7 +18,7 @@
 #include "etl/vector.h"
 #include "modesp/types.h"
 #include "display_screens.h"
-#include "display/display_port.h"
+#include "modesp/hal/display_port.h"
 
 namespace modesp::display {
 

@@ -8,5 +8,5 @@
   "multiple_per_bus": false,
   "provides": {"type": "audio"},
   "settings": [],
-  "_note": "Manifest-only: validation + UI metadata. The sink code lives in modules/player (Max98357aSink, gated by CONFIG_MODESP_AUDIO_MAX98357A); there is no driver component here."
+  "_note": "Driver component: Max98357aSink (IAudioSink) lives here; build toggle CONFIG_MODESP_DRIVER_MAX98357A is generated into components/modesp_hal/Kconfig."
 }

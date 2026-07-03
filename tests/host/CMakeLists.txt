@@ -41,7 +41,9 @@ include_directories(
     "${ROOT}/modules/equipment/include"                     # equipment_module.h (demo subclass)
     "${ROOT}/modules/datalogger/include"                    # datalogger_module.h
     "${ROOT}/modules/display/include"                       # display_module.h, display/menu_engine.h
-    "${ROOT}/components/modesp_osd/include"                  # modesp/osd/osd_charmap.h (header-only on host)
+    "${ROOT}/drivers/at7456e/include"                       # modesp/osd/osd_charmap.h (header-only on host)
+    "${ROOT}/drivers/amt630a/include"                       # modesp/osd/amt630a_charmap.h
+    "${ROOT}/components/modesp_net/include"                 # modesp/net/log_source.h (ILogSource contract)
     "${CMAKE_SOURCE_DIR}"                                   # for #include "doctest.h"
 )
 
@@ -58,9 +60,9 @@ set(MODULE_SOURCES
     "${ROOT}/components/modesp_equipment/src/equipment_base.cpp"
     "${ROOT}/modules/datalogger/src/datalogger_module.cpp"
     "${ROOT}/modules/display/src/menu_engine.cpp"
-    "${ROOT}/modules/display/src/char_grid.cpp"
+    "${ROOT}/components/modesp_hal/src/char_grid.cpp"
     "${ROOT}/modules/display/src/notification_queue.cpp"
-    "${ROOT}/modules/display/src/display_backend_registry.cpp"
+    "${ROOT}/components/modesp_hal/src/driver_registry.cpp"
     "${ROOT}/modules/display/src/display_module.cpp"
 )
 

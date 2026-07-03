@@ -6,7 +6,7 @@ gen_osd_font.py — генератор шрифту character-NVM для AT7456E
 (зворотний до bri3d/mcm2img) + C-масив для заливки з прошивки.
 
 Розкладка гліфів МАЄ збігатися з
-  components/modesp_osd/include/modesp/osd/osd_charmap.h:
+  drivers/at7456e/include/modesp/osd/osd_charmap.h:
     0x20-0x7E  друкований ASCII (індекс = код)
     0x7F       '°'
     0x80-0xBF  кирилиця U+0410..U+044F (А-я)
@@ -19,8 +19,8 @@ gen_osd_font.py — генератор шрифту character-NVM для AT7456E
   Кодування пікселя: 00=чорний 01=прозорий 10=білий 11=прозорий.
 
 Вивід:
-  components/modesp_osd/font/osd_font.mcm            (для інспекції mcm2img)
-  components/modesp_osd/include/modesp/osd/osd_font_data.h  (для прошивки)
+  drivers/at7456e/font/osd_font.mcm            (для інспекції mcm2img)
+  drivers/at7456e/include/modesp/osd/osd_font_data.h  (для прошивки)
 
 Приклад:
   python tools/gen_osd_font.py --ttf C:/Windows/Fonts/consola.ttf --size 16
@@ -194,7 +194,7 @@ def generate_amt630a(args):
         words += render_glyph_1bpp(chr(cp), font, args.x_off, args.y_off, args.threshold)
     count = len(entries)
 
-    base = ROOT / "components" / "modesp_osd" / "include" / "modesp" / "osd"
+    base = ROOT / "drivers" / "amt630a" / "include" / "modesp" / "osd"
 
     # ── font data (uint16_t[count*AMT_H]) ──
     fp = base / "amt630a_font_data.h"
@@ -408,7 +408,7 @@ def main():
     packed[SENTINEL_ADDR][0] = SENTINEL_BYTE0
 
     # ── .mcm ──
-    mcm_path = ROOT / "components" / "modesp_osd" / "font" / "osd_font.mcm"
+    mcm_path = ROOT / "drivers" / "at7456e" / "font" / "osd_font.mcm"
     mcm_path.parent.mkdir(parents=True, exist_ok=True)
     lines = ["MAX7456"]
     for cd in packed:
@@ -417,7 +417,7 @@ def main():
     print(f"  + {mcm_path} ({len(packed)} chars)")
 
     # ── C-масив ──
-    h_path = (ROOT / "components" / "modesp_osd" / "include" / "modesp" /
+    h_path = (ROOT / "drivers" / "at7456e" / "include" / "modesp" /
               "osd" / "osd_font_data.h")
     out = [
         "#pragma once",

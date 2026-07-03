@@ -16,7 +16,7 @@ REQUIRES: `modesp_core`. Власних GPIO немає — лише SharedState
 |---|---|---|
 | **Абстрактний модуль** | `modules/display/` (`DisplayModule`, `MenuEngine`, `NotificationQueue`) | лише *намір* — семантичні View + `caps()`; ніколи пікселі/кольори/чіп |
 | **Адаптер порту** `XxxPort : IDisplayPort` | `modules/display/src/` (`LogPort`, `At7456ePort`, `Amt630aPort`) | View → чіп; володіє **усім layout** (через опційний `CharGridLayout`), кольором, скролом, capabilities |
-| **Переносний чіп-драйвер** | `components/modesp_osd/` (`At7456e`, `Amt630a`) | сирі регістри SPI/I²C; **0 ModESP-семантики** |
+| **Переносний чіп-драйвер** | `drivers/at7456e/`, `drivers/amt630a/` (`At7456e`, `Amt630a` — чіп-код живе разом зі своїм драйвером) | сирі регістри SPI/I²C; **0 ModESP-семантики** |
 
 ```
 manifest.json (display:) ──┐
@@ -98,7 +98,7 @@ Backend повідомляє структуру `DisplayCaps`; модуль чи
 ### Особливості AMT630A
 
 - **Конфіг:** запис `i2c_displays` у `board.json` — `cols`/`rows`, плюс `cal_x`/`cal_y` (per-panel overscan-зсув у px, застосовується до кожного OSD-вікна). `bindings.json` може додати `"settings": {"power_gpio": N}` для load-switch power-gate.
-- **Кириличний шрифт:** вантажиться у FONT RAM (16×20 1bpp) — ROM-шрифт чипа не має кирилиці. Мапа: `components/modesp_osd/include/modesp/osd/amt630a_charmap.h`. Генерується `tools/gen_osd_font.py --target amt630a`.
+- **Кириличний шрифт:** вантажиться у FONT RAM (16×20 1bpp) — ROM-шрифт чипа не має кирилиці. Мапа: `drivers/amt630a/include/modesp/osd/amt630a_charmap.h`. Генерується `tools/gen_osd_font.py --target amt630a`.
 - **Живлення / відновлення:** `display.power=false` ріже живлення (≈0 мА); `true` повертає живлення, і порт **внутрішньо** переініціалізує OSD (неблокуюче, chunked — через `service(dt)`), бо холодний старт губить увесь ESP-side OSD-стан.
 - **Повна довідка регістрів:** [docs/amt630a/AMT630A_control_reference.md](../../../../docs/amt630a/AMT630A_control_reference.md). Енергорежими: [docs/amt630a/AMT630A_power_modes.md](../../../../docs/amt630a/AMT630A_power_modes.md).
 
