@@ -82,7 +82,7 @@
   <!-- Sidebar (desktop) -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <span class="logo">❄</span>
+      <span class="logo">⬢</span>
       <span class="logo-text">{$deviceName}</span>
     </div>
     <nav class="sidebar-nav">

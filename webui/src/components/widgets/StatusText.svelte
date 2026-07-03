@@ -5,23 +5,15 @@
   let flash = false;
   let prevDisplay = '';
 
+  // Generic semantic status → colour. Domain-agnostic: only universal states
+  // (ok/on/active, warn, error/off, connectivity). Product-specific statuses
+  // fall back to the muted default — no hardcoded product vocabulary here.
   const statusColors = {
-    // Thermostat
-    idle: 'var(--fg-muted)',
-    cooling: 'var(--accent)',
-    safe_mode: 'var(--warning)',
-    startup: 'var(--fg-muted)',
-    // Defrost (AUDIT-008)
-    stabilize: '#f59e0b',
-    valve_open: '#f59e0b',
-    active: '#ef4444',
-    equalize: '#f59e0b',
-    drip: '#8b5cf6',
-    fad: '#06b6d4',
-    // Network
-    connected: 'var(--success)',
-    disconnected: 'var(--error)',
-    error: 'var(--error)'
+    ok: 'var(--success)', on: 'var(--success)', active: 'var(--success)',
+    running: 'var(--success)', connected: 'var(--success)',
+    warn: 'var(--warning)', warning: 'var(--warning)', safe_mode: 'var(--warning)',
+    error: 'var(--error)', fault: 'var(--error)', disconnected: 'var(--error)',
+    off: 'var(--fg-muted)', idle: 'var(--fg-muted)',
   };
 
   $: display = value !== undefined && value !== null ? String(value) : '—';

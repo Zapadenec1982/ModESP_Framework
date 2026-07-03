@@ -196,11 +196,6 @@
     .filter(e => e[1] === POWER_ON)
     .map(e => PAD.left + xScale(e[0], tMin, tMax));
 
-  // Setpoint line (якщо setpoint НЕ логується як канал → показати з live state)
-  $: hasSetpointChannel = channels.some(ch => ch.name === 'setpoint');
-  $: setpoint = !hasSetpointChannel ? $state['thermostat.setpoint'] : null;
-  $: spY = setpoint != null ? PAD.top + yScale(setpoint, vMin, vMax) : null;
-
   // Time axis labels
   $: timeLabels = computeTimeLabels(tMin, tMax, 6, PAD.left, ts => xScale(ts, tMin, tMax));
 
@@ -349,10 +344,6 @@
       {/each}
 
       <!-- Setpoint line (live з state, якщо НЕ логується як канал) -->
-      {#if spY != null}
-        <line x1={PAD.left} y1={spY} x2={W - PAD.right} y2={spY} class="setpoint" />
-      {/if}
-
       <!-- Temperature lines (dynamic channels, smooth curves) -->
       {#each channelLines as ch}
         {#each ch.segments as seg}
@@ -508,7 +499,6 @@
     display: block;
   }
   .chart-svg .grid { stroke: var(--border); stroke-width: 0.5; }
-  .chart-svg .setpoint { stroke: #f59e0b; stroke-width: 1; stroke-dasharray: 4 2; }
   .chart-svg .zone-generic { fill: #22c55e; }
   .chart-svg .alarm-mark { stroke: #ef4444; stroke-width: 1; opacity: 0.7; }
   .chart-svg .power-mark { stroke: #64748b; stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.5; }

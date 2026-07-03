@@ -157,9 +157,7 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify([
       { name: 'equipment', status: 'running', priority: 0 },
-      { name: 'protection', status: 'running', priority: 1 },
-      { name: 'thermostat', status: 'running', priority: 2 },
-      { name: 'defrost', status: 'running', priority: 2 },
+      { name: 'simple_thermo', status: 'running', priority: 2 },
       { name: 'datalogger', status: 'running', priority: 3 },
     ]));
     return;
@@ -181,8 +179,8 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       devices: [
-        { address: '28FF1234560000A1', temperature: -17.4, role: 'air_temp' },
-        { address: '28FF5678900000B2', temperature: -24.3, role: 'evap_temp' },
+        { address: '28FF1234560000A1', temperature: 21.4, role: 'air_temp' },
+        { address: '28FF5678900000B2', temperature: 22.1, role: null },
       ]
     }));
     return;
@@ -235,35 +233,18 @@ wss.on('connection', (ws) => {
   // Send full state on connect
   ws.send(JSON.stringify(mockState));
 
-  // Simulate periodic temperature drift
+  // Simulate periodic drift on the real template keys (generic, no
+  // refrigeration-specific state).
   const interval = setInterval(() => {
     const drift = (Math.random() - 0.5) * 0.15;
-    mockState['thermostat.temperature'] = +(mockState['thermostat.temperature'] + drift).toFixed(2);
-    mockState['thermostat.display_temp'] = mockState['thermostat.temperature'];
-    mockState['equipment.air_temp'] = mockState['thermostat.temperature'];
-
-    // Evap temp slight drift
-    mockState['equipment.evap_temp'] = +(-24 + Math.sin(Date.now() / 30000) * 1.5).toFixed(1);
-    // Cond temp slight drift
-    mockState['equipment.cond_temp'] = +(38 + Math.sin(Date.now() / 25000) * 2).toFixed(1);
-
-    // Uptime increment
+    mockState['equipment.air_temp'] = +(mockState['equipment.air_temp'] + drift).toFixed(2);
+    mockState['simple_thermo.temperature'] = mockState['equipment.air_temp'];
     mockState['system.uptime'] += 2;
-    // Compressor run time increment (if compressor ON)
-    if (mockState['equipment.compressor']) {
-      mockState['equipment.comp_run_time'] += 2;
-      mockState['protection.compressor_run_time'] += 2;
-    }
 
     const delta = {
-      'thermostat.temperature': mockState['thermostat.temperature'],
-      'thermostat.display_temp': mockState['thermostat.display_temp'],
       'equipment.air_temp': mockState['equipment.air_temp'],
-      'equipment.evap_temp': mockState['equipment.evap_temp'],
-      'equipment.cond_temp': mockState['equipment.cond_temp'],
+      'simple_thermo.temperature': mockState['simple_thermo.temperature'],
       'system.uptime': mockState['system.uptime'],
-      'equipment.comp_run_time': mockState['equipment.comp_run_time'],
-      'protection.compressor_run_time': mockState['protection.compressor_run_time'],
     };
     if (ws.readyState === 1) ws.send(JSON.stringify(delta));
   }, 2000);

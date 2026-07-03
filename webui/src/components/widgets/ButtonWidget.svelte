@@ -28,7 +28,7 @@
         // Прямий API виклик (restart, ota тощо)
         await apiPost(config.api_endpoint, {});
       } else if (config.key) {
-        // AUDIT-005: state key toggle через /api/settings (manual defrost, reset alarms)
+        // Generic: momentary state-key toggle via /api/settings.
         await apiPost('/api/settings', { [config.key]: true });
       }
     } catch (e) {
