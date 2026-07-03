@@ -6,9 +6,10 @@
   export let sensors = [];
   export let actuators = [];
 
-  // Generic: state key = "equipment.{role}" for all roles
-  function stateKey(role) { return `equipment.${role}`; }
-  function okKey(role) { return `equipment.${role}_ok`; }
+  // Generic: state key = "{module}.{role}" — модуль ролі приходить з ui.json
+  // (role.module), тож статус працює для будь-якого модуля, не лише equipment.
+  function stateKey(r) { return `${r.module || 'equipment'}.${r.role}`; }
+  function okKey(r)    { return `${r.module || 'equipment'}.${r.role}_ok`; }
 
   function formatValue(role, val) {
     if (val === undefined || val === null) return '--';
@@ -20,9 +21,9 @@
 <Card title={$t['bind.status']}>
   <div class="status-grid">
     {#each [...sensors, ...actuators] as roleDef}
-      {@const stKey = stateKey(roleDef.role)}
+      {@const stKey = stateKey(roleDef)}
       {@const val = $state[stKey]}
-      {@const ok = $state[okKey(roleDef.role)]}
+      {@const ok = $state[okKey(roleDef)]}
       <div class="status-item">
         <span class="status-label">{roleDef.label}</span>
         <span class="status-value" class:on={val === true} class:off={val === false}

@@ -108,7 +108,10 @@
       hardware: autoAssign ? hw[0].id : '',
       driver: autoAssign ? driverForHw(roleDef, hw[0].id) : '',
       role: roleDef.role,
-      module: 'equipment',
+      // Модуль ролі приходить з ui.json (генератор емить role.module з усіх
+      // провайдерів ролей) — не хардкод 'equipment', тож редактор коректно
+      // прив'язує ролі display/player/будь-якого модуля.
+      module: roleDef.module || 'equipment',
     }];
   }
 
