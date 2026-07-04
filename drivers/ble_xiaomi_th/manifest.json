@@ -29,23 +29,5 @@
         ]
       }
     ]
-  },
-  "discovery": {
-    "supported": true,
-    "scan_endpoint": "/api/drivers/scan?driver=ble_xiaomi_th",
-    "assigns": "mac",
-    "_assigns_note": "assigns:'mac' → цей скан ПІДПИСУЄ пристрій (додає рядок у /data/devices.json з його MAC), а не пише щось у binding. Роль потім біндиться на device id + address-канал транспорт-агностично.",
-    "returns": [
-      {"field": "address", "type": "string", "description": "MAC пристрою"},
-      {"field": "value",   "type": "float",  "description": "Температура °C (для ідентифікації)"},
-      {"field": "rssi",    "type": "int",     "description": "Сигнал, dBm (сильніший = ближче)"}
-    ],
-    "ui": {
-      "title": "BLE-сенсори Xiaomi/BTHome",
-      "description": "Сенсори поблизу (Xiaomi/BTHome). Тримайте потрібний ближче — сильніший RSSI. Підпишіть його, щоб він став доступним для прив'язки ролей як звичайний сенсор.",
-      "scan_button": "Сканувати BLE",
-      "result_table": true,
-      "assign_action": true
-    }
   }
 }

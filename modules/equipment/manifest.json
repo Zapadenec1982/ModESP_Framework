@@ -6,6 +6,7 @@
   "requires": [
     {"role": "air_temp",    "type": "sensor",   "driver": ["ds18b20", "ntc"], "label": "Temperature sensor"},
     {"role": "room_temp",   "type": "sensor",   "driver": ["ble_xiaomi_th"], "label": "BLE room sensor", "optional": true},
+    {"role": "orientation", "type": "sensor",   "driver": ["ble_nrf_tilt"], "label": "BLE tilt sensor", "optional": true},
     {"role": "actuator_1",  "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Actuator 1", "optional": true}
   ],
 

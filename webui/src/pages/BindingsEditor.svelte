@@ -25,6 +25,10 @@
       byId.set(d.id, {
         id: d.id,
         hw_type: d.hw_type || 'ble',
+        // The device's identified driver (e.g. ble_nrf_tilt). hw_type "ble" is shared by
+        // several drivers, so a role accepts a device only when the device's driver is one
+        // of the role's drivers — carried here for compatibleHw()/driverForHw().
+        driver: d.driver || '',
         label: d.label || d.id,
         shareable: true,   // a remote device backs several channel-roles (temp/hum/batt)
       });
@@ -61,13 +65,26 @@
   // ── Hardware helpers ──
   function compatibleHw(roleDef) {
     const types = roleDef.hw_types || (roleDef.hw_type ? [roleDef.hw_type] : []);
-    return hwInventory.filter(h => types.some(t => t === h.hw_type));
+    const drivers = roleDef.drivers || (roleDef.driver ? [roleDef.driver] : []);
+    // A device that declares its own driver (a subscribed BLE device) matches only when
+    // that driver is one the role accepts — so an nRF tilt device is NOT offered to a
+    // Xiaomi temperature role even though both are hw_type "ble". A driverless "ble" row
+    // (a legacy pre-F8 subscription) is ambiguous — never offer it to a typed role. Board
+    // hardware (no per-device driver, wired hw_type) matches by hw_type as before.
+    return hwInventory.filter(h => {
+      if (h.driver) return drivers.includes(h.driver);
+      if (h.hw_type === 'ble') return false;
+      return types.some(t => t === h.hw_type);
+    });
   }
 
-  // Визначити правильний драйвер за hw_type обраного hardware
+  // Визначити правильний драйвер обраного hardware. A subscribed device carries its own
+  // identified driver (disambiguates the shared "ble" hw_type); otherwise pick the role's
+  // driver by the hw_type index.
   function driverForHw(roleDef, hwId) {
     const hw = hwInventory.find(h => h.id === hwId);
     if (!hw) return roleDef.driver || (roleDef.drivers && roleDef.drivers[0]) || '';
+    if (hw.driver) return hw.driver;
     const types = roleDef.hw_types || [];
     const drivers = roleDef.drivers || (roleDef.driver ? [roleDef.driver] : []);
     const idx = types.indexOf(hw.hw_type);

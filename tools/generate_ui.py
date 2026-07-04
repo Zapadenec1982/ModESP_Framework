@@ -1111,8 +1111,10 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings,
 def unused_drivers(bindings, all_driver_manifests):
     """Drivers with a manifest that the active board's bindings do NOT use.
 
-    Excludes discovery-capable drivers (e.g. ds18b20) — they're needed to scan for
-    devices before any binding exists. Pure helper (advisory hint, print in main).
+    Excludes drivers that are USED before any binding exists: discovery-capable ones
+    (e.g. ds18b20, scanned per-bus) and BLE observer sensors (hardware_type "ble" +
+    category "sensor" — subscribed at runtime via the unified scan, never bound at
+    build). Pure helper (advisory hint, print in main).
     """
     if not bindings:
         return []
@@ -1123,6 +1125,8 @@ def unused_drivers(bindings, all_driver_manifests):
             continue
         if dm.get("discovery", {}).get("supported", False):
             continue
+        if dm.get("hardware_type") == "ble" and dm.get("category") == "sensor":
+            continue   # runtime-subscribable BLE observer — not "unused"
         out.append(name)
     return out
 
@@ -1267,8 +1271,9 @@ class UIJsonGenerator:
             pages.append(self._bindings_page(
                 bindings, board, driver_manifests or {},
                 provider_requires))
-        # Devices page (subscribe remote devices) — only when a driver is subscribable
-        # (discovery assigns:"mac"). Absent otherwise, so BLE-less builds show no page.
+        # Devices page (subscribe remote BLE devices) — only when a BLE observer driver is
+        # present (hardware_type=="ble" + category=="sensor"). Absent otherwise, so BLE-less
+        # builds show no page. Nearby devices are found by the unified GET /api/ble/scan.
         dev_page = self._devices_page(driver_manifests or {})
         if dev_page:
             pages.append(dev_page)
@@ -1471,27 +1476,24 @@ class UIJsonGenerator:
         return copy.deepcopy(self._system_pages()["system"])
 
     def _devices_page(self, driver_manifests):
-        """Devices page: subscribe remote devices (BLE by MAC today) into the runtime
-        registry (/data/devices.json). A driver opts in via discovery.supported +
-        assigns:"mac" — its scan lists nearby devices; picking one appends a device row
-        that roles then bind to transport-agnostically. Returns None when no driver is
-        subscribable (page and its nav entry disappear — optionality)."""
-        subscribable = []
+        """Devices page: subscribe remote BLE devices into the runtime registry
+        (/data/devices.json). Nearby devices are found by ONE unified GET /api/ble/scan —
+        the transport identifies each device's driver TYPE by which registered decoder
+        claims its advertisement (manufacturer or service data), so the manual scan lists
+        only SUPPORTED devices with their live readings. `ble_types` is the type→label map
+        the page uses to show a friendly name and to set the subscribed device's driver.
+        Returns None when no BLE observer driver is present (page + nav entry disappear)."""
+        ble_types = []
         for name, d in driver_manifests.items():
-            disc = d.get("discovery", {})
-            if not (disc.get("supported", False) and disc.get("assigns") == "mac"):
+            # Observer (broadcast) BLE sensors are subscribable; a connect actuator like the
+            # panel (category "actuator") is configured differently, not via the scan.
+            if d.get("hardware_type") != "ble" or d.get("category") != "sensor":
                 continue
-            ui = disc.get("ui", {}) or {}
-            subscribable.append({
+            ble_types.append({
                 "driver": name,
-                "hw_type": d.get("hardware_type", ""),
-                "scan_endpoint": disc.get("scan_endpoint", ""),
-                "label": ui.get("title", name),
-                "scan_button": ui.get("scan_button", ""),
-                "description": ui.get("description", ""),
-                "returns": disc.get("returns", []),
+                "label": d.get("description", name),
             })
-        if not subscribable:
+        if not ble_types:
             return None
         return {
             "id": "devices",
@@ -1500,7 +1502,8 @@ class UIJsonGenerator:
             "order": 78,   # just before Bindings (80)
             "system": True,
             "access_level": "service",
-            "subscribable": subscribable,
+            "scan_endpoint": "/api/ble/scan",
+            "ble_types": ble_types,
         }
 
     def _bindings_page(self, bindings, board, driver_manifests,

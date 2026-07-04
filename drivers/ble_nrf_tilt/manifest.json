@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "driver": "ble_nrf_tilt",
+  "description": "nRF52832 tilt/orientation beacon (HolyIOT 21011 + LIS2DH12) — manufacturer-data observer",
+  "category": "sensor",
+  "hardware_type": "ble",
+  "requires_address": true,
+  "multiple_per_bus": true,
+  "provides": {"type": "float", "description": "кут нахилу ° / tilted / батарея мВ / сирі осі — залежно від address-каналу"},
+  "_address_channels_note": "address_channels: фіксований enum каналів (не сканується). Один пристрій (device id) живить кілька ролей; binding.address обирає величину. Генератор → role.channels → канальний <select>.",
+  "address_channels": [
+    {"value": "angle",   "label": "Кут нахилу, °"},
+    {"value": "tilted",  "label": "Нахилено (0/1)"},
+    {"value": "battery", "label": "Батарея, мВ"},
+    {"value": "ax",      "label": "Вісь X (сира)"},
+    {"value": "ay",      "label": "Вісь Y (сира)"},
+    {"value": "az",      "label": "Вісь Z (сира)"}
+  ],
+  "settings": [
+    {"key": "stale_ms", "type": "int", "default": 60000, "min": 5000, "max": 600000, "step": 1000, "unit": "мс", "description": "Без adv-кадру довше — датчик несправний", "persist": true}
+  ],
+  "ui": {
+    "page": "Налаштування датчиків",
+    "page_id": "driver_settings",
+    "access_level": "service",
+    "cards": [
+      {
+        "title": "nRF tilt: {{hardware_id}}",
+        "instance_per_binding": true,
+        "widgets": [
+          {"setting": "stale_ms", "widget": "number_input"}
+        ]
+      }
+    ]
+  }
+}

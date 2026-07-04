@@ -46,6 +46,8 @@ struct DiscoveredDevice {
     float  value       = 0.0f;
     bool   has_value   = false;
     int8_t rssi        = 0;    // dBm, 0 = unavailable (wired buses leave it 0)
+    char   type[16]    = {};   // identified driver type (unified BLE scan); "" = wired/unknown
+    char   summary[24] = {};   // short current-readings string for the manual scan ("24.6C 41%")
 };
 
 /// Scan the board resource `hw_id` (id from board.json, e.g. "ow_1") and fill

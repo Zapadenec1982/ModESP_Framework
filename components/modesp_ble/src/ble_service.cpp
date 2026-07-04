@@ -63,6 +63,7 @@
 #include "modesp/ble/ble_central.h"
 #include "modesp/ble/adv_decoder.h"   // transport ↔ sensor-driver decoder registry (observer)
 #include "modesp/ble/central_link.h"  // transport ↔ connect-driver seam (central connect)
+#include "modesp/hal/driver_registry.h"  // register the unified "ble" scan (DiscoveryFn seam)
 #endif
 
 static const char* TAG = "modesp_ble";
@@ -602,6 +603,8 @@ struct SeenSensor {
     int64_t last_us;           // last LOG time (throttle) — 0 = never logged
     int64_t last_seen_us;      // last frame time (freshness for the scan) — 0 = never seen
     int8_t  rssi;              // 127 = unavailable
+    char    type[16];          // identified driver type (the decoder that claimed it); "" = unknown
+    char    summary[24];       // short current-readings string for the manual scan (distinguishes same-type devices)
     float   temp;  bool has_temp;
     float   hum;   bool has_hum;
     int     batt_pct;          // -1 = unknown
@@ -621,6 +624,7 @@ static int seen_index(const uint8_t* mac) {
     SeenSensor& s = s_seen[free_idx];
     memcpy(s.mac, mac, 6);
     s.used = true; s.last_us = 0; s.last_seen_us = 0; s.rssi = 127;
+    s.type[0] = '\0'; s.summary[0] = '\0';
     s.has_temp = s.has_hum = false;
     s.batt_pct = -1; s.batt_mv = -1;
     s_sensor_count++;
@@ -633,8 +637,9 @@ static int seen_index(const uint8_t* mac) {
 
 // Merge this frame's fields into the device cache, then log the unified reading
 // (throttled per device). ht/hh = temp/hum present this frame; bp/mv < 0 = absent.
-static void update_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
-                          bool ht, float t, bool hh, float h, int bp, int mv) {
+static void update_sensor(const uint8_t* mac, int8_t rssi, const char* driver_type,
+                          const char* fmt, bool ht, float t, bool hh, float h,
+                          int bp, int mv) {
     // Feed registered BLE-sensor drivers every frame (unthrottled) — hardware_type "ble".
     BleCentral::instance().dispatch(mac, rssi, ht, t, hh, h, bp, mv);
 
@@ -645,6 +650,14 @@ static void update_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
     if (hh)      { s.hum  = h; s.has_hum  = true; }
     if (bp >= 0) s.batt_pct = bp;
     if (mv >= 0) s.batt_mv  = mv;
+
+    // Identify + summarise for the manual scan (built from the MERGED cache so a partial
+    // frame doesn't blank the readout). driver_type tags which driver owns this device.
+    if (driver_type) { strncpy(s.type, driver_type, sizeof(s.type) - 1); s.type[sizeof(s.type) - 1] = '\0'; }
+    int p = 0;
+    if (s.has_temp)      p += snprintf(s.summary + p, sizeof(s.summary) - p, "%.1fC ", s.temp);
+    if (s.has_hum && p < (int)sizeof(s.summary))    p += snprintf(s.summary + p, sizeof(s.summary) - p, "%.0f%% ", s.hum);
+    if (s.batt_pct >= 0 && p < (int)sizeof(s.summary)) snprintf(s.summary + p, sizeof(s.summary) - p, "%d%%b", s.batt_pct);
 
     int64_t now = esp_timer_get_time();
     s.rssi = rssi;                 // freshest signal (every frame, for the UI scan)
@@ -701,10 +714,44 @@ bool register_adv_decoder(AdvDecoder fn) {
 size_t     adv_decoder_count()      { return s_adv_decoder_count; }
 AdvDecoder adv_decoder_at(size_t i) { return i < s_adv_decoder_count ? s_adv_decoders[i] : nullptr; }
 
-// Public API a decoder calls to publish a reading (impl = file-local merge+log).
-void report_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
-                   bool ht, float t, bool hh, float h, int bp, int mv) {
-    update_sensor(mac, rssi, fmt, ht, t, hh, h, bp, mv);
+// Manufacturer-data decoder pool — parallel to the service-data pool above. A custom
+// beacon (nRF tilt, company 0xFFFF) carries manufacturer data, not service data.
+static AdvMfgDecoder s_adv_mfg_decoders[MAX_ADV_DECODERS] = {};
+static size_t        s_adv_mfg_decoder_count = 0;
+
+bool register_adv_mfg_decoder(AdvMfgDecoder fn) {
+    if (!fn) return false;
+    for (size_t i = 0; i < s_adv_mfg_decoder_count; i++)
+        if (s_adv_mfg_decoders[i] == fn) return true;      // idempotent by fn ptr
+    if (s_adv_mfg_decoder_count >= MAX_ADV_DECODERS) {
+        ESP_LOGW(TAG, "mfg-decoder pool full (%u) — decoder dropped", (unsigned)MAX_ADV_DECODERS);
+        return false;
+    }
+    s_adv_mfg_decoders[s_adv_mfg_decoder_count++] = fn;
+    return true;
+}
+size_t        adv_mfg_decoder_count()      { return s_adv_mfg_decoder_count; }
+AdvMfgDecoder adv_mfg_decoder_at(size_t i) { return i < s_adv_mfg_decoder_count ? s_adv_mfg_decoders[i] : nullptr; }
+
+// Public API a decoder calls to publish a reading (impl = file-local merge+log). driver_type
+// tags the device for the scan; fmt is the wire-format label for the diagnostic log.
+void report_sensor(const uint8_t* mac, int8_t rssi, const char* driver_type,
+                   const char* fmt, bool ht, float t, bool hh, float h, int bp, int mv) {
+    update_sensor(mac, rssi, driver_type, fmt, ht, t, hh, h, bp, mv);
+}
+
+// Public API: record the device TYPE + a short readings summary into the seen table (the
+// MAC→type map that drives the manual scan). Does not touch the temp/hum/batt read cache —
+// a driver with its OWN cache (e.g. nRF tilt) uses only this.
+void report_seen(const uint8_t* mac, int8_t rssi, const char* driver_type,
+                 const char* summary) {
+    int idx = seen_index(mac);
+    if (idx < 0) return;
+    SeenSensor& s = s_seen[idx];
+    s.rssi = rssi;
+    s.last_seen_us = esp_timer_get_time();
+    if (driver_type) { strncpy(s.type, driver_type, sizeof(s.type) - 1); s.type[sizeof(s.type) - 1] = '\0'; }
+    if (summary) { strncpy(s.summary, summary, sizeof(s.summary) - 1); s.summary[sizeof(s.summary) - 1] = '\0'; }
 }
 
 // Public API a decoder calls when it owns the UUID but can't parse the frame —
@@ -726,6 +773,8 @@ size_t list_seen(BleSeenDevice* out, size_t max) {
         BleSeenDevice& d = out[n++];
         for (int b = 0; b < 6; b++) d.mac[b] = s.mac[5 - b];   // LE → display order
         d.rssi     = s.rssi;
+        memcpy(d.type, s.type, sizeof(d.type));
+        memcpy(d.summary, s.summary, sizeof(d.summary));
         d.has_temp = s.has_temp; d.temp_c  = s.temp;
         d.has_hum  = s.has_hum;  d.hum_pct = s.hum;
         d.batt_pct = s.batt_pct; d.batt_mv = s.batt_mv;
@@ -988,6 +1037,30 @@ size_t connect_profile_count() { return s_profile_registered ? 1 : 0; }
 
 } // namespace ble
 
+// Unified BLE scan for the Devices page: every recently-seen device a decoder IDENTIFIED
+// (type set), with its driver type + a short readings summary. Registered under discovery
+// type "ble" so the generic /api/ble/scan resolves it via DriverRegistry — modesp_net never
+// depends on modesp_ble. Only identified (supported) devices are listed; unrelated
+// advertisers never reached the seen table.
+static int ble_scan_all(modesp::HAL& /*hal*/, const char* /*hw_id*/,
+                        modesp::DiscoveredDevice* out, size_t max) {
+    if (!out || max == 0) return 0;
+    modesp::ble::BleSeenDevice seen[MAX_SEEN];
+    size_t nseen = modesp::ble::list_seen(seen, MAX_SEEN);
+    size_t n = 0;
+    for (size_t i = 0; i < nseen && n < max; i++) {
+        const modesp::ble::BleSeenDevice& s = seen[i];
+        if (s.type[0] == '\0') continue;   // not identified yet — skip (supported-only list)
+        modesp::DiscoveredDevice& d = out[n++];
+        snprintf(d.address, sizeof(d.address), "%02x:%02x:%02x:%02x:%02x:%02x",
+                 s.mac[0], s.mac[1], s.mac[2], s.mac[3], s.mac[4], s.mac[5]);
+        strncpy(d.type, s.type, sizeof(d.type) - 1);
+        strncpy(d.summary, s.summary, sizeof(d.summary) - 1);
+        d.rssi = s.rssi;
+    }
+    return static_cast<int>(n);
+}
+
 int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
     if (event->type != BLE_GAP_EVENT_DISC) return 0;
     const struct ble_gap_disc_desc* d = &event->disc;
@@ -1005,20 +1078,33 @@ int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
         return 0;
     }
 
-    if (fields.svc_data_uuid16 == NULL || fields.svc_data_uuid16_len < 3) return 0;
-
-    const uint8_t* sd   = fields.svc_data_uuid16;
-    uint16_t       len  = fields.svc_data_uuid16_len;
-    uint16_t       uuid = sd[0] | (sd[1] << 8);
     const uint8_t* mac  = d->addr.val;     // little-endian source address
     int8_t         rssi = d->rssi;
 
-    // Offer the frame to each registered sensor-driver decoder; first to
-    // recognize its format and report wins. Byte-level parsing lives in the
-    // driver (adv_decoder.h) — the transport knows no device format.
-    for (size_t i = 0, n = ble::adv_decoder_count(); i < n; i++) {
-        ble::AdvDecoder dec = ble::adv_decoder_at(i);
-        if (dec && dec(mac, rssi, uuid, sd, len)) return 0;
+    // Offer the frame to registered decoders; first to recognize its format and report
+    // wins. Byte-level parsing lives in the driver (adv_decoder.h) — the transport knows
+    // no device format. Two payload kinds, each with its own decoder pool:
+
+    // 1) 16-bit service data (BTHome/Xiaomi/…).
+    if (fields.svc_data_uuid16 != NULL && fields.svc_data_uuid16_len >= 3) {
+        const uint8_t* sd   = fields.svc_data_uuid16;
+        uint16_t       len  = fields.svc_data_uuid16_len;
+        uint16_t       uuid = sd[0] | (sd[1] << 8);
+        for (size_t i = 0, n = ble::adv_decoder_count(); i < n; i++) {
+            ble::AdvDecoder dec = ble::adv_decoder_at(i);
+            if (dec && dec(mac, rssi, uuid, sd, len)) return 0;
+        }
+    }
+
+    // 2) Manufacturer-specific data (custom beacons — e.g. nRF tilt, company 0xFFFF).
+    if (fields.mfg_data != NULL && fields.mfg_data_len >= 2) {
+        const uint8_t* md    = fields.mfg_data;
+        uint16_t       mlen  = fields.mfg_data_len;
+        uint16_t       comp  = md[0] | (md[1] << 8);
+        for (size_t i = 0, n = ble::adv_mfg_decoder_count(); i < n; i++) {
+            ble::AdvMfgDecoder dec = ble::adv_mfg_decoder_at(i);
+            if (dec && dec(mac, rssi, comp, md, mlen)) return 0;
+        }
     }
     return 0;   // no decoder claimed this frame — stay silent (unrelated advertiser)
 }
@@ -1053,6 +1139,13 @@ bool BleService::on_init() {
 
     state_set("ble.enabled", true);
     state_set("ble.advertising", false);
+
+#if defined(CONFIG_MODESP_BLE_CENTRAL)
+    // Publish the unified BLE scan (all identified nearby devices) under discovery type
+    // "ble" so the /api/ble/scan endpoint resolves it generically via DriverRegistry.
+    modesp::DriverRegistry::register_discovery("ble", &ble_scan_all);
+#endif
+
     ESP_LOGI(TAG, "modesp_ble initialized (NimBLE host starting, coexist with Wi-Fi)");
     return true;
 }

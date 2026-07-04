@@ -1557,6 +1557,42 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
     return httpd_resp_send(req, json, pos);
 }
 
+// ── Unified BLE Scan Handler ────────────────────────────────────
+// ONE manual scan of every nearby BLE device our drivers understand. The transport
+// identifies each device's driver TYPE by which registered decoder claimed its
+// advertisement, and carries a short readings summary so the operator can tell two
+// same-type sensors apart. Resolved generically via DriverRegistry ("ble" discovery
+// registered by modesp_ble) — this layer never depends on the BLE component.
+esp_err_t HttpService::handle_get_ble_scan(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
+    auto* self = static_cast<HttpService*>(req->user_ctx);
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "application/json");
+
+    modesp::DiscoveryFn scan = modesp::DriverRegistry::find_discovery("ble");
+    if (!scan || !self->hal_) {
+        httpd_resp_sendstr(req, "{\"devices\":[]}");   // BLE disabled — empty, not an error
+        return ESP_OK;
+    }
+
+    modesp::DiscoveredDevice devices[16];
+    int found = scan(*self->hal_, "", devices, 16);
+    if (found < 0) found = 0;
+
+    char json[2048];
+    int pos = snprintf(json, sizeof(json), "{\"devices\":[");
+    for (int i = 0; i < found; i++) {
+        if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
+        pos += snprintf(json + pos, sizeof(json) - pos,
+            "{\"address\":\"%s\",\"type\":\"%s\",\"summary\":\"%s\",\"rssi\":%d}",
+            devices[i].address, devices[i].type, devices[i].summary,
+            static_cast<int>(devices[i].rssi));
+        if (pos >= (int)sizeof(json) - 128) break;   // overflow guard
+    }
+    pos += snprintf(json + pos, sizeof(json) - pos, "]}");
+    return httpd_resp_send(req, json, pos);
+}
+
 // ── DataLogger API ──────────────────────────────────────────────
 
 esp_err_t HttpService::handle_get_log(httpd_req_t* req) {
@@ -2152,7 +2188,8 @@ void HttpService::register_api_handlers() {
         {"/api/time",       HTTP_GET,  handle_get_time},
         {"/api/time",       HTTP_POST, handle_post_time},
         {"/api/onewire/scan", HTTP_GET, handle_get_ow_scan},   // legacy alias
-        {"/api/drivers/scan", HTTP_GET, handle_get_ow_scan},   // generic: ?driver=<type>&bus=<hw>  (any discovery driver, incl. BLE)
+        {"/api/drivers/scan", HTTP_GET, handle_get_ow_scan},   // generic: ?driver=<type>&bus=<hw>  (OneWire ROM discovery)
+        {"/api/ble/scan",     HTTP_GET, handle_get_ble_scan},  // unified BLE scan: all identified nearby devices + readings
         {"/api/log",         HTTP_GET, handle_get_log},
         {"/api/log/summary", HTTP_GET, handle_get_log_summary},
         {"/api/auth", HTTP_GET,  handle_get_auth},

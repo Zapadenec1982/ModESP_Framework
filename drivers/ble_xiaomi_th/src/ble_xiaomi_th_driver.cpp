@@ -80,7 +80,9 @@ bool BleXiaomiThDriver::is_healthy() const {
 // ═══════════════════════════════════════════════════════════════
 
 namespace {
-constexpr size_t MAX_BLE_TH = 8;
+// One pool slot PER BINDING (not per device): a device with 3 channels (temp/hum/batt)
+// bound across all roles takes 3 slots, so size for devices * channels.
+constexpr size_t MAX_BLE_TH = 18;
 BleXiaomiThDriver s_pool[MAX_BLE_TH];
 size_t            s_n = 0;
 
@@ -108,11 +110,11 @@ bool xiaomi_181a_decode(const uint8_t* mac, int8_t rssi,
         int16_t  t  = (int16_t)(sd[8]  | (sd[9]  << 8));
         uint16_t h  = (uint16_t)(sd[10] | (sd[11] << 8));
         uint16_t mv = (uint16_t)(sd[12] | (sd[13] << 8));
-        modesp::ble::report_sensor(mac, rssi, "pvvx", true, t / 100.0f, true, h / 100.0f, sd[14], mv);
+        modesp::ble::report_sensor(mac, rssi, "ble_xiaomi_th", "pvvx", true, t / 100.0f, true, h / 100.0f, sd[14], mv);
     } else if (len == 15) {                // ATC1441, BIG-ENDIAN numerics
         int16_t  t  = (int16_t)((sd[8] << 8) | sd[9]);
         uint16_t mv = (uint16_t)((sd[12] << 8) | sd[13]);
-        modesp::ble::report_sensor(mac, rssi, "atc", true, t / 10.0f, true, (float)sd[10], sd[11], mv);
+        modesp::ble::report_sensor(mac, rssi, "ble_xiaomi_th", "atc", true, t / 10.0f, true, (float)sd[10], sd[11], mv);
     } else {
         modesp::ble::log_raw(mac, rssi, uuid, sd, len);   // our UUID, unknown length
     }
@@ -136,18 +138,14 @@ bool bthome_fcd2_decode(const uint8_t* mac, int8_t rssi,
         else if ((id == 0x0F || id == 0x10 || id == 0x11) && i + 1 <= len) { i += 1; }   // binary sensors (1B) — skip
         else { ok = false; break; }                                                     // unknown id — size unknown, stop
     }
-    if (any) modesp::ble::report_sensor(mac, rssi, "bthome", ht, t, hh, h, bp, mv);
+    if (any) modesp::ble::report_sensor(mac, rssi, "ble_xiaomi_th", "bthome", ht, t, hh, h, bp, mv);
     else if (!ok) modesp::ble::log_raw(mac, rssi, uuid, sd, len);   // malformed — reveal format
     return any || ok;   // claimed unless nothing parsed AND the frame was malformed
 }
 
 modesp::ISensorDriver* ble_xiaomi_th_factory(const modesp::Binding& b, modesp::HAL& hal) {
-    // Register this sensor's adv decoders with the transport (idempotent). Done at
-    // factory time so decoders are live before the scanner starts; harmless if
-    // several bindings share the driver.
-    modesp::ble::register_adv_decoder(&xiaomi_181a_decode);
-    modesp::ble::register_adv_decoder(&bthome_fcd2_decode);
-
+    // Decoders are registered at BOOT (see the register hook below), not here — so an
+    // UNBOUND device is already visible in the unified scan before any binding exists.
     if (s_n >= MAX_BLE_TH) {
         ESP_LOGE(TAG, "pool exhausted");
         return nullptr;
@@ -182,27 +180,13 @@ modesp::ISensorDriver* ble_xiaomi_th_factory(const modesp::Binding& b, modesp::H
     return &drv;
 }
 
-// Discovery: snapshot the transport's recently-seen advertisers so the UI can list
-// nearby BLE sensors (MAC + live temperature + signal) to subscribe to. hw_id is
-// ignored — a BLE scan is radio-wide (the passive observer runs continuously), not
-// per-bus. out[].address = display MAC; value = temperature; rssi = signal.
-int ble_xiaomi_th_discovery(modesp::HAL& /*hal*/, const char* /*hw_id*/,
-                            modesp::DiscoveredDevice* out, size_t max) {
-    if (!out || max == 0) return 0;
-    modesp::ble::BleSeenDevice seen[16];
-    size_t n = modesp::ble::list_seen(seen, sizeof(seen) / sizeof(seen[0]));
-    if (n > max) n = max;
-    for (size_t i = 0; i < n; i++) {
-        const auto& s = seen[i];
-        snprintf(out[i].address, sizeof(out[i].address),
-                 "%02x:%02x:%02x:%02x:%02x:%02x",
-                 s.mac[0], s.mac[1], s.mac[2], s.mac[3], s.mac[4], s.mac[5]);
-        out[i].has_value = s.has_temp;
-        out[i].value     = s.has_temp ? s.temp_c : 0.0f;
-        out[i].rssi      = s.rssi;
-    }
-    return static_cast<int>(n);
-}
 } // namespace
 
-MODESP_REGISTER_SENSOR_WITH_DISCOVERY(ble_xiaomi_th, &ble_xiaomi_th_factory, &ble_xiaomi_th_discovery)
+// Register hook (called at boot by the generated register-all). Registers the factory AND
+// the adv decoders — the latter at BOOT so an unbound Xiaomi sensor is visible in the
+// unified GET /api/ble/scan before any binding exists (you subscribe it, then bind).
+extern "C" void modesp_register_driver_ble_xiaomi_th(void) {
+    modesp::DriverRegistry::register_sensor("ble_xiaomi_th", &ble_xiaomi_th_factory);
+    modesp::ble::register_adv_decoder(&xiaomi_181a_decode);
+    modesp::ble::register_adv_decoder(&bthome_fcd2_decode);
+}
