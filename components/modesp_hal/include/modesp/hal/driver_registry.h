@@ -31,7 +31,6 @@ class HAL;
 // повертають вказівники.
 namespace display { class IDisplayPort; }
 namespace audio   { class IAudioSink; }
-namespace panel   { class IPanelPort; }
 
 using SensorFactory   = ISensorDriver*          (*)(const Binding&, HAL&);
 using ActuatorFactory = IActuatorDriver*        (*)(const Binding&, HAL&);
@@ -47,6 +46,7 @@ struct DiscoveredDevice {
     bool   has_value   = false;
     int8_t rssi        = 0;    // dBm, 0 = unavailable (wired buses leave it 0)
     char   type[16]    = {};   // identified driver type (unified BLE scan); "" = wired/unknown
+    char   name[24]    = {};   // adv-name of a connectable device (panel); "" for observers
     char   summary[24] = {};   // short current-readings string for the manual scan ("24.6C 41%")
 };
 
@@ -85,14 +85,10 @@ public:
     static bool has_display(const char* type);
     static bool has_audio(const char* type);
 
-    // ── Panel port (single connect-panel backend, e.g. ble_led_panel). Unlike
-    //    display/audio (factory-per-type resolved via create_*), a panel is a lone
-    //    instance the driver publishes at factory time; the panel module fetches it
-    //    in on_bind. Kept separate from is_module_backend: the panel driver is still
-    //    a normal actuator created by DriverManager — this only exposes its text/
-    //    control surface to the owning module. ──
-    static void               set_panel_port(panel::IPanelPort* port);
-    static panel::IPanelPort* panel_port();
+    // Note: a panel (e.g. ble_led_panel) is NOT a module-backend — it is a normal
+    // actuator created by DriverManager and resolved by the panel module via
+    // find_actuator(role)->as_panel(). No separate registry seam is needed.
+
     /// True для типів, що є module-bound backend-ами (display/audio) — щоб
     /// DriverManager міг тихо пропустити їхні bindings без хибного WARN.
     static bool is_module_backend(const char* type) {

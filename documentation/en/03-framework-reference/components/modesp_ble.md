@@ -55,7 +55,7 @@ driver can build **and chunk** a multi-write frame (e.g. an image/text frame) at
 against control writes from other callers. All device byte-encoding, GATT UUIDs and fonts
 live in the driver. This is the CONNECT analogue of `adv_decoder.h` (observer sensors).
 The `panel` module drives content through the driver's [`IPanelPort`](../../../../components/modesp_hal/include/modesp/hal/panel_port.h)
-(resolved via `DriverRegistry::panel_port()`), never touching BLE. Panel byte protocol:
+(resolved by role: `find_actuator(role)->as_panel()`), never touching BLE. Panel byte protocol:
 [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
 
 ## Features riding on the host
@@ -66,7 +66,7 @@ A **sensor** driver (`hardware_type "ble_device"`) that reads a Xiaomi LYWSD03MM
 
 ### Panel — `ble_led_panel` (central) + `panel` module
 
-A driver (`hardware_type "ble"`, a **connect** device matched by **adv-name**, not MAC) drives a Chinese iPixel Color / LED_BLE 64x16 RGB matrix. It registers a `ConnectProfile` (adv-name prefix `"LED_BLE_"` + write char `fa02` / notify char `fa03`) with the central link, and **owns all the iPixel wire format**: the control byte-commands, the native text-frame encoder + glyph font, and a background render task. It also implements `IPanelPort`, which the `panel` **module** — the content owner (clock / temperature / humidity rotation, icons, threshold colours, animation) — resolves via `DriverRegistry::panel_port()` and drives with `set_power` / `set_brightness` / `show_text`. The module never mentions BLE. See [drivers/ble_led_panel.md](../drivers/ble_led_panel.md) and [modules/panel.md](../modules/panel.md).
+A driver (`hardware_type "ble"`, a **connect** device matched by **adv-name**, not MAC) drives a Chinese iPixel Color / LED_BLE 64x16 RGB matrix. It registers a `ConnectProfile` (adv-name prefix `"LED_BLE_"` + write char `fa02` / notify char `fa03`) with the central link, and **owns all the iPixel wire format**: the control byte-commands, the native text-frame encoder + glyph font, and a background render task. It also implements `IPanelPort`, which the `panel` **module** — the content owner (clock / temperature / humidity rotation, icons, threshold colours, animation) — resolves by role (`find_actuator(role)->as_panel()`) and drives with `set_power` / `set_brightness` / `show_text`. The module never mentions BLE. See [drivers/ble_led_panel.md](../drivers/ble_led_panel.md) and [modules/panel.md](../modules/panel.md).
 
 ## See also
 

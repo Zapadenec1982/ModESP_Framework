@@ -1584,8 +1584,8 @@ esp_err_t HttpService::handle_get_ble_scan(httpd_req_t* req) {
     for (int i = 0; i < found; i++) {
         if (i > 0) pos += snprintf(json + pos, sizeof(json) - pos, ",");
         pos += snprintf(json + pos, sizeof(json) - pos,
-            "{\"address\":\"%s\",\"type\":\"%s\",\"summary\":\"%s\",\"rssi\":%d}",
-            devices[i].address, devices[i].type, devices[i].summary,
+            "{\"address\":\"%s\",\"type\":\"%s\",\"name\":\"%s\",\"summary\":\"%s\",\"rssi\":%d}",
+            devices[i].address, devices[i].type, devices[i].name, devices[i].summary,
             static_cast<int>(devices[i].rssi));
         if (pos >= (int)sizeof(json) - 128) break;   // overflow guard
     }

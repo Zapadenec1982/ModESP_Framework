@@ -1112,9 +1112,12 @@ def unused_drivers(bindings, all_driver_manifests):
     """Drivers with a manifest that the active board's bindings do NOT use.
 
     Excludes drivers that are USED before any binding exists: discovery-capable ones
-    (e.g. ds18b20, scanned per-bus) and BLE observer sensors (hardware_type "ble" +
-    category "sensor" — subscribed at runtime via the unified scan, never bound at
-    build). Pure helper (advisory hint, print in main).
+    (e.g. ds18b20, scanned per-bus) and RUNTIME-PROVISIONED BLE devices — both observer
+    sensors (hardware_type "ble" + category "sensor") and connect devices (a
+    connect_name_prefix, e.g. the iPixel panel). All are added at runtime via the
+    Devices page, never bound at build, so they must not be advertised as prunable —
+    pruning would drop the driver's boot registration (adv-decoder / connect-matcher)
+    and make the device invisible in the unified scan. Pure helper (advisory hint).
     """
     if not bindings:
         return []
@@ -1125,8 +1128,9 @@ def unused_drivers(bindings, all_driver_manifests):
             continue
         if dm.get("discovery", {}).get("supported", False):
             continue
-        if dm.get("hardware_type") == "ble" and dm.get("category") == "sensor":
-            continue   # runtime-subscribable BLE observer — not "unused"
+        if dm.get("hardware_type") == "ble" and (
+                dm.get("category") == "sensor" or dm.get("connect_name_prefix")):
+            continue   # runtime-provisioned BLE: observer sensor OR connect device — not "unused"
         out.append(name)
     return out
 
@@ -1485,13 +1489,18 @@ class UIJsonGenerator:
         Returns None when no BLE observer driver is present (page + nav entry disappear)."""
         ble_types = []
         for name, d in driver_manifests.items():
-            # Observer (broadcast) BLE sensors are subscribable; a connect actuator like the
-            # panel (category "actuator") is configured differently, not via the scan.
-            if d.get("hardware_type") != "ble" or d.get("category") != "sensor":
+            if d.get("hardware_type") != "ble":
+                continue
+            # Subscribable BLE devices: broadcast observer SENSORS, and CONNECT devices that
+            # declare a name-prefix (e.g. the iPixel panel) — both found by the unified scan.
+            is_observer = d.get("category") == "sensor"
+            is_connect  = bool(d.get("connect_name_prefix"))
+            if not (is_observer or is_connect):
                 continue
             ble_types.append({
                 "driver": name,
                 "label": d.get("description", name),
+                "connect": is_connect,   # connect device → subscribe stores adv-name, not MAC
             })
         if not ble_types:
             return None

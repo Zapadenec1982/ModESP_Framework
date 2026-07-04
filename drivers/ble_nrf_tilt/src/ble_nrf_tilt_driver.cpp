@@ -116,18 +116,21 @@ NrfTiltReading* slot_for_mac(const uint8_t mac_le[6]) {
     return &s;
 }
 
+// The nRF firmware writes a fixed protocol marker at md[8] (FRAME_MAGIC in its main.c) —
+// company 0xFFFF is a shared test id, so this makes the match deterministic. MUST equal the
+// nRF firmware's constant.
+static constexpr uint8_t NRF_FRAME_MAGIC = 0xA7;
+
 // Manufacturer-data decoder registered with the transport. Claims the HolyIOT/nRF tilt
-// beacon: company 0xFFFF, ver=1, 15 bytes. Company 0xFFFF is a shared test id, so we ALSO
-// gate on ver + length to avoid claiming unrelated 0xFFFF beacons.
+// beacon: company 0xFFFF, ver=1, exactly 15 bytes, magic marker at md[8].
 //   md incl. the 2-byte company prefix: [0..1]=FFFF, [2]=ver, [3]=flags, [4]=tilt_deg,
-//   [5..6]=vbat LE, [7]=seq, [8]=devid, [9..14]=ax,ay,az int16 LE.
+//   [5..6]=vbat LE, [7]=seq, [8]=MAGIC, [9..14]=ax,ay,az int16 LE.
 bool nrf_tilt_decode(const uint8_t* mac, int8_t rssi,
                      uint16_t company, const uint8_t* md, uint16_t len) {
     if (company != 0xFFFF) return false;
-    // 0xFFFF is a shared test company id — gate on the EXACT frame (ver=1, exactly 15 bytes)
-    // to avoid claiming an unrelated 0xFFFF beacon. TODO(firmware): add a magic marker byte
-    // for a stronger match.
-    if (len != 15 || md[2] != 0x01) return false;     // not our beacon — let others try
+    // Deterministic gate: exact length + ver + the firmware's magic marker → no unrelated
+    // 0xFFFF beacon is ever claimed.
+    if (len != 15 || md[2] != 0x01 || md[8] != NRF_FRAME_MAGIC) return false;   // not ours
     NrfTiltReading* s = slot_for_mac(mac);
     if (!s) return true;                              // ours, but cache pool full
     int angle    = (md[4] == 0xFF) ? -1 : (int)md[4];

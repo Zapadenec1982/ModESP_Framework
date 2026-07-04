@@ -5,6 +5,10 @@
   "description": "LED-панель iPixel: ротація equipment.room_temp/room_humid + годинник (іконки, кольори, анімація) + веб-керування (живлення/яскравість/ефект)",
   "priority": 3,
 
+  "requires": [
+    {"role": "panel", "type": "actuator", "driver": ["ble_led_panel"], "label": "LED-панель", "optional": true}
+  ],
+
   "state": {
     "panel.text":       {"type": "string", "access": "read",
                          "description": "Поточний текст на LED-панелі"},

@@ -42,7 +42,9 @@
     }
   });
 
-  $: subscribedMacs = new Set(devices.map(d => (d.mac || '').toLowerCase()));
+  // A device's identity is its MAC (broadcast observer) OR its adv-name (connect device).
+  $: subscribedKeys = new Set(
+    devices.flatMap(d => [d.mac, d.name].filter(Boolean).map(x => x.toLowerCase())));
 
   async function scan() {
     scanning = true;
@@ -71,18 +73,17 @@
     return id;
   }
 
-  // Subscribe a scanned device: record its mac AND its identified driver type (hw_type "ble"
-  // is shared by several drivers, so the device's own driver disambiguates role binding).
+  // Subscribe a scanned device: record its IDENTITY (adv-name for a connect device like the
+  // panel, else the MAC) plus its identified driver type — hw_type "ble" is shared by several
+  // drivers, so the device's own driver disambiguates role binding.
   function subscribe(res) {
-    const mac = res.address;
-    if (!mac || subscribedMacs.has(mac.toLowerCase())) return;   // already subscribed
-    devices = [...devices, {
-      id: deriveId(mac),
-      hw_type: 'ble',
-      driver: res.type || '',
-      mac,
-      label: '',
-    }];
+    const isConnect = !!res.name;
+    const key = (isConnect ? res.name : res.address || '').toLowerCase();
+    if (!key || subscribedKeys.has(key)) return;   // already subscribed
+    const dev = { id: deriveId(res.address || res.name), hw_type: 'ble', driver: res.type || '', label: '' };
+    if (isConnect) dev.name = res.name;   // connect target (adv-name)
+    else           dev.mac  = res.address;
+    devices = [...devices, dev];
     dirty = true;
     save();   // 1-click subscribe → persist immediately (no separate Save step)
   }
@@ -158,7 +159,7 @@
                    on:input={e => renameDevice(d.id, e.target.value)} />
             <div class="dev-sub">
               {#if d.driver}<span class="dev-type">{typeLabel[d.driver] || d.driver}</span>{/if}
-              <span class="dev-mac">{d.mac}</span>
+              <span class="dev-mac">{d.name || d.mac}</span>
               <span class="dev-id">{d.id}</span>
             </div>
           </div>
@@ -181,12 +182,13 @@
     {#if scanResults.length > 0}
       <div class="scan-list">
         {#each scanResults as res}
-          {@const have = subscribedMacs.has((res.address || '').toLowerCase())}
+          {@const have = subscribedKeys.has((res.name || res.address || '').toLowerCase())}
           <div class="scan-item" class:have>
             <div class="scan-info">
               <div class="scan-top">
                 <span class="scan-type">{typeLabel[res.type] || res.type}</span>
-                {#if res.summary}<span class="scan-reading">{res.summary}</span>{/if}
+                {#if res.name}<span class="scan-reading">{res.name}</span>
+                {:else if res.summary}<span class="scan-reading">{res.summary}</span>{/if}
               </div>
               <div class="scan-meta">
                 <span class="scan-mac">{res.address}</span>

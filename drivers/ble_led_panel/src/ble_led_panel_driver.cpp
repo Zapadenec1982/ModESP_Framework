@@ -219,8 +219,10 @@ void BleLedPanelDriver::render_text_frame(const char* s, uint8_t r, uint8_t g, u
 
 // ═══════════════════════════════════════════════════════════════
 // Factory + registration (optional via CONFIG_MODESP_DRIVER_BLE_LED_PANEL).
-// Registers the panel's connect profile (adv-name + fa02/fa03 UUIDs) with modesp_ble's
-// generic central link, then publishes itself as the panel module's IPanelPort.
+// A normal actuator: DriverManager creates it from the `panel` role binding and
+// indexes it by role. The factory registers the panel's connect profile (adv-name
+// + fa02/fa03 UUIDs) with modesp_ble's generic central link and returns the driver.
+// The panel module resolves this SAME object by role (find_actuator + as_panel).
 // ═══════════════════════════════════════════════════════════════
 
 namespace {
@@ -252,9 +254,15 @@ modesp::IActuatorDriver* ble_led_panel_factory(const modesp::Binding& b, modesp:
     }
     s_panel.configure(b.role.c_str(), link);
     s_panel.apply_settings(b);
-    modesp::DriverRegistry::set_panel_port(&s_panel);   // expose text/control to the panel module
-    return &s_panel;
+    return &s_panel;   // panel module resolves this by role via find_actuator("panel")->as_panel()
 }
 } // namespace
 
-MODESP_REGISTER_ACTUATOR(ble_led_panel, &ble_led_panel_factory)
+// Register hook (called at boot by the generated register-all). Registers the factory AND
+// a connect-name-prefix matcher — the latter at BOOT so an UNBOUND panel is visible in the
+// unified GET /api/ble/scan before any binding exists (you subscribe it, then bind). The
+// full advertised name of the subscribed panel becomes its connect target.
+extern "C" void modesp_register_driver_ble_led_panel(void) {
+    modesp::DriverRegistry::register_actuator("ble_led_panel", &ble_led_panel_factory);
+    modesp::ble::register_connect_matcher("LED_BLE", "ble_led_panel");
+}

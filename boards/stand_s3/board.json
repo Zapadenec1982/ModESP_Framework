@@ -13,7 +13,5 @@
   "i2s_buses": [
     {"id": "i2s_0", "bclk": 15, "ws": 16, "dout": 7, "sd": 17, "sample_rate_hz": 16000, "label": "MAX98357A аларм-сигналізатор (SD=GPIO17 hardware-mute)"}
   ],
-  "ble_devices": [
-    {"id": "led_panel", "name": "LED_BLE_E6C5EBE2", "label": "iPixel Color 16x64 LED matrix (connect device)"}
-  ]
+  "ble_devices": []
 }

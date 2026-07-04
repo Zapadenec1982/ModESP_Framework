@@ -4,9 +4,12 @@
  *        iPixel BLE LED panel, with a threshold-based colour per value.
  */
 #include "panel_module.h"
-#include "panel_text.h"                  // this module's text-output slots API (panel.slotN)
-#include "modesp/hal/panel_port.h"       // IPanelPort — the panel backend a driver publishes
-#include "modesp/hal/driver_registry.h"  // DriverRegistry::panel_port()
+#include "panel_text.h"                    // this module's text-output slots API (panel.slotN)
+#include "modesp/hal/panel_port.h"         // IPanelPort — the panel backend a driver exposes
+#include "modesp/hal/driver_manager.h"     // DriverManager::find_actuator(role)
+#include "modesp/hal/driver_interfaces.h"  // IActuatorDriver::as_panel()
+#include "modesp/hal/hal_types.h"          // BindingTable
+#include "etl/string_view.h"
 #include "esp_log.h"
 #include <cstdio>
 #include <cstring>
@@ -48,12 +51,18 @@ PanelModule::PanelModule()
     : BaseModule("panel", modesp::ModulePriority::LOW)
 {}
 
-void PanelModule::on_bind(modesp::DriverManager& /*drivers*/,
-                          const modesp::BindingTable& /*bindings*/,
+void PanelModule::on_bind(modesp::DriverManager& drivers,
+                          const modesp::BindingTable& bindings,
                           modesp::HAL& /*hal*/) {
-    // The panel driver (if bound) published its IPanelPort at factory time. No panel
-    // driver → null → the module runs but produces no output.
-    port_ = modesp::DriverRegistry::panel_port();
+    // Uniform peripheral route: our panel role is bound to a driver like any other
+    // peripheral. Resolve THAT driver by role from DriverManager and take its
+    // IPanelPort face (as_panel). No panel binding → null → module produces no output.
+    for (const auto& b : bindings.bindings) {
+        if (!(b.module_name == "panel")) continue;   // only our module's bindings
+        modesp::IActuatorDriver* a =
+            drivers.find_actuator(etl::string_view(b.role.c_str(), b.role.size()));
+        if (a && (port_ = a->as_panel()) != nullptr) break;
+    }
     ESP_LOGI(TAG, "panel backend %s", port_ ? "resolved" : "absent (no output)");
 }
 

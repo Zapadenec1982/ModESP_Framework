@@ -82,7 +82,8 @@ void log_raw(const uint8_t* mac_le, int8_t rssi, uint16_t svc_uuid16,
 struct BleSeenDevice {
     uint8_t  mac[6];           // display order (reversed from NimBLE addr.val)
     int8_t   rssi;             // 127 = unavailable
-    char     type[16];         // identified driver type ("ble_xiaomi_th"/"ble_nrf_tilt"); "" = unknown
+    char     type[16];         // identified driver type ("ble_xiaomi_th"/"ble_nrf_tilt"/"ble_led_panel"); "" = unknown
+    char     name[24];         // adv-name of a CONNECTABLE device (panel); "" for broadcast observers — the subscription identity for connect devices
     char     summary[24];      // short current-readings string ("24.6C 41%", "45° 2900mV") — distinguishes same-type devices
     bool     has_temp; float temp_c;    // legacy BTHome preview fields (existing xiaomi discovery)
     bool     has_hum;  float hum_pct;

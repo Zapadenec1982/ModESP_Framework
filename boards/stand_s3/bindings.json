@@ -2,8 +2,7 @@
   "manifest_version": 1,
   "bindings": [
     {"hardware": "disp_0", "driver": "amt630a", "role": "display_main", "module": "display"},
-    {"hardware": "i2s_0", "driver": "max98357a", "role": "audio_main", "module": "player"},
-    {"hardware": "led_panel",   "driver": "ble_led_panel", "role": "panel",      "module": "equipment"}
+    {"hardware": "i2s_0", "driver": "max98357a", "role": "audio_main", "module": "player"}
   ],
-  "_note_ble_observers": "Xiaomi/nRF BLE-обсервери НЕ хардкодяться тут — їх додають у runtime через сторінку «Пристрої» (скан → підписка), потім прив'язують ролі room_temp/orientation. Дротовий дисплей + connect-панель лишаються тут (board-рівень)."
+  "_note_ble_runtime": "УСІ BLE-пристрої (Xiaomi/nRF-обсервери + iPixel-панель connect) додаються у runtime через сторінку «Пристрої» (скан → підписка), потім прив'язуються ролі room_temp/orientation/panel. Тут лишається лише дротове залізо (дисплей disp_0, аудіо i2s_0)."
 }

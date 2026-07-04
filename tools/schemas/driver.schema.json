@@ -30,6 +30,10 @@
     "requires_address": {
       "type": "boolean"
     },
+    "connect_name_prefix": {
+      "type": "string",
+      "description": "BLE connect device: adv-name prefix matched by the transport for the unified scan."
+    },
     "address_channels": {
       "type": "array",
       "items": {

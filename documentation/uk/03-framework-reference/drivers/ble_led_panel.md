@@ -6,8 +6,8 @@
 
 Драйвер носить **два капелюхи**:
 
-- **`modesp::IActuatorDriver`** — досі прив'язаний до модуля `equipment`; `EquipmentBase` подає `set_value` = яскравість (0..1 → 5..100 %). Його `update()` лише логує фронт підключення, а `set()` (живлення) — no-op: живленням володіє модуль `panel`.
-- **`modesp::panel::IPanelPort`** — публікується у фабриці через `DriverRegistry::set_panel_port(this)`; модуль `panel` резолвить його і подає контент (живлення / яскравість / текст) крізь нього.
+- **`modesp::IActuatorDriver`** — «капелюх», завдяки якому DriverManager створює драйвер із біндінга й індексує за роллю (`panel`, модуль `panel`). `update()` лише логує фронт підключення; `set()`/`set_value()` фактично не використовуються — живлення/яскравість/текст веде модуль `panel` через `IPanelPort`.
+- **`modesp::panel::IPanelPort`** — модуль `panel` резолвить той САМИЙ об'єкт за роллю (`find_actuator(role)->as_panel()` — capability-cast без RTTI) і подає контент (живлення / яскравість / текст) крізь нього.
 
 Драйвер їде на спільному BLE-хості [`modesp_ble`](../../03-framework-reference/components/modesp_ble.md) (роль **CENTRAL**). Підключення до панелі ставить на паузу пасивний скан observer'а, потім відновлює його. Модулі ніколи не торкаються BLE напряму — I/O робить драйвер, модуль читає/пише SharedState.
 
@@ -52,7 +52,7 @@
 
 - **write** характеристика `fa02` (прив'язана як write-хендл), **notify** характеристика `fa03` (підписана).
 - `update()` драйвера лише **логує** фронт підключення; `set()` (живлення) — no-op: живленням володіє модуль.
-- Живлення (ON/OFF) та яскравість (0..100 %) **кодує сам драйвер** (`set_power` / `set_brightness`), а *викликає* їх модуль [`panel`](../modules/panel.md) через `IPanelPort`. Модуль — єдиний писар контенту і повторно застосовує power+brightness на кожному (пере)підключенні (скидання sentinel), тож налаштування переживають реконект, без гонки на фронті. (Драйвер *також* пише яскравість через `EquipmentBase` `set_value` — як і раніше.)
+- Живлення (ON/OFF) та яскравість (0..100 %) **кодує сам драйвер** (`set_power` / `set_brightness`), а *викликає* їх модуль [`panel`](../modules/panel.md) через `IPanelPort`. Модуль — єдиний писар контенту і повторно застосовує power+brightness на кожному (пере)підключенні (скидання sentinel), тож налаштування переживають реконект, без гонки на фронті.
 
 ## Команди (control-байти)
 
@@ -92,7 +92,7 @@ void show_text(const char* s, uint8_t r, uint8_t g, uint8_t b,
                uint8_t anim, uint8_t speed, uint8_t rainbow);  // enqueue → render-задача
 ```
 
-У фабриці драйвер реєструє `ConnectProfile` (через `register_connect_profile`), а потім публікує себе як `IPanelPort` модуля через `DriverRegistry::set_panel_port(this)`. Модуль читає `panel.power` (bool), `panel.brightness` (int %), `panel.anim` (int 0..7 ефект) і `panel.rotate` (bool) з SharedState (їх задає веб-вкладка «iPixel» / MQTT) і викликає `set_power` / `set_brightness` / `show_text` на `IPanelPort` — жодного control-байта сам не кодує і BLE не торкається. Таке розділення дає єдиного писаря контенту без гонки на фронті підключення, а драйвер тримає фізичний BLE-лінк живим незалежно від того, що вирішує показати модуль.
+У фабриці драйвер реєструє `ConnectProfile` (через `register_connect_profile`) і повертається як звичайний актуатор; модуль `panel` резолвить той самий об'єкт за роллю (`find_actuator(role)->as_panel()`). Модуль читає `panel.power` (bool), `panel.brightness` (int %), `panel.anim` (int 0..7 ефект) і `panel.rotate` (bool) з SharedState (їх задає веб-вкладка «iPixel» / MQTT) і викликає `set_power` / `set_brightness` / `show_text` на `IPanelPort` — жодного control-байта сам не кодує і BLE не торкається. Таке розділення дає єдиного писаря контенту без гонки на фронті підключення, а драйвер тримає фізичний BLE-лінк живим незалежно від того, що вирішує показати модуль.
 
 ## Опційність (Kconfig)
 

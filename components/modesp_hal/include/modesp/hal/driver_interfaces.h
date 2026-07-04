@@ -16,6 +16,8 @@
 
 namespace modesp {
 
+namespace panel { class IPanelPort; }   // capability surface some actuators also expose
+
 // ═══════════════════════════════════════════════════════════════
 // ISensorDriver — read-only hardware input
 // ═══════════════════════════════════════════════════════════════
@@ -62,6 +64,11 @@ public:
 
     virtual void emergency_stop() { set(false); }
     virtual uint32_t switch_count() const { return 0; }
+
+    /// Capability cast (no RTTI): an actuator that also drives a text/LED panel
+    /// returns its IPanelPort here; the owning module resolves it by role via
+    /// DriverManager and drives content through it. Default: not a panel.
+    virtual modesp::panel::IPanelPort* as_panel() { return nullptr; }
 };
 
 } // namespace modesp

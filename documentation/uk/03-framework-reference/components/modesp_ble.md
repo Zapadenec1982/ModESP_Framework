@@ -50,7 +50,7 @@ class ICentralLink {
 будує **й ріже на чанки** багатозаписний кадр (напр. текст/зображення) атомарно проти
 control-записів інших писачів. Усе байтове кодування, GATT UUID і шрифт живуть у драйвері —
 це connect-аналог `adv_decoder.h` (observer-сенсори). Модуль `panel` керує контентом через
-драйверний `IPanelPort` (резолв через `DriverRegistry::panel_port()`), не торкаючись BLE.
+драйверний `IPanelPort` (резолв за роллю: `find_actuator(role)->as_panel()`), не торкаючись BLE.
 Байтовий протокол панелі: [`docs/ble/panel_protocol.md`](../../../../docs/ble/panel_protocol.md).
 
 ## Фічі поверх хоста
@@ -68,7 +68,7 @@ control-записів інших писачів. Усе байтове коду
 
 ### Central → панель
 
-`ble_led_panel` — це **connect**-пристрій, що матчиться за **adv-name**, не за MAC. Драйвер реєструє `ConnectProfile` (adv-name + write/notify UUID) у central-лінку й **володіє всім iPixel-форматом**: control-байти, нативний енкодер текст-кадру + шрифт, фонова render-задача. Він також реалізує `IPanelPort`, який **модуль** `panel` (власник контенту — годинник/темп/вологість, іконки, порогові кольори, анімація) резолвить через `DriverRegistry::panel_port()` і керує через `set_power` / `set_brightness` / `show_text`. Модуль BLE не торкається. Транспорт (central-лінк) знань про панель не має.
+`ble_led_panel` — це **connect**-пристрій, що матчиться за **adv-name**, не за MAC. Драйвер реєструє `ConnectProfile` (adv-name + write/notify UUID) у central-лінку й **володіє всім iPixel-форматом**: control-байти, нативний енкодер текст-кадру + шрифт, фонова render-задача. Він також реалізує `IPanelPort`, який **модуль** `panel` (власник контенту — годинник/темп/вологість, іконки, порогові кольори, анімація) резолвить за роллю (`find_actuator(role)->as_panel()`) і керує через `set_power` / `set_brightness` / `show_text`. Модуль BLE не торкається. Транспорт (central-лінк) знань про панель не має.
 
 ## Що далі
 

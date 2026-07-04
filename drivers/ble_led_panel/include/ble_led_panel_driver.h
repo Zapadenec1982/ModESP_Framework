@@ -8,9 +8,11 @@
  * the glyph font, and a background render task. modesp_ble knows none of this.
  *
  * The class wears two hats:
- *   - IActuatorDriver — bound to the `equipment` module; set_value = brightness.
- *   - IPanelPort      — the `panel` module resolves it via DriverRegistry::panel_port()
- *                       and drives content (power / brightness / text) through it.
+ *   - IActuatorDriver — created by DriverManager from the `panel` role binding;
+ *                       set_value = brightness.
+ *   - IPanelPort      — the `panel` module resolves this SAME object by role
+ *                       (find_actuator("panel")->as_panel()) and drives content
+ *                       (power / brightness / text) through it. No global singleton.
  * Protocol: docs/ble/panel_protocol.md.
  */
 #pragma once
@@ -45,6 +47,7 @@ public:
     const char* role() const override { return role_.c_str(); }
     const char* type() const override { return "ble_led_panel"; }
     bool is_healthy() const override;            // central link connected
+    modesp::panel::IPanelPort* as_panel() override { return this; }   // capability cast (no RTTI)
 
     // ── IPanelPort (the panel module drives content through this) ──
     bool connected() const override;

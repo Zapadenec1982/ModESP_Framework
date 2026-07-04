@@ -603,7 +603,8 @@ struct SeenSensor {
     int64_t last_us;           // last LOG time (throttle) — 0 = never logged
     int64_t last_seen_us;      // last frame time (freshness for the scan) — 0 = never seen
     int8_t  rssi;              // 127 = unavailable
-    char    type[16];          // identified driver type (the decoder that claimed it); "" = unknown
+    char    type[16];          // identified driver type (the decoder / connect-matcher that claimed it); "" = unknown
+    char    name[24];          // adv-name of a connectable device (panel); "" for broadcast observers
     char    summary[24];       // short current-readings string for the manual scan (distinguishes same-type devices)
     float   temp;  bool has_temp;
     float   hum;   bool has_hum;
@@ -624,7 +625,7 @@ static int seen_index(const uint8_t* mac) {
     SeenSensor& s = s_seen[free_idx];
     memcpy(s.mac, mac, 6);
     s.used = true; s.last_us = 0; s.last_seen_us = 0; s.rssi = 127;
-    s.type[0] = '\0'; s.summary[0] = '\0';
+    s.type[0] = '\0'; s.name[0] = '\0'; s.summary[0] = '\0';
     s.has_temp = s.has_hum = false;
     s.batt_pct = -1; s.batt_mv = -1;
     s_sensor_count++;
@@ -748,10 +749,68 @@ void report_seen(const uint8_t* mac, int8_t rssi, const char* driver_type,
     int idx = seen_index(mac);
     if (idx < 0) return;
     SeenSensor& s = s_seen[idx];
+    int64_t now = esp_timer_get_time();
     s.rssi = rssi;
-    s.last_seen_us = esp_timer_get_time();
+    s.last_seen_us = now;
     if (driver_type) { strncpy(s.type, driver_type, sizeof(s.type) - 1); s.type[sizeof(s.type) - 1] = '\0'; }
     if (summary) { strncpy(s.summary, summary, sizeof(s.summary) - 1); s.summary[sizeof(s.summary) - 1] = '\0'; }
+    // Throttled diagnostic — mirrors update_sensor so an own-cache device (nRF tilt, panel)
+    // is visible in the log too, not just the shared-cache BTHome sensors.
+    bool is_new = (s.last_us == 0);
+    if (is_new || (now - s.last_us) >= LOG_THROTTLE_US) {
+        s.last_us = now;
+        ESP_LOGI(TAG, "%s %-13s " MODESP_MAC_FMT " %-12s rssi=%d",
+                 is_new ? "[NEW]" : "     ", s.type, MODESP_MAC_ARG(mac), s.summary, rssi);
+    }
+}
+
+// ── Connect-device discovery: name-prefix matchers (the connect analogue of the adv
+// decoders). A connect driver registers a prefix→type at boot so the unified scan lists a
+// connectable device (panel) before any binding/profile exists. ──
+struct ConnectMatcher { const char* prefix; const char* type; };
+static constexpr size_t MAX_CONNECT_MATCHERS = 4;
+static ConnectMatcher s_connect_matchers[MAX_CONNECT_MATCHERS] = {};
+static size_t         s_connect_matcher_count = 0;
+
+bool register_connect_matcher(const char* prefix, const char* type) {
+    if (!prefix || !type) return false;
+    for (size_t i = 0; i < s_connect_matcher_count; i++)
+        if (strcmp(s_connect_matchers[i].prefix, prefix) == 0) return true;   // idempotent
+    if (s_connect_matcher_count >= MAX_CONNECT_MATCHERS) return false;
+    s_connect_matchers[s_connect_matcher_count++] = { prefix, type };
+    return true;
+}
+size_t connect_matcher_count() { return s_connect_matcher_count; }
+
+// Scanner hook for a NAMED advertiser: if its name starts with a registered prefix, record
+// it in the seen table as a connectable device of that type, carrying the FULL adv-name
+// (the subscription identity). adv_name is NOT null-terminated (bounded by name_len).
+static bool match_connectable(const uint8_t* mac, int8_t rssi,
+                              const char* adv_name, size_t name_len) {
+    for (size_t i = 0; i < s_connect_matcher_count; i++) {
+        const char* pfx = s_connect_matchers[i].prefix;
+        size_t plen = strlen(pfx);
+        if (name_len < plen || strncmp(adv_name, pfx, plen) != 0) continue;
+        int idx = seen_index(mac);
+        if (idx < 0) return true;
+        SeenSensor& s = s_seen[idx];
+        int64_t now = esp_timer_get_time();
+        s.rssi = rssi;
+        s.last_seen_us = now;
+        strncpy(s.type, s_connect_matchers[i].type, sizeof(s.type) - 1); s.type[sizeof(s.type) - 1] = '\0';
+        size_t nl = (name_len < sizeof(s.name) - 1) ? name_len : sizeof(s.name) - 1;
+        memcpy(s.name, adv_name, nl); s.name[nl] = '\0';
+        strncpy(s.summary, "connectable", sizeof(s.summary) - 1); s.summary[sizeof(s.summary) - 1] = '\0';
+        // Throttled diagnostic so a discoverable connect device (panel) is visible in the log.
+        bool is_new = (s.last_us == 0);
+        if (is_new || (now - s.last_us) >= LOG_THROTTLE_US) {
+            s.last_us = now;
+            ESP_LOGI(TAG, "%s %-13s " MODESP_MAC_FMT " %s rssi=%d",
+                     is_new ? "[NEW]" : "     ", s.type, MODESP_MAC_ARG(mac), s.name, rssi);
+        }
+        return true;
+    }
+    return false;
 }
 
 // Public API a decoder calls when it owns the UUID but can't parse the frame —
@@ -774,6 +833,7 @@ size_t list_seen(BleSeenDevice* out, size_t max) {
         for (int b = 0; b < 6; b++) d.mac[b] = s.mac[5 - b];   // LE → display order
         d.rssi     = s.rssi;
         memcpy(d.type, s.type, sizeof(d.type));
+        memcpy(d.name, s.name, sizeof(d.name));
         memcpy(d.summary, s.summary, sizeof(d.summary));
         d.has_temp = s.has_temp; d.temp_c  = s.temp;
         d.has_hum  = s.has_hum;  d.hum_pct = s.hum;
@@ -793,7 +853,12 @@ static void start_observer_scan() {
     if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
     struct ble_gap_disc_params dp;
     memset(&dp, 0, sizeof(dp));
-    dp.passive = 1; dp.filter_duplicates = 0; dp.itvl = 160; dp.window = 48;
+    // Near-continuous scan: window 144 / itvl 160 (units of 0.625 ms) = 90 ms listen every
+    // 100 ms = 90 % duty. The old 30 % (window 48) missed most adverts, so an event-driven
+    // beacon (nRF tilt, ~1 s adv interval) was caught only after several seconds. 90 % catches
+    // nearly every advert → latency ≈ the advertiser's own interval. Mains-powered, so the ~10 %
+    // gap left for Wi-Fi coexistence is the only reason it isn't 100 %.
+    dp.passive = 1; dp.filter_duplicates = 0; dp.itvl = 160; dp.window = 144;
     dp.filter_policy = 0; dp.limited = 0;
     int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &dp, &BleService::gap_scan_event, nullptr);
     if (rc == 0 || rc == BLE_HS_EALREADY)   // EALREADY: scan already running (coexists w/ panel link) — fine
@@ -1055,6 +1120,7 @@ static int ble_scan_all(modesp::HAL& /*hal*/, const char* /*hw_id*/,
         snprintf(d.address, sizeof(d.address), "%02x:%02x:%02x:%02x:%02x:%02x",
                  s.mac[0], s.mac[1], s.mac[2], s.mac[3], s.mac[4], s.mac[5]);
         strncpy(d.type, s.type, sizeof(d.type) - 1);
+        strncpy(d.name, s.name, sizeof(d.name) - 1);
         strncpy(d.summary, s.summary, sizeof(d.summary) - 1);
         d.rssi = s.rssi;
     }
@@ -1105,6 +1171,14 @@ int BleService::gap_scan_event(struct ble_gap_event* event, void* /*arg*/) {
             ble::AdvMfgDecoder dec = ble::adv_mfg_decoder_at(i);
             if (dec && dec(mac, rssi, comp, md, mlen)) return 0;
         }
+    }
+
+    // 3) Connectable device (panel) discovery — a NAMED advertiser whose name matches a
+    // registered connect-matcher prefix, so the unified scan can list it for subscription
+    // even with no binding/profile yet. (A bound panel is connected by the top branch.)
+    if (ble::connect_matcher_count() > 0 && fields.name != NULL && fields.name_len > 0) {
+        ble::match_connectable(mac, rssi,
+                               reinterpret_cast<const char*>(fields.name), fields.name_len);
     }
     return 0;   // no decoder claimed this frame — stay silent (unrelated advertiser)
 }

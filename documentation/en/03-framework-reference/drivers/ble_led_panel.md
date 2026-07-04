@@ -6,8 +6,8 @@
 
 The driver wears **two hats**:
 
-- **`modesp::IActuatorDriver`** — still bound to the `equipment` module; `EquipmentBase` drives `set_value` = brightness (0..1 → 5..100 %). Its `update()` just logs the connect edge and `set()` (power) is a no-op — power is owned by the `panel` module.
-- **`modesp::panel::IPanelPort`** — published at factory time via `DriverRegistry::set_panel_port(this)`; the `panel` module resolves it and drives content (power / brightness / text) through it.
+- **`modesp::IActuatorDriver`** — the hat that lets DriverManager create the driver from a binding and index it by role (`panel`, module `panel`). Its `update()` just logs the connect edge; `set()`/`set_value()` are effectively unused — power/brightness/text are driven by the `panel` module through `IPanelPort`.
+- **`modesp::panel::IPanelPort`** — the `panel` module resolves the SAME object by role (`find_actuator(role)->as_panel()`, a no-RTTI capability cast) and drives content (power / brightness / text) through it.
 
 The driver registers as an `actuator` with `hardware_type: ble_device`. Unlike `ble_xiaomi_th` (matched by MAC), this device is matched **by advertised name**.
 

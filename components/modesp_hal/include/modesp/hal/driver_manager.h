@@ -39,6 +39,11 @@ public:
     ISensorDriver*   sensor_at(size_t i) const { return (i < sensors_.size()) ? sensors_[i].driver : nullptr; }
     IActuatorDriver* actuator_at(size_t i) const { return (i < actuators_.size()) ? actuators_[i].driver : nullptr; }
 
+    /// Owning module (binding.module) of the driver at index i — a module owns only
+    /// the bindings that target it (binding.module = routing). "" if out of range.
+    const char* sensor_module_at(size_t i)   const { return (i < sensors_.size())   ? sensors_[i].module.c_str()   : ""; }
+    const char* actuator_module_at(size_t i) const { return (i < actuators_.size()) ? actuators_[i].module.c_str() : ""; }
+
 private:
     struct SensorEntry {
         ISensorDriver* driver;

@@ -2,7 +2,7 @@
 
 > 📖 **Українською:** [documentation/uk/03-framework-reference/modules/panel.md](../../../uk/03-framework-reference/modules/panel.md)
 
-The `panel` module owns **what** the iPixel / LED_BLE 64×16 RGB matrix shows. It is a decoupled counterpart of the [`ble_led_panel`](../drivers/ble_led_panel.md) driver: the driver owns the BLE link and the whole iPixel wire format (UUIDs, control bytes, text encoder, font, render task); the module owns the displayed **content**. The module is fully **BLE-agnostic** — it includes no BLE header. It resolves the panel backend in an `on_bind` override via `modesp::DriverRegistry::panel_port()` → a `modesp::panel::IPanelPort*`, and drives everything through that port (`connected()` / `set_power()` / `set_brightness()` / `show_text()`). If no panel driver is bound the port is null and the module produces no output.
+The `panel` module owns **what** the iPixel / LED_BLE 64×16 RGB matrix shows. It is a decoupled counterpart of the [`ble_led_panel`](../drivers/ble_led_panel.md) driver: the driver owns the BLE link and the whole iPixel wire format (UUIDs, control bytes, text encoder, font, render task); the module owns the displayed **content**. The module is fully **BLE-agnostic** — it includes no BLE header. It resolves the panel backend in an `on_bind` override **by role** — `find_actuator(role)->as_panel()` → a `modesp::panel::IPanelPort*` (the panel is a normal actuator created by DriverManager) — and drives everything through that port (`connected()` / `set_power()` / `set_brightness()` / `show_text()`). If no panel driver is bound the port is null and the module produces no output.
 
 It rotates **three fields** every ~4 s, each health-gated (`equipment.<role>_ok`), de-duped, and re-evaluated at ~4 Hz:
 

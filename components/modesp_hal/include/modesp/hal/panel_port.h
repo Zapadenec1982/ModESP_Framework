@@ -8,9 +8,9 @@
  * format, the glyph font, the BLE link and its background render task. The module
  * never touches BLE or byte encoding; the port never decides content.
  *
- * The owning driver publishes its instance via DriverRegistry::set_panel_port() at
- * factory time; the panel module resolves it in on_bind via panel_port(). No
- * binding → null → the module simply produces no output.
+ * The panel is a normal actuator (created by DriverManager from the `panel` role
+ * binding). The panel module resolves that SAME driver object in on_bind by role —
+ * find_actuator(role)->as_panel() — never a global. No binding → null → no output.
  */
 #pragma once
 

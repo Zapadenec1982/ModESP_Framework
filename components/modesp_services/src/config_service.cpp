@@ -811,10 +811,10 @@ bool ConfigService::parse_devices_json() {
                     } else if (jsoneq(buf, &tokens[j], "mac")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.mac = tmp;
-                    } else if (jsoneq(buf, &tokens[j], "label") ||
-                               jsoneq(buf, &tokens[j], "name")) {
-                        // Webui writes "label"; board.json uses "name" — accept both into
-                        // BleDeviceConfig.name (the human label / connect adv-name prefix).
+                    } else if (jsoneq(buf, &tokens[j], "name")) {
+                        // Connect device's adv-name (the connect target). Distinct from the
+                        // human "label" (UI-only, round-trips via GET) — must NOT be conflated
+                        // or a panel's name would be overwritten by its display label.
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.name = tmp;
                     } else if (jsoneq(buf, &tokens[j], "hw_type")) {
@@ -827,8 +827,11 @@ bool ConfigService::parse_devices_json() {
                     j = skip_token(tokens, j, ntokens);
                 }
 
-                if (strcmp(hw_type, "ble") != 0 || cfg.id.empty() || cfg.mac.empty()) {
-                    continue;   // unsupported transport, or missing id/mac — skip
+                // Valid when it has an identity: a MAC (broadcast observer) OR a name
+                // (connect device). id is always required.
+                if (strcmp(hw_type, "ble") != 0 || cfg.id.empty() ||
+                    (cfg.mac.empty() && cfg.name.empty())) {
+                    continue;   // unsupported transport, or missing id + identity — skip
                 }
 
                 // Merge: runtime row overrides a board.json device of the same id,

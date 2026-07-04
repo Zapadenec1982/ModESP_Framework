@@ -77,6 +77,16 @@ ICentralLink* register_connect_profile(const ConnectProfile& p);
 /// Number of registered connect profiles (the scan matches adv names against these).
 size_t connect_profile_count();
 
+/// Register a name-prefix → driver-type matcher at BOOT (from the driver's register hook),
+/// so the unified BLE scan can list a CONNECTABLE device (e.g. an iPixel panel) BEFORE any
+/// binding/profile exists — the connect analogue of register_adv_mfg_decoder. When the
+/// scanner sees a named advertiser whose name starts with `prefix`, it records it in the
+/// seen table tagged with `driver_type` and its FULL adv-name, so the user can subscribe it
+/// (the subscription stores the full name; the connect profile then targets that panel).
+/// Idempotent by prefix; fixed pool. driver_type/prefix must be static strings.
+bool   register_connect_matcher(const char* name_prefix, const char* driver_type);
+size_t connect_matcher_count();
+
 } // namespace modesp::ble
 
 #endif // CONFIG_MODESP_BLE_ENABLE && CONFIG_MODESP_BLE_CENTRAL

@@ -36,10 +36,14 @@ void EquipmentBase::bind_drivers(modesp::DriverManager& dm) {
 
     role_count_ = 0;
 
-    // Bind all sensors
+    // Bind ONLY the sensors/actuators whose binding targets THIS module
+    // (binding.module = routing). A driver bound to another module — e.g. a panel
+    // bound to module="panel" — is owned by that module, not us; we must not grab it
+    // (else we'd drive its actuator to our default request each tick).
     for (size_t i = 0; i < dm.sensor_count() && role_count_ < MAX_ROLES; i++) {
         auto* s = dm.sensor_at(i);
         if (!s) continue;
+        if (strcmp(dm.sensor_module_at(i), name()) != 0) continue;   // not our module's binding
         auto& r = roles_[role_count_];
         strncpy(r.role, s->role(), sizeof(r.role) - 1);
         strncpy(r.type, "sensor", sizeof(r.type) - 1);
@@ -49,10 +53,10 @@ void EquipmentBase::bind_drivers(modesp::DriverManager& dm) {
         role_count_++;
     }
 
-    // Bind all actuators
     for (size_t i = 0; i < dm.actuator_count() && role_count_ < MAX_ROLES; i++) {
         auto* a = dm.actuator_at(i);
         if (!a) continue;
+        if (strcmp(dm.actuator_module_at(i), name()) != 0) continue;   // not our module's binding
         auto& r = roles_[role_count_];
         strncpy(r.role, a->role(), sizeof(r.role) - 1);
         strncpy(r.type, "actuator", sizeof(r.type) - 1);
