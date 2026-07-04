@@ -4,8 +4,9 @@
   "description": "Relay via I2C expander PCF8574",
   "category": "actuator",
   "hardware_type": "i2c_expander_output",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": true,
-  "provides": {"type": "bool"},
+  "provides": {"capability": "relay_out", "type": "bool"},
   "settings": []
 }

@@ -4,11 +4,12 @@
   "description": "iPixel Color / LED_BLE 16x64 BLE LED-матриця (NimBLE central-connect)",
   "category": "actuator",
   "hardware_type": "ble",
+  "transport": "ble",
   "requires_address": false,
   "multiple_per_bus": false,
   "connect_name_prefix": "LED_BLE",
   "_connect_name_prefix_note": "BLE connect device: matched by adv-name prefix (not MAC/decoder). The transport registers this prefix at boot so the unified /api/ble/scan lists nearby panels; subscribing stores the panel's FULL adv-name as the connect target.",
-  "provides": {"type": "bool", "description": "екран ON/OFF; set_value = яскравість 0..1"},
+  "provides": {"capability": "panel", "type": "bool", "description": "екран ON/OFF; set_value = яскравість 0..1"},
   "settings": [
     {"key": "brightness", "type": "int", "default": 80, "min": 5, "max": 100, "step": 5, "unit": "%", "description": "Яскравість панелі", "persist": true}
   ],

@@ -4,8 +4,9 @@
   "description": "GPIO реле (on/off)",
   "category": "actuator",
   "hardware_type": "gpio_output",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": false,
-  "provides": {"type": "bool"},
+  "provides": {"capability": "relay_out", "type": "bool"},
   "settings": []
 }

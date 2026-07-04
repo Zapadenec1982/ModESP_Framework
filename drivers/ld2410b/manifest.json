@@ -4,9 +4,18 @@
   "description": "HLK-LD2410B 24GHz mmWave радар присутності (UART 256000)",
   "category": "sensor",
   "hardware_type": "uart_bus",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": true,
-  "provides": {"type": "float", "description": "presence 0/1, або дистанція (см) / енергія (0-100) залежно від address-каналу"},
+  "provides": {"type": "float", "capability": "presence", "description": "presence 0/1, або дистанція (см) / енергія (0-100) залежно від address-каналу",
+    "channels": [
+      {"channel": "presence",      "capability": "presence", "label": "Присутність (0/1)"},
+      {"channel": "moving",        "capability": "distance", "unit": "см", "label": "Дистанція рухомої"},
+      {"channel": "static",        "capability": "distance", "unit": "см", "label": "Дистанція статичної"},
+      {"channel": "detect",        "capability": "distance", "unit": "см", "label": "Дистанція виявлення"},
+      {"channel": "moving_energy", "capability": "energy",   "label": "Енергія рухомої (0-100)"},
+      {"channel": "static_energy", "capability": "energy",   "label": "Енергія статичної (0-100)"}
+    ]},
   "_address_channels": {
     "_note": "Поле 'address' у bindings обирає, яку величину віддає read(). Один фізичний LD2410b (одна UART-шина) може живити кілька ролей з різними address.",
     "": "presence — є ціль (0/1), default",

@@ -4,9 +4,10 @@
   "description": "Digital input via I2C expander PCF8574",
   "category": "sensor",
   "hardware_type": "i2c_expander_input",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": true,
-  "provides": {"type": "bool"},
+  "provides": {"capability": "binary_in", "type": "bool"},
   "settings": [
     {"key": "invert", "type": "bool", "default": false, "description": "Invert logic"}
   ]

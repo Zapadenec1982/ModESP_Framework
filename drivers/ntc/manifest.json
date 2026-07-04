@@ -4,9 +4,10 @@
   "description": "NTC термістор через ADC (B-parameter equation)",
   "category": "sensor",
   "hardware_type": "adc_channel",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": false,
-  "provides": {"type": "float", "unit": "°C", "range": [-40, 125]},
+  "provides": {"capability": "temperature", "type": "float", "unit": "°C", "range": [-40, 125]},
   "settings": [
     {"key": "beta",             "type": "int",   "default": 3950,  "min": 2000, "max": 5000, "step": 1,   "description": "B-coefficient NTC"},
     {"key": "r_series",         "type": "int",   "default": 10000, "min": 1000, "max": 100000, "step": 100, "unit": "Ом", "description": "Послідовний резистор"},

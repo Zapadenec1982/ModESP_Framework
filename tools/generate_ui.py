@@ -933,19 +933,21 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings, capabil
                         f"driver '{drv_name}' category='{drv_cat}'")
 
     # Drift guard — a driver's DECLARED capability must be in the vocabulary and its kind must
-    # agree with the driver's category. No driver declares capability until P2, so this is a
-    # no-op today (output byte-identical); it starts catching real drift once P2 lands.
+    # agree with the driver's category. Only runs when the vocabulary was passed (the real
+    # build always passes it); with no vocabulary there is nothing to check against, so callers
+    # that don't load capabilities (e.g. focused unit tests) are unaffected.
     caps = capabilities or {}
-    for drv_name, drv in driver_manifests.items():
-        cat_kind = _CATEGORY_KIND.get(drv.get("category", ""))
-        for cap in _driver_declared_capabilities(drv):
-            if cap not in caps:
-                errors.append(
-                    f"[driver {drv_name}] declares capability '{cap}' not in tools/capabilities.json")
-            elif cat_kind and caps[cap].get("kind") != cat_kind:
-                errors.append(
-                    f"[driver {drv_name}] capability '{cap}' is kind '{caps[cap].get('kind')}' "
-                    f"but the driver's category '{drv.get('category')}' is kind '{cat_kind}'")
+    if caps:
+        for drv_name, drv in driver_manifests.items():
+            cat_kind = _CATEGORY_KIND.get(drv.get("category", ""))
+            for cap in _driver_declared_capabilities(drv):
+                if cap not in caps:
+                    errors.append(
+                        f"[driver {drv_name}] declares capability '{cap}' not in tools/capabilities.json")
+                elif cat_kind and caps[cap].get("kind") != cat_kind:
+                    errors.append(
+                        f"[driver {drv_name}] capability '{cap}' is kind '{caps[cap].get('kind')}' "
+                        f"but the driver's category '{drv.get('category')}' is kind '{cat_kind}'")
 
 
 def validate_loggable(manifests, errors):

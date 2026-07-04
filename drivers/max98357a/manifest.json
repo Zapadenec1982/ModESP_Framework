@@ -4,9 +4,10 @@
   "description": "MAX98357A I²S Class-D mono amplifier — audio output sink",
   "category": "audio",
   "hardware_type": "i2s_bus",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": false,
-  "provides": {"type": "audio"},
+  "provides": {"capability": "audio", "type": "audio"},
   "settings": [],
   "_note": "Driver component: Max98357aSink (IAudioSink) lives here; build toggle CONFIG_MODESP_DRIVER_MAX98357A is generated into components/modesp_hal/Kconfig."
 }

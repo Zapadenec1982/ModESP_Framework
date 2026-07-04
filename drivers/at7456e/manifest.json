@@ -3,6 +3,7 @@
   "driver": "at7456e",
   "category": "display",
   "hardware_type": "spi_display",
-  "provides": {"type": "display"},
+  "transport": "wired",
+  "provides": {"capability": "display", "type": "display"},
   "description": "AT7456E (MAX7456-compatible) OSD overlay on composite video, bit-bang SPI. Pins are read from this driver's Kconfig until board.json grows an spi_displays section (roadmap Phase 3) — until then the driver compiles but cannot be bound."
 }

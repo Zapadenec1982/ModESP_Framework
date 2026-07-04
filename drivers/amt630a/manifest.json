@@ -4,9 +4,10 @@
   "description": "AMT630A I2C OSD/TFT video-SoC display backend",
   "category": "display",
   "hardware_type": "i2c_display",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": false,
-  "provides": {"type": "display"},
+  "provides": {"capability": "display", "type": "display"},
   "settings": [],
   "_note": "Driver component: Amt630aPort (IDisplayPort adapter) + AMT630A chip control live here; build toggle CONFIG_MODESP_DRIVER_AMT630A is generated into components/modesp_hal/Kconfig."
 }
