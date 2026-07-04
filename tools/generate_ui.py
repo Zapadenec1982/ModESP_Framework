@@ -2246,6 +2246,162 @@ class FeaturesConfigGenerator:
 
 
 # ═══════════════════════════════════════════════════════════════
+#  Capability vocabulary (P0) — role = capability SSOT + derivation
+#
+#  A role declares a CAPABILITY (temperature/relay_out/…), never a driver; a driver
+#  channel declares the capability it provides; matching is capability EQUALITY.
+#  P0 only LOADS + VALIDATES the vocabulary and can REPORT the derived mapping — it
+#  does NOT change any generated output (matching still uses category==type until P3).
+# ═══════════════════════════════════════════════════════════════
+
+_CAPABILITIES_PATH = Path(__file__).resolve().parent / "capabilities.json"
+
+def load_capabilities(path=_CAPABILITIES_PATH):
+    """Load + validate tools/capabilities.json (SSOT). Returns {name: entry}.
+    Missing file → {} (capability layer absent; matching falls back to category==type).
+    Raises ValueError on an invalid/inconsistent entry (fails the build)."""
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    caps = {}
+    VK = {"sensor", "actuator"}; VD = {"in", "out"}; VT = {"float", "bool", "enum", "blob"}
+    for e in data.get("capabilities", []):
+        name = e.get("name"); kind = e.get("kind"); direction = e.get("direction"); vt = e.get("value_type")
+        if not name or not isinstance(name, str):
+            raise ValueError(f"[capabilities] entry missing string 'name': {e}")
+        if name in caps:
+            raise ValueError(f"[capabilities] duplicate capability '{name}'")
+        if kind not in VK:
+            raise ValueError(f"[capabilities] '{name}': kind must be sensor|actuator, got {kind!r}")
+        if direction not in VD:
+            raise ValueError(f"[capabilities] '{name}': direction must be in|out, got {direction!r}")
+        if vt not in VT:
+            raise ValueError(f"[capabilities] '{name}': value_type must be float|bool|enum|blob, got {vt!r}")
+        # kind<->direction consistency: a sensor reads (in), an actuator drives (out).
+        if (kind == "sensor") != (direction == "in"):
+            raise ValueError(f"[capabilities] '{name}': kind '{kind}' inconsistent with direction "
+                             f"'{direction}' (sensor⇒in, actuator⇒out)")
+        caps[name] = e
+    return caps
+
+
+# Best-effort inference of a capability from a per-CHANNEL name (address_channels value
+# or a channel key). Same table the P2 migrate script will seed from; observe-only in P0.
+_CHANNEL_CAP = {
+    "temperature": "temperature", "temp": "temperature",
+    "humidity": "humidity", "hum": "humidity",
+    "battery": "battery", "batt": "battery",
+    "angle": "angle", "tilted": "binary_in",
+    "ax": "accel", "ay": "accel", "az": "accel",
+    "presence": "presence",
+    "moving": "distance", "static": "distance", "detect": "distance", "distance": "distance",
+    "moving_energy": "energy", "static_energy": "energy", "energy": "energy",
+    "pressure": "pressure", "voltage": "voltage", "current": "current",
+    "co2": "co2", "luminance": "luminance",
+}
+
+def _infer_single_capability(drv):
+    """Infer the single-value capability of a driver that has no per-channel enum."""
+    cat = drv.get("category"); ht = drv.get("hardware_type")
+    unit = ((drv.get("provides") or {}).get("unit") or "").strip()
+    if cat == "display":
+        return "display"
+    if cat == "audio":
+        return "audio"
+    if cat == "actuator":
+        if drv.get("connect_name_prefix") and ht == "ble":
+            return "panel"
+        if ht in ("gpio_output", "i2c_expander_output"):
+            return "relay_out"
+        return None
+    if cat == "sensor":
+        if unit in ("°C", "C", "degC"):
+            return "temperature"
+        if ht == "onewire_bus":
+            return "temperature"
+        if ht in ("gpio_input", "i2c_expander_input"):
+            return "binary_in"
+        if drv.get("driver") == "ld2410b":
+            return "presence"    # default (address="") channel; extra channels migrate in P2
+        return None
+    return None
+
+def derive_driver_capabilities(drv):
+    """Best-effort {channel_or_None: capability} for a driver, from EXISTING signals only
+    (explicit capability fields win; else inference). None key = single-value driver.
+    Observe-only: used by --report-capabilities and the P2 migrate seed; never affects output."""
+    out = {}
+    provides = drv.get("provides") or {}
+    if provides.get("capability"):
+        out[None] = provides["capability"]
+    for ch in provides.get("channels") or []:
+        if ch.get("channel") and ch.get("capability"):
+            out[ch["channel"]] = ch["capability"]
+    for ch in drv.get("address_channels") or []:
+        val = ch.get("value")
+        if val is None:
+            continue
+        cap = ch.get("capability")
+        if cap:
+            out[val] = cap
+        elif val not in out:
+            g = _CHANNEL_CAP.get(val.lower())
+            if g:
+                out[val] = g
+    if not out:
+        c = _infer_single_capability(drv)
+        if c:
+            out[None] = c
+    return out
+
+
+def report_capabilities(caps, driver_manifests, module_manifests):
+    """Observe-only: print the DERIVED capability + transport for every driver channel and
+    every role, so the author reviews the full P2/P3 migration up front. Writes no output."""
+    print("\n" + "=" * 60)
+    print("  CAPABILITY REPORT (observe-only) — derived, nothing written")
+    print("=" * 60)
+    print(f"\ncapabilities.json: {len(caps)} declared → {', '.join(sorted(caps)) or '(none)'}")
+    unknown = set(); unresolved = []
+    print("\nDRIVERS  (channel → capability [transport]):")
+    for name in sorted(driver_manifests):
+        drv = driver_manifests[name]
+        ht = drv.get("hardware_type", "?")
+        transport = "ble" if ht == "ble" else "wired"   # P0 heuristic; P2 makes it explicit
+        derived = derive_driver_capabilities(drv)
+        if not derived:
+            unresolved.append(name)
+            print(f"  {name:15} cat={drv.get('category')} hw={ht}  → (UNRESOLVED — needs manual capability)")
+            continue
+        for ch, cap in derived.items():
+            if cap not in caps:
+                unknown.add(cap)
+            tag = "" if cap in caps else "   ← UNKNOWN (not in capabilities.json)"
+            print(f"  {name:15} {('* (single)' if ch is None else ch):12} → {cap} [{transport}]{tag}")
+    print("\nROLES  (module.role → capability, via first listed driver):")
+    for mod, requires in role_providers(module_manifests):
+        for r in requires:
+            drivers = r.get("driver") or []
+            if isinstance(drivers, str):
+                drivers = [drivers]
+            cap = None
+            for dn in drivers:
+                dm = driver_manifests.get(dn)
+                if dm:
+                    dd = derive_driver_capabilities(dm)
+                    if dd:
+                        cap = dd.get(None) or next(iter(dd.values()))
+                        break
+            print(f"  {mod}.{r.get('role'):14} type={r.get('type'):9} drivers={drivers} → {cap or '(UNRESOLVED)'}")
+    if unknown:
+        print(f"\nWARNING: {len(unknown)} inferred capabilities NOT in capabilities.json: {sorted(unknown)}")
+    if unresolved:
+        print(f"WARNING: {len(unresolved)} drivers need a manual capability in P2: {unresolved}")
+    print("\n(observe-only: a normal build produces byte-identical ui.json — capability is not used in matching yet)")
+
+
+# ═══════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════
 
@@ -2268,6 +2424,9 @@ def main():
                         help="Output path for generated C++ headers")
     parser.add_argument("--minify", action="store_true",
                         help="Minify ui.json output")
+    parser.add_argument("--report-capabilities", action="store_true",
+                        help="Observe-only: print the derived capability/transport for every "
+                             "driver + role, then exit (writes no output)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -2323,6 +2482,18 @@ def main():
     drv_validator = DriverManifestValidator()
     drv_loader = DriverManifestLoader(args.drivers_dir, drv_validator)
     driver_manifests = drv_loader.load_required(manifests)
+
+    # Capability vocabulary (P0): load + validate the SSOT — an invalid/inconsistent entry
+    # FAILS the build. It is NOT used in matching yet (P3), so output stays byte-identical.
+    # --report-capabilities prints the derived mapping and exits before any file is written.
+    try:
+        capabilities = load_capabilities()
+    except (ValueError, json.JSONDecodeError, OSError) as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+    if args.report_capabilities:
+        report_capabilities(capabilities, load_all_driver_manifests(args.drivers_dir, []), manifests)
+        sys.exit(0)
 
     # Cross-validate module <-> driver
     cross_errors = []

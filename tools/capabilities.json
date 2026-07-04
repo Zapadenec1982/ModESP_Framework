@@ -1,0 +1,31 @@
+{
+  "_comment": "Capability vocabulary — SINGLE SOURCE OF TRUTH for role=capability matching. A role declares a `capability`; a driver channel declares the `capability` it provides; the generator matches them by capability EQUALITY — never by driver name, hw_type, or transport. kind (sensor|actuator) keeps the existing DriverManager create_sensor/create_actuator split; direction (in|out) is derived-consistent (sensor=>in, actuator=>out). value_type in {float,bool,enum,blob}. DO NOT hardcode a driver/transport anywhere that touches this. See documentation/uk/03-framework-reference/capability-roadmap.md.",
+  "manifest_version": 1,
+  "capabilities": [
+    {"name": "temperature", "kind": "sensor", "direction": "in", "value_type": "float", "unit": "°C"},
+    {"name": "humidity",    "kind": "sensor", "direction": "in", "value_type": "float", "unit": "%"},
+    {"name": "battery",     "kind": "sensor", "direction": "in", "value_type": "float", "unit": "mV"},
+    {"name": "pressure",    "kind": "sensor", "direction": "in", "value_type": "float", "unit": "Pa"},
+    {"name": "voltage",     "kind": "sensor", "direction": "in", "value_type": "float", "unit": "V"},
+    {"name": "current",     "kind": "sensor", "direction": "in", "value_type": "float", "unit": "A"},
+    {"name": "energy",      "kind": "sensor", "direction": "in", "value_type": "float"},
+    {"name": "presence",    "kind": "sensor", "direction": "in", "value_type": "bool"},
+    {"name": "distance",    "kind": "sensor", "direction": "in", "value_type": "float", "unit": "cm"},
+    {"name": "angle",       "kind": "sensor", "direction": "in", "value_type": "float", "unit": "°"},
+    {"name": "accel",       "kind": "sensor", "direction": "in", "value_type": "float"},
+    {"name": "binary_in",   "kind": "sensor", "direction": "in", "value_type": "bool"},
+    {"name": "luminance",   "kind": "sensor", "direction": "in", "value_type": "float", "unit": "lx"},
+    {"name": "co2",         "kind": "sensor", "direction": "in", "value_type": "float", "unit": "ppm"},
+
+    {"name": "relay_out",   "kind": "actuator", "direction": "out", "value_type": "bool"},
+    {"name": "binary_out",  "kind": "actuator", "direction": "out", "value_type": "bool"},
+    {"name": "dimmer",      "kind": "actuator", "direction": "out", "value_type": "float"},
+    {"name": "valve",       "kind": "actuator", "direction": "out", "value_type": "float"},
+    {"name": "rgb",         "kind": "actuator", "direction": "out", "value_type": "blob"},
+    {"name": "servo_angle", "kind": "actuator", "direction": "out", "value_type": "float", "unit": "°"},
+
+    {"name": "display",     "kind": "actuator", "direction": "out", "value_type": "blob"},
+    {"name": "panel",       "kind": "actuator", "direction": "out", "value_type": "blob"},
+    {"name": "audio",       "kind": "actuator", "direction": "out", "value_type": "blob"}
+  ]
+}
