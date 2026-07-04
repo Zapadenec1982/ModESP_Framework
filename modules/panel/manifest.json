@@ -6,7 +6,7 @@
   "priority": 3,
 
   "requires": [
-    {"role": "panel", "type": "actuator", "driver": ["ble_led_panel"], "label": "LED-панель", "optional": true}
+    {"role": "panel", "type": "actuator", "capability": "panel", "label": "LED-панель", "optional": true}
   ],
 
   "state": {

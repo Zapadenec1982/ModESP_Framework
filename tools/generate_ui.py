@@ -803,14 +803,45 @@ class DriverManifestLoader:
             self.validator.errors.extend(sch)
             return None
 
+        # Folder name == manifest 'driver' field (mirrors the module guard). The P3 cap_index
+        # light-scan keys by the 'driver' field while this loader resolves by folder — if they
+        # diverged a driver could silently drop out of a role's eligible set.
+        declared = manifest.get("driver")
+        if declared and declared != name:
+            self.validator.errors.append(
+                f"Driver folder 'drivers/{name}/' declares driver '{declared}' — "
+                f"folder name and manifest 'driver' field must match")
+            return None
+
         self.validator.validate(manifest, path)
         return manifest
 
     def load_required(self, module_manifests):
-        """Load only drivers referenced in module requires[].driver fields."""
+        """Load the drivers a role can bind and return (loaded, cap_index).
+
+        A role binds by CAPABILITY: `needed` = every driver that DECLARES the role's
+        capability (a light scan of drivers/ builds capability→drivers), plus any explicitly
+        listed req.driver (back-compat). `cap_index` (capability→sorted driver names) is
+        reused by the generator for capability matching. requires stays a WHITELIST — a
+        driver missing from drivers/ just means the role can't bind it in this build."""
+        cap_index = {}
+        for path in sorted(self.drivers_dir.glob("*/manifest.json")):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    dm = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue
+            dn = dm.get("driver", path.parent.name)
+            for cap in set(_driver_declared_capabilities(dm)):
+                cap_index.setdefault(cap, set()).add(dn)
+        cap_index = {c: sorted(v) for c, v in cap_index.items()}
+
         needed = set()
         for m in module_manifests:
             for req in m.get("requires", []):
+                cap = req.get("capability")
+                if cap:
+                    needed.update(cap_index.get(cap, ()))
                 drivers = req.get("driver", [])
                 if isinstance(drivers, str):
                     drivers = [drivers]
@@ -824,7 +855,7 @@ class DriverManifestLoader:
                 n_settings = len(dm.get("settings", []))
                 print(f"  + driver/{name}: category={dm.get('category')}, "
                       f"{n_settings} settings")
-        return loaded
+        return loaded, cap_index
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -891,7 +922,26 @@ def _driver_declared_capabilities(drv):
     return out
 
 
-def cross_validate(module_manifests, driver_manifests, errors, warnings, capabilities=None):
+def role_channels_for(drv, cap):
+    """Channels a driver offers for a role's capability. WITH a capability, filter to the
+    matching channels (provides.channels[] preferred, else address_channels[].capability) so a
+    temperature role on a multi-channel device offers only its temperature channel. WITHOUT a
+    capability, fall back to all address_channels (legacy). Returns a channels list or None."""
+    if not cap:
+        return drv.get("address_channels") or None
+    matched = []
+    for ch in ((drv.get("provides") or {}).get("channels") or []):
+        if ch.get("capability") == cap and ch.get("channel"):
+            matched.append({"value": ch["channel"],
+                            "label": ch.get("label", ch["channel"]), "capability": cap})
+    for ch in (drv.get("address_channels") or []):
+        if ch.get("capability") == cap:
+            matched.append(ch)
+    return matched or None
+
+
+def cross_validate(module_manifests, driver_manifests, errors, warnings, capabilities=None,
+                   cap_index=None):
     """Cross-validate module requires vs driver manifests.
 
     Checks:
@@ -906,10 +956,42 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings, capabil
         for req in m.get("requires", []):
             role = req.get("role", "?")
             req_type = req.get("type", "")  # sensor / actuator
+            req_cap = req.get("capability")
 
             drivers = req.get("driver", [])
             if isinstance(drivers, str):
                 drivers = [drivers]
+
+            if req_cap:
+                # Capability-typed role — the CAPABILITY is the matcher, not a driver.
+                caps = capabilities or {}
+                if caps and req_cap not in caps:
+                    errors.append(
+                        f"[{mod_name}] Require '{role}' capability '{req_cap}' "
+                        f"not in tools/capabilities.json")
+                else:
+                    want_kind = _CATEGORY_KIND.get(req_type, req_type)
+                    cap_kind = caps.get(req_cap, {}).get("kind")
+                    if cap_kind and want_kind and cap_kind != want_kind:
+                        errors.append(
+                            f"[{mod_name}] Require '{role}' type='{req_type}' (kind "
+                            f"'{want_kind}') but capability '{req_cap}' is kind '{cap_kind}'")
+                    if cap_index is not None and not cap_index.get(req_cap):
+                        warnings.append(
+                            f"[{mod_name}] Require '{role}' capability '{req_cap}' — "
+                            f"no driver provides it in this build")
+                if drivers:
+                    # A capability role must not also pin a driver (that re-couples it).
+                    warnings.append(
+                        f"[{mod_name}] Require '{role}' lists driver {drivers} alongside "
+                        f"capability '{req_cap}' — capability is the matcher; drop the driver list")
+                    for dn in drivers:
+                        if dn in driver_manifests and \
+                                req_cap not in _driver_declared_capabilities(driver_manifests[dn]):
+                            errors.append(
+                                f"[{mod_name}] Require '{role}' lists driver '{dn}' that does "
+                                f"not provide capability '{req_cap}'")
+                continue
 
             for drv_name in drivers:
                 if drv_name not in driver_manifests:
@@ -1267,7 +1349,8 @@ class UIJsonGenerator:
     """Generates merged ui.json for runtime serving via GET /api/ui."""
 
     def generate(self, project, manifests, driver_manifests=None,
-                 board=None, bindings=None, resolver=None):
+                 board=None, bindings=None, resolver=None,
+                 capabilities=None, cap_index=None):
         # Глобальна карта всіх state keys з усіх модулів (для cross-module widget keys)
         self._all_state = {}
         for m in manifests:
@@ -1316,7 +1399,7 @@ class UIJsonGenerator:
                     provider_requires.append((prov_mod, req))
             pages.append(self._bindings_page(
                 bindings, board, driver_manifests or {},
-                provider_requires))
+                provider_requires, cap_index, capabilities))
         # Devices page (subscribe remote BLE devices) — only when a BLE observer driver is
         # present (hardware_type=="ble" + category=="sensor"). Absent otherwise, so BLE-less
         # builds show no page. Nearby devices are found by the unified GET /api/ble/scan.
@@ -1558,7 +1641,7 @@ class UIJsonGenerator:
         }
 
     def _bindings_page(self, bindings, board, driver_manifests,
-                        provider_requires=None):
+                        provider_requires=None, cap_index=None, capabilities=None):
         """Bindings page: current bindings + free hardware + role metadata.
 
         provider_requires: [(module_name, req_dict)] — агрегація з усіх
@@ -1653,9 +1736,16 @@ class UIJsonGenerator:
         # Roles metadata для BindingsEditor
         roles = []
         for prov_mod, req in (provider_requires or []):
-            drivers = req.get("driver", [])
-            if isinstance(drivers, str):
-                drivers = [drivers]
+            # role = CAPABILITY: the eligible drivers are EVERY driver that provides the
+            # capability (no hand list). A role without a capability falls back to its
+            # explicit driver list (legacy, still supported).
+            req_cap = req.get("capability")
+            if req_cap:
+                drivers = list((cap_index or {}).get(req_cap, []))
+            else:
+                drivers = req.get("driver", [])
+                if isinstance(drivers, str):
+                    drivers = [drivers]
 
             # Збираємо hw_types та requires_address з усіх допустимих драйверів
             hw_types = []
@@ -1673,33 +1763,49 @@ class UIJsonGenerator:
                 # picker (mac-assigning drivers are handled on the Devices page instead).
                 if scan_cfg is None and drv_name in discovery_by_driver:
                     scan_cfg = discovery_by_driver[drv_name]
-                # Fixed address channels (enum) — a requires_address driver whose channel
-                # is chosen, not scanned (e.g. BLE temperature/humidity/battery). The editor
-                # renders role.channels as a <select> so such a role is bindable without a
-                # scan. address_channels: [{value, label}].
+                # Fixed channel enum — filtered to the role's capability so a temperature role
+                # on a Xiaomi device offers ONLY its temperature channel. The editor renders
+                # role.channels as a <select> so such a role is bindable without a scan.
                 if channels is None:
-                    ac = drv.get("address_channels")
-                    if ac:
-                        channels = ac
+                    chs = role_channels_for(drv, req_cap)
+                    if chs:
+                        channels = chs
 
+            # requires_address / channels / scan are PER-DRIVER properties. A capability role
+            # spans HETEROGENEOUS drivers (e.g. a wired direct-read ds18b20 that needs no
+            # address AND a BLE channel-select that does), so the WebUI must key these off the
+            # BOUND driver, not the role. addr_drivers = the eligible drivers that need an
+            # address; the editor requires one ONLY when the chosen hardware uses such a driver.
+            addr_drivers = [n for n in drivers
+                            if driver_manifests.get(n, {}).get("requires_address", False)]
             role_entry = {
                 "role": req["role"],
                 "type": req["type"],
                 "module": prov_mod,
                 "drivers": drivers,
                 "hw_types": hw_types,
-                "requires_address": requires_address,
+                "requires_address": requires_address,   # role-wide OR (legacy consumers)
+                "addr_drivers": addr_drivers,            # per-driver truth (WebUI keys on this)
                 "label": req.get("label", req["role"]),
                 "optional": req.get("optional", False),
             }
+            # Capability + its direction (in/out) — the matcher the WebUI keys on.
+            if req_cap:
+                role_entry["capability"] = req_cap
+                direction = (capabilities or {}).get(req_cap, {}).get("direction")
+                if direction:
+                    role_entry["direction"] = direction
             # Role's driver can enumerate devices → BindingsEditor shows the scan picker.
             if scan_cfg is not None:
                 role_entry["scan"] = scan_cfg
-            # Role's driver exposes a fixed channel enum → editor shows a channel <select>.
+            # Role's driver exposes a fixed channel enum → editor shows a channel <select>
+            # (gated in the editor to channel-bearing hardware, so a wired pick isn't asked).
             if channels is not None:
                 role_entry["channels"] = channels
-            # Backward compat: single driver → також emit driver/hw_type
-            if len(drivers) == 1:
+            # Legacy driver-typed role with a single driver → emit driver/hw_type. NOT for a
+            # capability role (its single-eligible-driver count is incidental, not declared, so
+            # a later 2nd provider must not silently flip the shape).
+            if not req_cap and len(drivers) == 1:
                 role_entry["driver"] = drivers[0]
                 role_entry["hw_type"] = hw_types[0] if hw_types else ""
             roles.append(role_entry)
@@ -2421,21 +2527,22 @@ def report_capabilities(caps, driver_manifests, module_manifests):
                 unknown.add(cap)
             tag = "" if cap in caps else "   ← UNKNOWN (not in capabilities.json)"
             print(f"  {name:15} {('* (single)' if ch is None else ch):12} → {cap} [{transport}]{tag}")
-    print("\nROLES  (module.role → capability, via first listed driver):")
+    print("\nROLES  (module.role → capability):")
     for mod, requires in role_providers(module_manifests):
         for r in requires:
-            drivers = r.get("driver") or []
-            if isinstance(drivers, str):
-                drivers = [drivers]
-            cap = None
-            for dn in drivers:
-                dm = driver_manifests.get(dn)
-                if dm:
-                    dd = derive_driver_capabilities(dm)
-                    if dd:
-                        cap = dd.get(None) or next(iter(dd.values()))
-                        break
-            print(f"  {mod}.{r.get('role'):14} type={r.get('type'):9} drivers={drivers} → {cap or '(UNRESOLVED)'}")
+            cap = r.get("capability")   # declared (post-P3) wins
+            if not cap:                 # legacy: derive from the first listed driver
+                drivers = r.get("driver") or []
+                if isinstance(drivers, str):
+                    drivers = [drivers]
+                for dn in drivers:
+                    dm = driver_manifests.get(dn)
+                    if dm:
+                        dd = derive_driver_capabilities(dm)
+                        if dd:
+                            cap = dd.get(None) or next(iter(dd.values()))
+                            break
+            print(f"  {mod}.{r.get('role'):14} type={r.get('type'):9} → {cap or '(UNRESOLVED)'}")
     if unknown:
         print(f"\nWARNING: {len(unknown)} inferred capabilities NOT in capabilities.json: {sorted(unknown)}")
     if unresolved:
@@ -2523,7 +2630,7 @@ def main():
     print("\nLoading driver manifests...")
     drv_validator = DriverManifestValidator()
     drv_loader = DriverManifestLoader(args.drivers_dir, drv_validator)
-    driver_manifests = drv_loader.load_required(manifests)
+    driver_manifests, cap_index = drv_loader.load_required(manifests)
 
     # Capability vocabulary (P0): load + validate the SSOT — an invalid/inconsistent entry
     # FAILS the build. It is NOT used in matching yet (P3), so output stays byte-identical.
@@ -2540,7 +2647,7 @@ def main():
     # Cross-validate module <-> driver
     cross_errors = []
     cross_warnings = []
-    cross_validate(manifests, driver_manifests, cross_errors, cross_warnings, capabilities)
+    cross_validate(manifests, driver_manifests, cross_errors, cross_warnings, capabilities, cap_index)
 
     # Load board.json and bindings.json for bindings page (+ cross-validate them)
     board = None
@@ -2635,7 +2742,7 @@ def main():
     print("\nGenerating files...")
     ui_gen = UIJsonGenerator()
     ui_schema = ui_gen.generate(project, manifests, driver_manifests,
-                                board, bindings, resolver)
+                                board, bindings, resolver, capabilities, cap_index)
 
     data_dir = args.output_data
     gen_dir = args.output_gen

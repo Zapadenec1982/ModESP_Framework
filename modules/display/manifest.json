@@ -9,7 +9,7 @@
     {
       "role": "display_main",
       "type": "display",
-      "driver": "amt630a",
+      "capability": "display",
       "label": "Дисплей",
       "optional": true
     }

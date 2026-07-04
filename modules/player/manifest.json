@@ -9,7 +9,7 @@
     {
       "role": "audio_main",
       "type": "audio",
-      "driver": "max98357a",
+      "capability": "audio",
       "label": "Аудіо-вихід",
       "optional": true
     }
@@ -71,9 +71,10 @@
       },
       {
         "title": "Тест",
-        "subtitle": "Перевірка без файлів (вбудовані тони)",
+        "subtitle": "Вбудовані тони + відтворення кліпа за назвою",
         "layout": "single",
         "widgets": [
+          {"key": "player.play", "widget": "text_input"},
           {"key": "player.btn_alarm", "widget": "button"},
           {"key": "player.btn_beep", "widget": "button"},
           {"key": "player.stop", "widget": "button"}

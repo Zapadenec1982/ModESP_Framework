@@ -44,6 +44,8 @@ from generate_ui import (
     validate_bindings,
     VALID_HARDWARE_TYPES,
     BOARD_SECTION_TO_HW_TYPE,
+    load_capabilities,
+    _driver_declared_capabilities,
 )
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -82,6 +84,15 @@ def load_all_drivers():
                 d = json.load(f)
                 drivers[d["driver"]] = d
     return drivers
+
+
+def _cap_index_from(all_drivers):
+    """capability -> sorted driver names (the generator's P3 matcher index)."""
+    idx = {}
+    for dn, dm in all_drivers.items():
+        for cap in set(_driver_declared_capabilities(dm)):
+            idx.setdefault(cap, []).append(dn)
+    return {c: sorted(v) for c, v in idx.items()}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -179,20 +190,16 @@ class TestEquipmentMultiDriver:
     """Equipment manifest з масивами драйверів (одна роль → кілька драйверів)."""
 
     def test_air_temp_multi_driver(self, equipment):
-        """air_temp підтримує ds18b20 та ntc."""
+        """air_temp is a TEMPERATURE capability (fillable by ds18b20/ntc/BLE — no driver list)."""
         req = next(r for r in equipment["requires"] if r["role"] == "air_temp")
-        drivers = req["driver"]
-        assert isinstance(drivers, list)
-        assert "ds18b20" in drivers
-        assert "ntc" in drivers
+        assert req["capability"] == "temperature"
+        assert "driver" not in req   # role = capability, never a driver
 
     def test_actuator_1_multi_driver(self, equipment):
-        """actuator_1 має масив [relay, pcf8574_relay] (GPIO або I2C-expander)."""
+        """actuator_1 is a RELAY_OUT capability (fillable by relay/pcf8574_relay — no driver list)."""
         req = next(r for r in equipment["requires"] if r["role"] == "actuator_1")
-        drivers = req["driver"]
-        assert isinstance(drivers, list)
-        assert "relay" in drivers
-        assert "pcf8574_relay" in drivers
+        assert req["capability"] == "relay_out"
+        assert "driver" not in req
 
     def test_cross_validate_with_all_drivers(self, equipment, all_drivers):
         """Cross-validation проходить з усіма реальними drivers без помилок."""
@@ -323,8 +330,10 @@ class TestBindingsPageKC868A6:
         board = load_board_file("kc868a6", "board.json")
         bindings = load_board_file("kc868a6", "bindings.json")
         resolver = FeatureResolver(bindings, equipment)
+        caps = load_capabilities()
+        cap_index = _cap_index_from(all_drivers)
         out = UIJsonGenerator().generate(
-            project, all_manifests, all_drivers, board, bindings, resolver)
+            project, all_manifests, all_drivers, board, bindings, resolver, caps, cap_index)
         bp = next((p for p in out["pages"] if p["id"] == "bindings"), None)
         assert bp is not None, "bindings page missing"
         return bp
@@ -347,12 +356,22 @@ class TestBindingsPageKC868A6:
         assert "pcf8574_relay" in act["drivers"]
 
     def test_air_temp_multi_driver_role(self, bindings_page):
-        """air_temp (ds18b20|ntc) → onewire_bus + adc_channel."""
+        """air_temp (temperature capability) is eligible for ds18b20|ntc AND the BLE temp channel."""
         air = self._role(bindings_page, "air_temp")
         assert "ds18b20" in air["drivers"]
         assert "ntc" in air["drivers"]
+        assert "ble_xiaomi_th" in air["drivers"]     # capability unifies transports
         assert "onewire_bus" in air["hw_types"]
         assert "adc_channel" in air["hw_types"]
+
+    def test_air_temp_addr_drivers_is_per_driver(self, bindings_page):
+        """requires_address is PER-DRIVER: a temperature role's addr_drivers must list ONLY the
+        BLE channel driver, never the address-free wired ds18b20/ntc — else the default board's
+        wired air_temp binding (no address) becomes un-saveable (P3 review, CRITICAL)."""
+        air = self._role(bindings_page, "air_temp")
+        assert "ble_xiaomi_th" in air["addr_drivers"]
+        assert "ds18b20" not in air["addr_drivers"]
+        assert "ntc" not in air["addr_drivers"]
 
     def test_roles_match_equipment_requires(self, bindings_page, equipment):
         """Кожна equipment-роль присутня на сторінці bindings."""
@@ -402,8 +421,10 @@ class TestDevBoardBackwardCompat:
         board = load_board_file("dev", "board.json")
         bindings = load_board_file("dev", "bindings.json")
         resolver = FeatureResolver(bindings, equipment)
+        caps = load_capabilities()
+        cap_index = _cap_index_from(all_drivers)
         out = UIJsonGenerator().generate(
-            project, all_manifests, all_drivers, board, bindings, resolver)
+            project, all_manifests, all_drivers, board, bindings, resolver, caps, cap_index)
         bp = next((p for p in out["pages"] if p["id"] == "bindings"), None)
         assert bp is not None, "bindings page missing"
         return bp

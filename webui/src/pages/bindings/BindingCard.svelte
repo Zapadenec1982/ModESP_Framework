@@ -23,7 +23,11 @@
   $: scanCfg = (roleDef && roleDef.scan) || null;
   $: needsPicker = !!(scanCfg && selectedHw && selectedHw.hw_type === scanCfg.hw_type);
   $: channels = (roleDef && roleDef.channels) || null;
-  $: needsChannel = !!(channels && selectedHw && !needsPicker);
+  // channels are a PER-DRIVER enum (a BLE device's temperature/humidity/battery). Only
+  // channel-bearing devices are shareable (multiple_per_bus), so gate on selectedHw.shareable
+  // — otherwise a capability role (e.g. temperature) that also accepts a wired ADC/NTC would
+  // wrongly demand a channel pick for that wired hardware.
+  $: needsChannel = !!(channels && selectedHw && selectedHw.shareable && !needsPicker);
 
   function onPick(value) {
     dispatch('changeAddr', { role: roleDef.role, addr: value });

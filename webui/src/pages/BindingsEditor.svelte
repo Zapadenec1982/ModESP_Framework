@@ -167,10 +167,14 @@
   $: missingRequired = requiredRoles.filter(r => !assignedRoles.has(r.role));
   $: hasEmptyHw = bindings.some(b => !b.hardware);
   $: hasEmptyAddr = bindings.some(b => {
-    // A binding needs an address only if its role's driver requires one
-    // (requires_address, from ui.json) — not "any OneWire bus".
+    // requires_address is PER-DRIVER: a binding needs an address only when the DRIVER it uses
+    // needs one (roleDef.addr_drivers), NOT when any eligible driver of the capability does.
+    // Falls back to the role-wide flag for legacy roles that don't emit addr_drivers.
     const roleDef = roles.find(r => r.role === b.role);
-    return roleDef && roleDef.requires_address && !b.address;
+    if (!roleDef) return false;
+    const list = roleDef.addr_drivers;
+    const needs = list ? list.includes(b.driver) : roleDef.requires_address;
+    return needs && !b.address;
   });
   $: canSave = !hasEmptyHw && !hasEmptyAddr && !saving;
 
