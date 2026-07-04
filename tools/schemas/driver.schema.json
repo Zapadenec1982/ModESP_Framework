@@ -24,8 +24,37 @@
     "hardware_type": {
       "type": "string"
     },
+    "transport": {
+      "enum": ["wired", "ble", "lora", "mqtt", "espnow"],
+      "description": "Transport family (default derived from hardware_type). Orthogonal to the bus/hw_type so LoRa/MQTT/ESP-NOW do not overload hardware_type."
+    },
     "provides": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "unit": { "type": "string" },
+        "range": {},
+        "description": { "type": "string" },
+        "capability": {
+          "type": "string",
+          "description": "Capability of a single-value driver (∈ tools/capabilities.json). Multi-channel drivers use provides.channels[] or address_channels[].capability instead."
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "channel": { "type": "string" },
+              "capability": { "type": "string" },
+              "unit": { "type": "string" },
+              "label": { "type": "string" }
+            },
+            "required": ["channel", "capability"],
+            "patternProperties": { "^_": {} },
+            "additionalProperties": false
+          }
+        }
+      }
     },
     "requires_address": {
       "type": "boolean"
@@ -40,9 +69,14 @@
         "type": "object",
         "properties": {
           "value": { "type": "string" },
-          "label": { "type": "string" }
+          "label": { "type": "string" },
+          "capability": {
+            "type": "string",
+            "description": "Capability of this channel (∈ tools/capabilities.json) — back-compat per-channel path; provides.channels[] is the recommended form."
+          }
         },
         "required": ["value", "label"],
+        "patternProperties": { "^_": {} },
         "additionalProperties": false
       }
     },

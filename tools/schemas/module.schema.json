@@ -44,6 +44,14 @@
             "type": "string",
             "minLength": 1
           },
+          "kind": {
+            "enum": ["sensor", "actuator"],
+            "description": "Coarse direction discriminator; when absent the generator normalizes it from `type`."
+          },
+          "capability": {
+            "type": "string",
+            "description": "The capability this role needs (∈ tools/capabilities.json). This — not `driver` — is the matcher: any source of the same capability fills the role."
+          },
           "driver": {
             "anyOf": [
               {

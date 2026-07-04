@@ -14,7 +14,8 @@ TOOLS_DIR = Path(__file__).resolve().parent.parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from generate_ui import load_capabilities, derive_driver_capabilities  # noqa: E402
+from generate_ui import (  # noqa: E402
+    load_capabilities, derive_driver_capabilities, cross_validate, schema_errors)
 
 
 # ── vocabulary load + validation ────────────────────────────────
@@ -130,3 +131,48 @@ def test_every_shipped_driver_resolves():
         caps = load_capabilities()
         for cap in derived.values():
             assert cap in caps, f"{drv.get('driver')} → '{cap}' not in capabilities.json"
+
+
+# ── P1: drift guard (dormant until a driver DECLARES capability) + schema fields ──
+
+def test_drift_guard_wrong_kind_errors():
+    caps = load_capabilities()
+    errors, warnings = [], []
+    # a SENSOR driver that declares an ACTUATOR capability must be an ERROR
+    drv = {"driver": "x", "category": "sensor", "hardware_type": "ble",
+           "provides": {"capability": "relay_out"}}
+    cross_validate([], {"x": drv}, errors, warnings, caps)
+    assert any("relay_out" in e and "kind" in e for e in errors), errors
+
+
+def test_drift_guard_unknown_capability_errors():
+    caps = load_capabilities()
+    errors, warnings = [], []
+    drv = {"driver": "y", "category": "sensor", "hardware_type": "onewire_bus",
+           "provides": {"capability": "nonesuch"}}
+    cross_validate([], {"y": drv}, errors, warnings, caps)
+    assert any("nonesuch" in e for e in errors), errors
+
+
+def test_drift_guard_valid_declared_capability_ok():
+    caps = load_capabilities()
+    errors, warnings = [], []
+    drv = {"driver": "z", "category": "sensor", "hardware_type": "onewire_bus",
+           "provides": {"capability": "temperature"}}
+    cross_validate([], {"z": drv}, errors, warnings, caps)
+    assert errors == []
+
+
+def test_schema_accepts_new_driver_fields():
+    drv = {"manifest_version": 1, "driver": "x", "category": "sensor", "hardware_type": "ble",
+           "transport": "ble",
+           "provides": {"type": "float", "capability": "temperature",
+                        "channels": [{"channel": "t", "capability": "temperature", "unit": "°C"}]},
+           "address_channels": [{"value": "t", "label": "T", "capability": "temperature"}]}
+    assert schema_errors(drv, "driver", "x") == []
+
+
+def test_schema_accepts_role_capability_and_kind():
+    mod = {"manifest_version": 1, "module": "m", "state": {},
+           "requires": [{"role": "r", "type": "sensor", "kind": "sensor", "capability": "temperature"}]}
+    assert schema_errors(mod, "module", "m") == []

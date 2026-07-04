@@ -869,12 +869,37 @@ BOARD_META_KEYS = {"manifest_version", "board", "display_name", "version", "desc
 BOARD_AUX_SECTIONS = {"i2c_expanders"}
 
 
-def cross_validate(module_manifests, driver_manifests, errors, warnings):
+# A driver's category maps to a capability KIND (sensor reads, actuator drives).
+# io/display/audio are coarse categories that resolve to one of the two kinds.
+_CATEGORY_KIND = {"sensor": "sensor", "io": "sensor",
+                  "actuator": "actuator", "display": "actuator", "audio": "actuator"}
+
+def _driver_declared_capabilities(drv):
+    """Capabilities EXPLICITLY declared by a driver manifest (not inferred) — for the drift
+    guard. Returns a list of capability names from provides.capability / provides.channels[] /
+    address_channels[]."""
+    out = []
+    p = drv.get("provides") or {}
+    if p.get("capability"):
+        out.append(p["capability"])
+    for ch in p.get("channels") or []:
+        if ch.get("capability"):
+            out.append(ch["capability"])
+    for ch in drv.get("address_channels") or []:
+        if ch.get("capability"):
+            out.append(ch["capability"])
+    return out
+
+
+def cross_validate(module_manifests, driver_manifests, errors, warnings, capabilities=None):
     """Cross-validate module requires vs driver manifests.
 
     Checks:
     1. Each requires[].driver has a loaded driver manifest
     2. driver.category matches requires[].type (sensor↔sensor, actuator↔actuator)
+    3. (drift guard) any capability a driver DECLARES must exist in tools/capabilities.json
+       and its kind must match the driver's category. Dormant until drivers declare
+       capability (P2), so it never fires — and cannot change output — before then.
     """
     for m in module_manifests:
         mod_name = m.get("module", "?")
@@ -906,6 +931,21 @@ def cross_validate(module_manifests, driver_manifests, errors, warnings):
                     errors.append(
                         f"[{mod_name}] Require '{role}' type='{req_type}' but "
                         f"driver '{drv_name}' category='{drv_cat}'")
+
+    # Drift guard — a driver's DECLARED capability must be in the vocabulary and its kind must
+    # agree with the driver's category. No driver declares capability until P2, so this is a
+    # no-op today (output byte-identical); it starts catching real drift once P2 lands.
+    caps = capabilities or {}
+    for drv_name, drv in driver_manifests.items():
+        cat_kind = _CATEGORY_KIND.get(drv.get("category", ""))
+        for cap in _driver_declared_capabilities(drv):
+            if cap not in caps:
+                errors.append(
+                    f"[driver {drv_name}] declares capability '{cap}' not in tools/capabilities.json")
+            elif cat_kind and caps[cap].get("kind") != cat_kind:
+                errors.append(
+                    f"[driver {drv_name}] capability '{cap}' is kind '{caps[cap].get('kind')}' "
+                    f"but the driver's category '{drv.get('category')}' is kind '{cat_kind}'")
 
 
 def validate_loggable(manifests, errors):
@@ -2498,7 +2538,7 @@ def main():
     # Cross-validate module <-> driver
     cross_errors = []
     cross_warnings = []
-    cross_validate(manifests, driver_manifests, cross_errors, cross_warnings)
+    cross_validate(manifests, driver_manifests, cross_errors, cross_warnings, capabilities)
 
     # Load board.json and bindings.json for bindings page (+ cross-validate them)
     board = None
