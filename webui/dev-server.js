@@ -175,6 +175,18 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/devices') {
+    try {
+      const dv = readFileSync(join(__dirname, '..', 'data', 'devices.json'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(dv);
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ manifest_version: 1, devices: [] }));
+    }
+    return;
+  }
+
   if (url.pathname === '/api/onewire/scan') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({

@@ -63,7 +63,10 @@
   });
 
   // ── Hardware helpers ──
-  function compatibleHw(roleDef) {
+  // `inv` is passed explicitly (= hwInventory) at reactive call sites so Svelte SEES the
+  // hwInventory dependency — otherwise it is hidden inside this function and the derived
+  // lists never recompute when runtime devices finish loading (async /api/devices).
+  function compatibleHw(roleDef, inv = hwInventory) {
     const types = roleDef.hw_types || (roleDef.hw_type ? [roleDef.hw_type] : []);
     const drivers = roleDef.drivers || (roleDef.driver ? [roleDef.driver] : []);
     // A device that declares its own driver (a subscribed BLE device) matches only when
@@ -71,7 +74,7 @@
     // Xiaomi temperature role even though both are hw_type "ble". A driverless "ble" row
     // (a legacy pre-F8 subscription) is ambiguous — never offer it to a typed role. Board
     // hardware (no per-device driver, wired hw_type) matches by hw_type as before.
-    return hwInventory.filter(h => {
+    return inv.filter(h => {
       if (h.driver) return drivers.includes(h.driver);
       if (h.hw_type === 'ble') return false;
       return types.some(t => t === h.hw_type);
@@ -81,8 +84,8 @@
   // Визначити правильний драйвер обраного hardware. A subscribed device carries its own
   // identified driver (disambiguates the shared "ble" hw_type); otherwise pick the role's
   // driver by the hw_type index.
-  function driverForHw(roleDef, hwId) {
-    const hw = hwInventory.find(h => h.id === hwId);
+  function driverForHw(roleDef, hwId, inv = hwInventory) {
+    const hw = inv.find(h => h.id === hwId);
     if (!hw) return roleDef.driver || (roleDef.drivers && roleDef.drivers[0]) || '';
     if (hw.driver) return hw.driver;
     const types = roleDef.hw_types || [];
@@ -91,21 +94,21 @@
     return idx >= 0 && idx < drivers.length ? drivers[idx] : drivers[0] || '';
   }
 
-  function usedHwIds(excludeRole) {
+  function usedHwIds(excludeRole, inv = hwInventory) {
     // A shareable bus (driver multiple_per_bus → ui.json hw.shareable) carries several
     // roles at once, so it never counts as "used". Manifest-driven, no hardcoded set.
     return new Set(bindings
       .filter(b => b.role !== excludeRole)
       .map(b => b.hardware)
       .filter(hwId => {
-        const hw = hwInventory.find(h => h.id === hwId);
+        const hw = inv.find(h => h.id === hwId);
         return hw && !hw.shareable;
       }));
   }
 
-  function availableHw(roleDef) {
-    const used = usedHwIds(roleDef.role);
-    return compatibleHw(roleDef).filter(h => !used.has(h.id));
+  function availableHw(roleDef, inv = hwInventory) {
+    const used = usedHwIds(roleDef.role, inv);
+    return compatibleHw(roleDef, inv).filter(h => !used.has(h.id));
   }
 
   // ── Binding mutations ──
@@ -174,9 +177,11 @@
   $: assignedSensors = roles.filter(r => r.type === 'sensor' && assignedRoles.has(r.role));
   $: assignedActuators = roles.filter(r => r.type === 'actuator' && assignedRoles.has(r.role));
 
+  // Pass hwInventory EXPLICITLY so it is a tracked dependency of this reactive statement —
+  // otherwise the "add optional roles" list stays empty forever after /api/devices resolves.
   $: unassignedRoles = roles
     .filter(r => !assignedRoles.has(r.role))
-    .filter(r => availableHw(r).length > 0);
+    .filter(r => availableHw(r, hwInventory).length > 0);
 
   // ── Save / Restart ──
   async function save() {
@@ -249,8 +254,8 @@
           {@const binding = getBinding(roleDef.role)}
           {#if binding}
             <BindingCard {roleDef} {binding}
-              hwList={compatibleHw(roleDef)}
-              usedIds={usedHwIds(roleDef.role)}
+              hwList={compatibleHw(roleDef, hwInventory)}
+              usedIds={usedHwIds(roleDef.role, hwInventory)}
               {assignedAddresses}
               on:changeHw={e => setHardware(e.detail.role, e.detail.hw)}
               on:changeAddr={e => setAddress(e.detail.role, e.detail.addr)}
@@ -267,8 +272,8 @@
           {@const binding = getBinding(roleDef.role)}
           {#if binding}
             <BindingCard {roleDef} {binding}
-              hwList={compatibleHw(roleDef)}
-              usedIds={usedHwIds(roleDef.role)}
+              hwList={compatibleHw(roleDef, hwInventory)}
+              usedIds={usedHwIds(roleDef.role, hwInventory)}
               {assignedAddresses}
               on:changeHw={e => setHardware(e.detail.role, e.detail.hw)}
               on:changeAddr={e => setAddress(e.detail.role, e.detail.addr)}

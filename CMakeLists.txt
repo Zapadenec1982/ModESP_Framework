@@ -211,10 +211,14 @@ if(DEFINED CONFIG_MODESP_BOARD_DIR AND
 endif()
 
 # Generate LittleFS image from data/ directory and flash to "data" partition.
-# DEPENDS on the active board's config copies (refreshed by file(COPY) above on
-# every reconfigure) so data.bin is regenerated when board.json/bindings.json
-# change — otherwise the image keeps a stale hardware map and the device boots the
-# old config until a manual `Remove-Item build/data.bin` / fullclean.
+# DEPENDS on the actual PAYLOAD so data.bin is regenerated (and `idf.py flash` picks it up)
+# whenever any of it changes — board config copies (refreshed by file(COPY) above), the
+# generated UI schema, AND the deployed WebUI bundle. Without the ui.json/www deps the image
+# kept a STALE webui/ui.json after `npm run deploy` or a manifest change: the device booted
+# the old page until a manual `Remove-Item build/data.bin` / fullclean.
 littlefs_create_partition_image(data data FLASH_IN_PROJECT
     DEPENDS "${CMAKE_SOURCE_DIR}/data/board.json"
-            "${CMAKE_SOURCE_DIR}/data/bindings.json")
+            "${CMAKE_SOURCE_DIR}/data/bindings.json"
+            "${CMAKE_SOURCE_DIR}/data/ui.json"
+            "${CMAKE_SOURCE_DIR}/data/www/bundle.js.gz"
+            "${CMAKE_SOURCE_DIR}/data/www/bundle.css.gz")
