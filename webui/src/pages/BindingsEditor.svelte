@@ -178,8 +178,12 @@
   });
   $: canSave = !hasEmptyHw && !hasEmptyAddr && !saving;
 
-  $: assignedSensors = roles.filter(r => r.type === 'sensor' && assignedRoles.has(r.role));
-  $: assignedActuators = roles.filter(r => r.type === 'actuator' && assignedRoles.has(r.role));
+  // Group by DIRECTION (capability's in/out), not the coarse `type`, so display/panel/audio
+  // roles (direction "out") land in Actuators instead of vanishing. Legacy roles without a
+  // capability fall back to type (anything non-sensor is an output).
+  const isOut = r => (r.direction ? r.direction === 'out' : r.type !== 'sensor');
+  $: assignedSensors = roles.filter(r => !isOut(r) && assignedRoles.has(r.role));
+  $: assignedActuators = roles.filter(r => isOut(r) && assignedRoles.has(r.role));
 
   // Pass hwInventory EXPLICITLY so it is a tracked dependency of this reactive statement —
   // otherwise the "add optional roles" list stays empty forever after /api/devices resolves.
