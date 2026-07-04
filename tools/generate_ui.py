@@ -1267,6 +1267,11 @@ class UIJsonGenerator:
             pages.append(self._bindings_page(
                 bindings, board, driver_manifests or {},
                 provider_requires))
+        # Devices page (subscribe remote devices) — only when a driver is subscribable
+        # (discovery assigns:"mac"). Absent otherwise, so BLE-less builds show no page.
+        dev_page = self._devices_page(driver_manifests or {})
+        if dev_page:
+            pages.append(dev_page)
         if sys_pages.get("network", True):
             cloud_provider = sys_cfg.get("cloud_provider", "mqtt")
             pages.append(self._network_page(cloud_provider))
@@ -1465,6 +1470,39 @@ class UIJsonGenerator:
         never poisons the cache."""
         return copy.deepcopy(self._system_pages()["system"])
 
+    def _devices_page(self, driver_manifests):
+        """Devices page: subscribe remote devices (BLE by MAC today) into the runtime
+        registry (/data/devices.json). A driver opts in via discovery.supported +
+        assigns:"mac" — its scan lists nearby devices; picking one appends a device row
+        that roles then bind to transport-agnostically. Returns None when no driver is
+        subscribable (page and its nav entry disappear — optionality)."""
+        subscribable = []
+        for name, d in driver_manifests.items():
+            disc = d.get("discovery", {})
+            if not (disc.get("supported", False) and disc.get("assigns") == "mac"):
+                continue
+            ui = disc.get("ui", {}) or {}
+            subscribable.append({
+                "driver": name,
+                "hw_type": d.get("hardware_type", ""),
+                "scan_endpoint": disc.get("scan_endpoint", ""),
+                "label": ui.get("title", name),
+                "scan_button": ui.get("scan_button", ""),
+                "description": ui.get("description", ""),
+                "returns": disc.get("returns", []),
+            })
+        if not subscribable:
+            return None
+        return {
+            "id": "devices",
+            "title": "Пристрої",
+            "icon": "radio",
+            "order": 78,   # just before Bindings (80)
+            "system": True,
+            "access_level": "service",
+            "subscribable": subscribable,
+        }
+
     def _bindings_page(self, bindings, board, driver_manifests,
                         provider_requires=None):
         """Bindings page: current bindings + free hardware + role metadata.
@@ -1537,6 +1575,27 @@ class UIJsonGenerator:
                 }],
             })
 
+        # driver -> its ROLE-LEVEL scan config. Only drivers whose discovery assigns an
+        # "address" (a per-role channel on a shared bus, e.g. a OneWire ROM) get a picker
+        # inside the role card. Drivers that assign a "mac" identify a whole DEVICE, not a
+        # role channel — those are subscribed on the Devices page (see _devices_page), and
+        # the role then binds to the resulting device id transport-agnostically. Keyed by
+        # DRIVER, not hw_type: one bus type (e.g. "ble") can host both a discovery driver
+        # and a non-discovery one. Manifest-driven — discovery.supported opts in.
+        discovery_by_driver = {}
+        for name, d in driver_manifests.items():
+            disc = d.get("discovery", {})
+            if disc.get("supported", False) and disc.get("assigns", "address") == "address":
+                discovery_by_driver[name] = {
+                    "endpoint": disc.get("scan_endpoint", ""),
+                    "assigns": "address",
+                    # The picker only makes sense on the discovery driver's own bus type;
+                    # BindingCard gates on selectedHw.hw_type == scan.hw_type so a multi-
+                    # driver role (e.g. ds18b20+ntc) doesn't show the OneWire scanner when
+                    # the user picks the ADC/NTC hardware.
+                    "hw_type": d.get("hardware_type", ""),
+                }
+
         # Roles metadata для BindingsEditor
         roles = []
         for prov_mod, req in (provider_requires or []):
@@ -1547,6 +1606,8 @@ class UIJsonGenerator:
             # Збираємо hw_types та requires_address з усіх допустимих драйверів
             hw_types = []
             requires_address = False
+            scan_cfg = None
+            channels = None
             for drv_name in drivers:
                 drv = driver_manifests.get(drv_name, {})
                 hw_t = drv.get("hardware_type", "")
@@ -1554,6 +1615,18 @@ class UIJsonGenerator:
                     hw_types.append(hw_t)
                 if drv.get("requires_address", False):
                     requires_address = True
+                # First address-assigning discovery driver defines the role's channel
+                # picker (mac-assigning drivers are handled on the Devices page instead).
+                if scan_cfg is None and drv_name in discovery_by_driver:
+                    scan_cfg = discovery_by_driver[drv_name]
+                # Fixed address channels (enum) — a requires_address driver whose channel
+                # is chosen, not scanned (e.g. BLE temperature/humidity/battery). The editor
+                # renders role.channels as a <select> so such a role is bindable without a
+                # scan. address_channels: [{value, label}].
+                if channels is None:
+                    ac = drv.get("address_channels")
+                    if ac:
+                        channels = ac
 
             role_entry = {
                 "role": req["role"],
@@ -1565,6 +1638,12 @@ class UIJsonGenerator:
                 "label": req.get("label", req["role"]),
                 "optional": req.get("optional", False),
             }
+            # Role's driver can enumerate devices → BindingsEditor shows the scan picker.
+            if scan_cfg is not None:
+                role_entry["scan"] = scan_cfg
+            # Role's driver exposes a fixed channel enum → editor shows a channel <select>.
+            if channels is not None:
+                role_entry["channels"] = channels
             # Backward compat: single driver → також emit driver/hw_type
             if len(drivers) == 1:
                 role_entry["driver"] = drivers[0]
@@ -1579,15 +1658,6 @@ class UIJsonGenerator:
             for d in driver_manifests.values()
             if d.get("multiple_per_bus", False)
         }
-        # hw_types whose driver can enumerate devices on the bus (discovery.supported,
-        # e.g. a OneWire ROM scan). BindingCard offers the scan/address picker on
-        # hw.discoverable — manifest-driven, so no hardcoded "onewire_bus" in the webui.
-        discoverable_hw_types = {
-            d.get("hardware_type", "")
-            for d in driver_manifests.values()
-            if d.get("discovery", {}).get("supported", False)
-        }
-
         # Hardware inventory з board.json (для select options у BindingsEditor)
         hardware = []
         for section, hw_type in BOARD_SECTION_TO_HW_TYPE.items():
@@ -1597,7 +1667,6 @@ class UIJsonGenerator:
                     "hw_type": hw_type,
                     "label": item.get("label", item.get("id", "")),
                     "shareable": hw_type in shareable_hw_types,
-                    "discoverable": hw_type in discoverable_hw_types,
                 }
                 if "gpio" in item:
                     hw_entry["gpio"] = item["gpio"]

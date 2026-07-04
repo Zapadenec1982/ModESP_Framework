@@ -30,6 +30,18 @@
     "requires_address": {
       "type": "boolean"
     },
+    "address_channels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "string" },
+          "label": { "type": "string" }
+        },
+        "required": ["value", "label"],
+        "additionalProperties": false
+      }
+    },
     "multiple_per_bus": {
       "type": "boolean"
     },

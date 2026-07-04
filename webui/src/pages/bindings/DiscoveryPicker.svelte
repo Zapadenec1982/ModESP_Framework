@@ -1,11 +1,15 @@
 <script>
+  // Generic device picker for any discovery-capable driver (OneWire ROM, BLE MAC, …).
+  // It knows nothing product-specific: the scan endpoint + which binding field the pick
+  // fills come from ui.json (hw.scan = { endpoint, assigns }). Dispatches pick({value}).
   import { createEventDispatcher } from 'svelte';
   import { apiGet } from '../../lib/api.js';
   import { t } from '../../stores/i18n.js';
 
-  export let busId = '';
-  export let address = '';
-  export let assignedAddresses = new Set();
+  export let scan = null;                 // { endpoint, assigns } from the hardware entry
+  export let busId = '';                  // hardware id (bus for OneWire; radio-wide/ignored for BLE)
+  export let current = '';                // currently assigned value (address or mac)
+  export let assignedValues = new Set();  // values already used by other bindings
 
   const dispatch = createEventDispatcher();
 
@@ -13,15 +17,16 @@
   let devices = [];
   let error = null;
 
-  // Скидання при зміні шини
+  // Reset the list when the selected hardware changes
   $: if (busId) { devices = []; error = null; }
 
-  async function scan() {
-    if (!busId) return;
+  async function doScan() {
+    if (!scan || !scan.endpoint) return;
     scanning = true;
     error = null;
     try {
-      const data = await apiGet(`/api/onewire/scan?bus=${busId}`);
+      const sep = scan.endpoint.includes('?') ? '&' : '?';
+      const data = await apiGet(`${scan.endpoint}${sep}bus=${encodeURIComponent(busId)}`);
       devices = data.devices || [];
     } catch (e) {
       error = e.message;
@@ -31,39 +36,44 @@
   }
 
   function pick(addr) {
-    dispatch('pick', { address: addr });
+    dispatch('pick', { value: addr });
   }
 </script>
 
-<div class="ow-picker">
-  {#if address && devices.length === 0}
+<div class="disc-picker">
+  {#if current && devices.length === 0}
     <div class="current-row">
-      <span class="addr-mono">{address}</span>
-      <button class="scan-btn" on:click={scan} disabled={scanning}>
+      <span class="addr-mono">{current}</span>
+      <button class="scan-btn" on:click={doScan} disabled={scanning}>
         {scanning ? $t['bind.scanning'] : $t['bind.scan']}
       </button>
     </div>
   {:else}
-    <button class="scan-btn full" on:click={scan} disabled={scanning}>
+    <button class="scan-btn full" on:click={doScan} disabled={scanning}>
       {scanning ? $t['bind.scanning'] : $t['bind.scan']}
     </button>
   {/if}
 
   {#if error}
-    <div class="ow-error">{error}</div>
+    <div class="disc-error">{error}</div>
   {/if}
 
   {#if devices.length > 0}
     <div class="device-list">
       {#each devices as dev}
-        {@const inUse = assignedAddresses.has(dev.address) && dev.address !== address}
-        {@const isCurrent = dev.address === address}
+        {@const inUse = assignedValues.has(dev.address) && dev.address !== current}
+        {@const isCurrent = dev.address === current}
         <div class="device" class:current={isCurrent} class:in-use={inUse}>
           <div class="dev-info">
             <span class="addr-mono">{dev.address}</span>
-            {#if dev.temperature !== undefined}
-              <span class="dev-temp">{dev.temperature.toFixed(1)} °C</span>
-            {/if}
+            <div class="dev-meta">
+              {#if dev.temperature !== undefined}
+                <span class="dev-temp">{dev.temperature.toFixed(1)} °C</span>
+              {/if}
+              {#if dev.rssi !== undefined}
+                <span class="dev-rssi">{dev.rssi} dBm</span>
+              {/if}
+            </div>
           </div>
           {#if isCurrent}
             <span class="badge current">{$t['bind.selected'] || 'обрано'}</span>
@@ -77,13 +87,13 @@
         </div>
       {/each}
     </div>
-  {:else if !scanning && !address}
-    <div class="ow-hint">{$t['bind.scan_hint']}</div>
+  {:else if !scanning && !current}
+    <div class="disc-hint">{$t['bind.scan_hint']}</div>
   {/if}
 </div>
 
 <style>
-  .ow-picker { margin-top: 8px; }
+  .disc-picker { margin-top: 8px; }
   .current-row {
     display: flex;
     align-items: center;
@@ -109,7 +119,7 @@
   .scan-btn.full { width: 100%; }
   .scan-btn:hover { background: var(--accent-bg); }
   .scan-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .ow-error {
+  .disc-error {
     font-size: 13px;
     color: var(--error);
     margin: 6px 0;
@@ -139,10 +149,20 @@
     flex-direction: column;
     gap: 2px;
   }
+  .dev-meta {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
   .dev-temp {
     font-size: 14px;
     font-weight: 600;
     color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .dev-rssi {
+    font-size: 12px;
+    color: var(--fg-muted);
     font-variant-numeric: tabular-nums;
   }
   .badge {
@@ -161,7 +181,7 @@
     font-size: 12px;
   }
   .pick-btn:hover { opacity: 0.9; }
-  .ow-hint {
+  .disc-hint {
     font-size: 13px;
     color: var(--fg-muted);
     text-align: center;

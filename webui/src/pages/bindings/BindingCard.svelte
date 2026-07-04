@@ -1,7 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { t } from '../../stores/i18n.js';
-  import OneWirePicker from './OneWirePicker.svelte';
+  import DiscoveryPicker from './DiscoveryPicker.svelte';
 
   export let roleDef;
   export let binding;
@@ -11,11 +11,23 @@
 
   const dispatch = createEventDispatcher();
 
-  // Offer the scan/address picker when the selected bus can enumerate devices
-  // (hw.discoverable — driver discovery.supported, from ui.json). Manifest-driven,
-  // so a new discoverable bus needs no edit here (no hardcoded 'onewire_bus').
+  // A role's address is set one of two ways, both filling binding.address:
+  //  1) scan picker — the driver discovers per-role channels on a shared bus (roleDef.scan,
+  //     e.g. a OneWire ROM). Gated on the SELECTED hardware being that driver's own bus type
+  //     so a multi-driver role (ds18b20+ntc) doesn't show the OneWire scanner on an ADC pick.
+  //  2) channel <select> — the driver exposes a fixed channel enum (roleDef.channels, e.g. a
+  //     BLE sensor's temperature/humidity/battery). No scan; the device identity is chosen on
+  //     the Devices page and this role just picks which value of it to read.
+  // Manifest-driven — no hardcoded hw_type/driver/channel here.
   $: selectedHw = hwList.find(h => h.id === binding.hardware);
-  $: needsAddress = !!(selectedHw && selectedHw.discoverable);
+  $: scanCfg = (roleDef && roleDef.scan) || null;
+  $: needsPicker = !!(scanCfg && selectedHw && selectedHw.hw_type === scanCfg.hw_type);
+  $: channels = (roleDef && roleDef.channels) || null;
+  $: needsChannel = !!(channels && selectedHw && !needsPicker);
+
+  function onPick(value) {
+    dispatch('changeAddr', { role: roleDef.role, addr: value });
+  }
 </script>
 
 <div class="binding-row">
@@ -37,12 +49,22 @@
       </option>
     {/each}
   </select>
-  {#if needsAddress}
-    <OneWirePicker
+  {#if needsChannel}
+    <select class="ch-select" class:ch-empty={!binding.address}
+            value={binding.address || ''}
+            on:change={e => onPick(e.target.value)}>
+      <option value="" disabled>— {$t['bind.choose_channel'] || 'Оберіть канал'} —</option>
+      {#each channels as ch}
+        <option value={ch.value}>{ch.label}</option>
+      {/each}
+    </select>
+  {:else if needsPicker}
+    <DiscoveryPicker
+      scan={scanCfg}
       busId={binding.hardware}
-      address={binding.address || ''}
-      {assignedAddresses}
-      on:pick={e => dispatch('changeAddr', { role: roleDef.role, addr: e.detail.address })}
+      current={binding.address || ''}
+      assignedValues={assignedAddresses}
+      on:pick={e => onPick(e.detail.value)}
     />
   {/if}
 </div>
@@ -74,7 +96,7 @@
     border-radius: 4px;
   }
   .remove-btn:hover { color: var(--error); background: rgba(239, 68, 68, 0.1); }
-  .hw-select {
+  .hw-select, .ch-select {
     width: 100%;
     padding: 8px 12px;
     font-size: 14px;
@@ -85,6 +107,7 @@
     cursor: pointer;
     appearance: auto;
   }
-  .hw-select:focus { outline: none; border-color: var(--accent); }
-  .hw-empty { border-color: var(--warning); color: var(--warning); }
+  .ch-select { margin-top: 8px; }
+  .hw-select:focus, .ch-select:focus { outline: none; border-color: var(--accent); }
+  .hw-empty, .ch-empty { border-color: var(--warning); color: var(--warning); }
 </style>

@@ -38,7 +38,7 @@ static constexpr size_t MAX_I2C_DISPLAYS   = 2;
 static constexpr size_t MAX_UART_BUSES     = 2;   // UART0 — консоль; лишаються 1/2
 static constexpr size_t MAX_I2S_BUSES      = 1;   // I2S TX (аудіо: MAX98357A тощо)
 static constexpr size_t MAX_EXPANDER_IOS   = 16;   // Outputs + Inputs через expanders
-static constexpr size_t MAX_BLE_DEVICES    = 8;    // BLE-observer broadcast sensors
+static constexpr size_t MAX_BLE_DEVICES    = 16;   // BLE-observer devices: board.json factory seed + runtime /data/devices.json subscriptions (merged)
 static constexpr size_t MAX_BINDING_SETTINGS = 6;  // per-binding driver settings
 
 // ═══════════════════════════════════════════════════════════════
@@ -201,7 +201,7 @@ struct Binding {
     Role          role;
     DriverType    driver_type;
     ModuleName    module_name;
-    SensorAddress address;      // Опціональна ROM адреса (multi-sensor)
+    SensorAddress address;      // Опціональна ROM адреса / канал (multi-sensor)
     etl::vector<BindingSetting, MAX_BINDING_SETTINGS> settings;  // per-binding driver config
 
     /// Look up a per-binding setting by key; returns `def` when not present.

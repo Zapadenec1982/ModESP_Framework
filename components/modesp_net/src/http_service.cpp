@@ -431,6 +431,136 @@ esp_err_t HttpService::handle_post_bindings(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// Runtime device registry (/data/devices.json). User-subscribed remote devices (BLE by
+// MAC today) — the runtime-writable sibling of board.json ble_devices. GET/POST mirror
+// the bindings handlers; ConfigService merges the file into the device inventory at boot
+// (runtime-wins-by-id). Bounded so the merged set fits MAX_BLE_DEVICES.
+static constexpr int MAX_RUNTIME_DEVICES = 12;   // headroom below MAX_BLE_DEVICES (16) for the board seed
+
+esp_err_t HttpService::handle_get_devices(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
+    // 4096 matches the boot parser's MAX_JSON_SIZE so GET can echo any file the firmware
+    // will actually parse (and POST accepts) — no truncation of a valid registry. Static
+    // (not stack): the httpd task serves one request at a time, and 4 KB would strain the
+    // 8 KB handler stack.
+    static char buf[4096];
+    int len = read_file_to_buf("/data/devices.json", buf, sizeof(buf));
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "application/json");
+    if (len < 0) {
+        // No registry yet — a fresh device has none. Return an empty list, not 404,
+        // so the Devices page loads cleanly on first use.
+        httpd_resp_sendstr(req, "{\"manifest_version\":1,\"devices\":[]}");
+        return ESP_OK;
+    }
+    httpd_resp_send(req, buf, len);
+    return ESP_OK;
+}
+
+esp_err_t HttpService::handle_post_devices(httpd_req_t* req) {
+    if (!check_auth(req)) return ESP_OK;
+    // Static (not stack): matches boot parser MAX_JSON_SIZE + handle_get_devices; the httpd
+    // task serves one request at a time, so a shared static body buffer is safe and keeps
+    // 4 KB off the 8 KB handler stack.
+    static char buf[4096];
+    int total = 0;
+    int remaining = req->content_len;
+    if (remaining <= 0 || remaining >= (int)sizeof(buf)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            remaining <= 0 ? "Empty body" : "Body too large");
+        return ESP_FAIL;
+    }
+
+    while (remaining > 0) {
+        int recv_len = httpd_req_recv(req, buf + total, remaining);
+        if (recv_len <= 0) {
+            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Receive error");
+            return ESP_FAIL;
+        }
+        total += recv_len;
+        remaining -= recv_len;
+    }
+    buf[total] = '\0';
+
+    // Validate: manifest_version present + a bounded "devices" array.
+    jsmn_parser parser;
+    jsmntok_t tokens[160];
+    jsmn_init(&parser);
+    int r = jsmn_parse(&parser, buf, total, tokens, 160);
+    if (r < 1 || tokens[0].type != JSMN_OBJECT) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    bool has_version = false;
+    bool has_devices = false;
+    int  devices_count = 0;
+    for (int i = 1; i + 1 < r; ) {
+        if (tokens[i].type != JSMN_STRING) break;
+        int klen = tokens[i].end - tokens[i].start;
+        const char* kstr = buf + tokens[i].start;
+        if (klen == 16 && strncmp(kstr, "manifest_version", 16) == 0) {
+            has_version = true;
+        } else if (klen == 7 && strncmp(kstr, "devices", 7) == 0) {
+            if (tokens[i + 1].type == JSMN_ARRAY) {
+                has_devices = true;
+                devices_count = tokens[i + 1].size;
+            }
+        }
+        i++;  // skip key
+        if (i < r && (tokens[i].type == JSMN_PRIMITIVE ||
+                      tokens[i].type == JSMN_STRING)) {
+            i++;
+        } else if (i < r) {
+            int count = 1;
+            int j = i + 1;
+            while (count > 0 && j < r) {
+                if (tokens[j].type == JSMN_OBJECT || tokens[j].type == JSMN_ARRAY) {
+                    count += tokens[j].size;
+                }
+                count--;
+                j++;
+            }
+            i = j;
+        }
+    }
+
+    if (!has_version || !has_devices) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Missing manifest_version or devices array");
+        return ESP_FAIL;
+    }
+    if (devices_count > MAX_RUNTIME_DEVICES) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Too many devices");
+        return ESP_FAIL;
+    }
+
+    FILE* f = fopen("/data/devices.json", "w");
+    if (!f) {
+        ESP_LOGE(TAG, "POST /devices: cannot open file for writing");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                            "Cannot write devices.json");
+        return ESP_FAIL;
+    }
+    size_t written = fwrite(buf, 1, total, f);
+    fclose(f);
+
+    if ((int)written != total) {
+        ESP_LOGE(TAG, "POST /devices: write incomplete (%d/%d)", (int)written, total);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "POST /devices: saved %d bytes (%d devices), restart needed",
+             total, devices_count);
+
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true,\"needs_restart\":true}");
+    return ESP_OK;
+}
+
 // Callback context for module serialization
 struct ModSerCtx {
     char* buf;
@@ -1376,7 +1506,8 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
         float temp = devices[i].value;
         bool has_temp = devices[i].has_value;
 
-        // Пошук в bindings: спочатку по адресі
+        // Пошук в bindings: пристрій "зайнятий", якщо якась прив'язка посилається
+        // на нього по address (OneWire ROM — per-role channel на спільній шині).
         const char* role = nullptr;
         for (const auto& b : bindings) {
             if (!b.address.empty() &&
@@ -1404,6 +1535,10 @@ esp_err_t HttpService::handle_get_ow_scan(httpd_req_t* req) {
         if (has_temp) {
             pos += snprintf(json + pos, sizeof(json) - pos,
                 ",\"temperature\":%.1f", static_cast<double>(temp));
+        }
+        if (devices[i].rssi != 0) {   // radios (BLE) report signal; wired buses leave 0
+            pos += snprintf(json + pos, sizeof(json) - pos,
+                ",\"rssi\":%d", static_cast<int>(devices[i].rssi));
         }
         if (role) {
             pos += snprintf(json + pos, sizeof(json) - pos,
@@ -2001,6 +2136,8 @@ void HttpService::register_api_handlers() {
         {"/api/ui",       HTTP_GET,  handle_get_ui},
         {"/api/bindings", HTTP_GET,  handle_get_bindings},
         {"/api/bindings", HTTP_POST, handle_post_bindings},
+        {"/api/devices",  HTTP_GET,  handle_get_devices},
+        {"/api/devices",  HTTP_POST, handle_post_devices},
         {"/api/modules",  HTTP_GET,  handle_get_modules},
         {"/api/settings",   HTTP_POST, handle_post_settings},
         {"/api/wifi",       HTTP_POST, handle_post_wifi},
@@ -2014,7 +2151,8 @@ void HttpService::register_api_handlers() {
         {"/api/ota",        HTTP_GET,  handle_get_ota},
         {"/api/time",       HTTP_GET,  handle_get_time},
         {"/api/time",       HTTP_POST, handle_post_time},
-        {"/api/onewire/scan", HTTP_GET, handle_get_ow_scan},
+        {"/api/onewire/scan", HTTP_GET, handle_get_ow_scan},   // legacy alias
+        {"/api/drivers/scan", HTTP_GET, handle_get_ow_scan},   // generic: ?driver=<type>&bus=<hw>  (any discovery driver, incl. BLE)
         {"/api/log",         HTTP_GET, handle_get_log},
         {"/api/log/summary", HTTP_GET, handle_get_log_summary},
         {"/api/auth", HTTP_GET,  handle_get_auth},
@@ -2092,8 +2230,8 @@ void HttpService::register_static_handler() {
 bool HttpService::start_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
-    // Handler budget: 31 API endpoints + 1 OTA POST + ≤16 OPTIONS (CORS pre-
-    // flight) + 1 /ws + 2 MQTT + 1 static wildcard = ~52 currently. Bumped from
+    // Handler budget: 33 API endpoints + 1 OTA POST + ≤17 OPTIONS (CORS pre-
+    // flight) + 1 /ws + 2 MQTT + 1 static wildcard = ~55 currently. Bumped from
     // 48 → 64 to accommodate scenario engine endpoints (Step 16b added 8) і
     // leave headroom for future endpoints. Each handler slot costs ~24 bytes
     // SRAM, so 64 = ~1.5 KB total (negligible).

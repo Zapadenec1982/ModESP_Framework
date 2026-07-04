@@ -55,6 +55,24 @@ void report_sensor(const uint8_t* mac_le, int8_t rssi, const char* fmt,
 void log_raw(const uint8_t* mac_le, int8_t rssi, uint16_t svc_uuid16,
              const uint8_t* sd, uint16_t len);
 
+/// One recently-seen broadcast device, as the UI "scan for BLE devices" shows it.
+/// mac is DISPLAY order (a4:c1:38:b4:dc:11). A driver's discovery function fills a
+/// DiscoveredDevice from this so a user can subscribe a role to the picked MAC.
+struct BleSeenDevice {
+    uint8_t  mac[6];           // display order (reversed from NimBLE addr.val)
+    int8_t   rssi;             // 127 = unavailable
+    bool     has_temp; float temp_c;
+    bool     has_hum;  float hum_pct;
+    int      batt_pct;         // -1 = unknown
+    int      batt_mv;          // -1 = unknown
+    uint32_t age_ms;           // ms since last advertisement
+};
+
+/// Snapshot the recently-seen advertisers the decoders have populated (every device a
+/// registered decoder recognized, bound or not). Fills up to `max`, returns the count.
+/// Lock-free read of the host-task cache — a torn field is at worst cosmetic for a scan.
+size_t list_seen(BleSeenDevice* out, size_t max);
+
 } // namespace modesp::ble
 
 #endif // CONFIG_MODESP_BLE_ENABLE && CONFIG_MODESP_BLE_CENTRAL

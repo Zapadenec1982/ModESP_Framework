@@ -589,17 +589,19 @@ void BleCentral::dispatch(const uint8_t mac6_le[6], int8_t rssi,
     }
 }
 
-static constexpr size_t  MAX_SEEN = 8;
+static constexpr size_t  MAX_SEEN = 16;   // recently-seen advertisers (also feeds the UI scan)
 static constexpr int64_t LOG_THROTTLE_US = 5000000;  // 5 s per device
 
-// Per-device cache for the throttled diagnostic log. A decoder reports whichever
-// fields a given frame carried; some formats split temp/hum and voltage/flags into
-// separate adverts, so we merge fields across frames here and log the unified
-// current reading. Decoders own the byte layout (see the driver).
+// Per-device cache for the throttled diagnostic log AND the UI "scan for BLE devices"
+// list (list_seen()). A decoder reports whichever fields a given frame carried; some
+// formats split temp/hum and voltage/flags into separate adverts, so we merge fields
+// across frames here. Decoders own the byte layout (see the driver).
 struct SeenSensor {
-    uint8_t mac[6];
+    uint8_t mac[6];            // NimBLE addr.val order (little-endian)
     bool    used;
-    int64_t last_us;
+    int64_t last_us;           // last LOG time (throttle) — 0 = never logged
+    int64_t last_seen_us;      // last frame time (freshness for the scan) — 0 = never seen
+    int8_t  rssi;              // 127 = unavailable
     float   temp;  bool has_temp;
     float   hum;   bool has_hum;
     int     batt_pct;          // -1 = unknown
@@ -618,7 +620,7 @@ static int seen_index(const uint8_t* mac) {
     if (free_idx < 0) return -1;
     SeenSensor& s = s_seen[free_idx];
     memcpy(s.mac, mac, 6);
-    s.used = true; s.last_us = 0;
+    s.used = true; s.last_us = 0; s.last_seen_us = 0; s.rssi = 127;
     s.has_temp = s.has_hum = false;
     s.batt_pct = -1; s.batt_mv = -1;
     s_sensor_count++;
@@ -645,6 +647,8 @@ static void update_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
     if (mv >= 0) s.batt_mv  = mv;
 
     int64_t now = esp_timer_get_time();
+    s.rssi = rssi;                 // freshest signal (every frame, for the UI scan)
+    s.last_seen_us = now;          // freshness (every frame) — distinct from the log throttle
     bool is_new = (s.last_us == 0);
     if (!is_new && (now - s.last_us) < LOG_THROTTLE_US) return;
     s.last_us = now;
@@ -708,6 +712,27 @@ void report_sensor(const uint8_t* mac, int8_t rssi, const char* fmt,
 void log_raw(const uint8_t* mac, int8_t rssi, uint16_t uuid,
              const uint8_t* sd, uint16_t len) {
     log_raw_frame(mac, rssi, uuid, sd, len);
+}
+
+// Snapshot recently-seen advertisers for the UI scan (mac in display order + age).
+// Lock-free read of the host-task cache — good enough for a diagnostic scan.
+size_t list_seen(BleSeenDevice* out, size_t max) {
+    if (!out || max == 0) return 0;
+    int64_t now = esp_timer_get_time();
+    size_t n = 0;
+    for (size_t i = 0; i < MAX_SEEN && n < max; i++) {
+        const SeenSensor& s = s_seen[i];
+        if (!s.used || s.last_seen_us == 0) continue;
+        BleSeenDevice& d = out[n++];
+        for (int b = 0; b < 6; b++) d.mac[b] = s.mac[5 - b];   // LE → display order
+        d.rssi     = s.rssi;
+        d.has_temp = s.has_temp; d.temp_c  = s.temp;
+        d.has_hum  = s.has_hum;  d.hum_pct = s.hum;
+        d.batt_pct = s.batt_pct; d.batt_mv = s.batt_mv;
+        int64_t age = now - s.last_seen_us;
+        d.age_ms   = (age < 0) ? 0u : (uint32_t)(age / 1000);
+    }
+    return n;
 }
 
 } // namespace ble

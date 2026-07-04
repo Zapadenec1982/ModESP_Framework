@@ -152,13 +152,19 @@ modesp::ISensorDriver* ble_xiaomi_th_factory(const modesp::Binding& b, modesp::H
         ESP_LOGE(TAG, "pool exhausted");
         return nullptr;
     }
+    // Resolve the MAC via the device id (binding.hardware). find_ble_device merges the
+    // runtime registry (/data/devices.json — user-subscribed devices) with board.json
+    // ble_devices, so a subscribed device resolves identically to a factory one — the
+    // driver never learns the identity's origin. Device identity lives on the DEVICE,
+    // never on the role binding.
+    uint8_t mac[6];
     auto* dev = hal.find_ble_device(
         etl::string_view(b.hardware_id.c_str(), b.hardware_id.size()));
     if (!dev) {
-        ESP_LOGE(TAG, "BLE device '%s' not in board.json ble_devices", b.hardware_id.c_str());
+        ESP_LOGE(TAG, "role '%s': hw '%s' not in board.json nor devices.json",
+                 b.role.c_str(), b.hardware_id.c_str());
         return nullptr;
     }
-    uint8_t mac[6];
     if (!parse_mac(dev->mac.c_str(), mac)) {
         ESP_LOGE(TAG, "bad MAC '%s' for '%s'", dev->mac.c_str(), b.hardware_id.c_str());
         return nullptr;
@@ -175,6 +181,28 @@ modesp::ISensorDriver* ble_xiaomi_th_factory(const modesp::Binding& b, modesp::H
     drv.apply_settings(b);
     return &drv;
 }
+
+// Discovery: snapshot the transport's recently-seen advertisers so the UI can list
+// nearby BLE sensors (MAC + live temperature + signal) to subscribe to. hw_id is
+// ignored — a BLE scan is radio-wide (the passive observer runs continuously), not
+// per-bus. out[].address = display MAC; value = temperature; rssi = signal.
+int ble_xiaomi_th_discovery(modesp::HAL& /*hal*/, const char* /*hw_id*/,
+                            modesp::DiscoveredDevice* out, size_t max) {
+    if (!out || max == 0) return 0;
+    modesp::ble::BleSeenDevice seen[16];
+    size_t n = modesp::ble::list_seen(seen, sizeof(seen) / sizeof(seen[0]));
+    if (n > max) n = max;
+    for (size_t i = 0; i < n; i++) {
+        const auto& s = seen[i];
+        snprintf(out[i].address, sizeof(out[i].address),
+                 "%02x:%02x:%02x:%02x:%02x:%02x",
+                 s.mac[0], s.mac[1], s.mac[2], s.mac[3], s.mac[4], s.mac[5]);
+        out[i].has_value = s.has_temp;
+        out[i].value     = s.has_temp ? s.temp_c : 0.0f;
+        out[i].rssi      = s.rssi;
+    }
+    return static_cast<int>(n);
+}
 } // namespace
 
-MODESP_REGISTER_SENSOR(ble_xiaomi_th, &ble_xiaomi_th_factory)
+MODESP_REGISTER_SENSOR_WITH_DISCOVERY(ble_xiaomi_th, &ble_xiaomi_th_factory, &ble_xiaomi_th_discovery)

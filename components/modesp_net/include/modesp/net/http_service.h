@@ -91,6 +91,8 @@ private:
     static esp_err_t handle_get_ui(httpd_req_t* req);
     static esp_err_t handle_get_bindings(httpd_req_t* req);
     static esp_err_t handle_post_bindings(httpd_req_t* req);
+    static esp_err_t handle_get_devices(httpd_req_t* req);
+    static esp_err_t handle_post_devices(httpd_req_t* req);
     static esp_err_t handle_get_modules(httpd_req_t* req);
     static esp_err_t handle_post_settings(httpd_req_t* req);
     static esp_err_t handle_post_wifi(httpd_req_t* req);

@@ -45,6 +45,7 @@ export default {
   'bind.add_equip': 'Додати обладнання',
   'bind.used': 'зайнято',
   'bind.choose_hw': 'Оберіть обладнання',
+  'bind.choose_channel': 'Оберіть канал',
   'bind.role': '-- Роль --',
   'bind.found': 'Знайдено {0} пристроїв, {1} вже призначено',
   'bind.found_total': 'Знайдено на шині:',
@@ -57,6 +58,23 @@ export default {
   'bind.in_use': 'зайнято',
   'bind.selected': 'обрано',
   'bind.no_devices': 'Пристроїв не знайдено',
+
+  // Devices (remote device subscriptions)
+  'dev.loading': 'Завантаження…',
+  'dev.load_failed': 'Не вдалося завантажити пристрої',
+  'dev.subscribed': 'Підписані пристрої',
+  'dev.none': 'Немає підписаних пристроїв. Скануйте нижче, щоб додати.',
+  'dev.scan': 'Сканувати',
+  'dev.scanning': 'Сканування…',
+  'dev.scan_hint': 'Натисніть «Сканувати» для пошуку пристроїв поблизу',
+  'dev.subscribe': 'Підписати',
+  'dev.have': 'підписано',
+  'dev.save': 'Зберегти',
+  'dev.saving': 'Збереження…',
+  'dev.unsaved': 'Є незбережені зміни',
+  'dev.saved_title': 'Пристрої збережено',
+  'dev.saved_msg': 'Зміни застосуються після перезапуску.',
+
   'page.not_found': 'Сторінку не знайдено',
 
   // Connection

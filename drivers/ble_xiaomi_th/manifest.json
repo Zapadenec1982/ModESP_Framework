@@ -7,12 +7,12 @@
   "requires_address": true,
   "multiple_per_bus": true,
   "provides": {"type": "float", "description": "температура °C / вологість % / батарея % залежно від address-каналу"},
-  "_address_channels": {
-    "_note": "Поле 'address' у bindings обирає величину; один MAC (board.json ble_devices) живить кілька ролей.",
-    "temperature": "температура, °C",
-    "humidity": "вологість, %",
-    "battery": "заряд батареї, %"
-  },
+  "_address_channels_note": "address_channels: фіксований enum каналів (не сканується). Поле binding.address обирає величину; один пристрій (device id) живить кілька ролей. Генератор → role.channels → канальний <select> у BindingsEditor.",
+  "address_channels": [
+    {"value": "temperature", "label": "Температура, °C"},
+    {"value": "humidity",    "label": "Вологість, %"},
+    {"value": "battery",     "label": "Батарея, %"}
+  ],
   "settings": [
     {"key": "stale_ms", "type": "int", "default": 60000, "min": 5000, "max": 600000, "step": 1000, "unit": "мс", "description": "Без adv-кадру довше — датчик несправний", "persist": true}
   ],
@@ -29,5 +29,23 @@
         ]
       }
     ]
+  },
+  "discovery": {
+    "supported": true,
+    "scan_endpoint": "/api/drivers/scan?driver=ble_xiaomi_th",
+    "assigns": "mac",
+    "_assigns_note": "assigns:'mac' → цей скан ПІДПИСУЄ пристрій (додає рядок у /data/devices.json з його MAC), а не пише щось у binding. Роль потім біндиться на device id + address-канал транспорт-агностично.",
+    "returns": [
+      {"field": "address", "type": "string", "description": "MAC пристрою"},
+      {"field": "value",   "type": "float",  "description": "Температура °C (для ідентифікації)"},
+      {"field": "rssi",    "type": "int",     "description": "Сигнал, dBm (сильніший = ближче)"}
+    ],
+    "ui": {
+      "title": "BLE-сенсори Xiaomi/BTHome",
+      "description": "Сенсори поблизу (Xiaomi/BTHome). Тримайте потрібний ближче — сильніший RSSI. Підпишіть його, щоб він став доступним для прив'язки ролей як звичайний сенсор.",
+      "scan_button": "Сканувати BLE",
+      "result_table": true,
+      "assign_action": true
+    }
   }
 }

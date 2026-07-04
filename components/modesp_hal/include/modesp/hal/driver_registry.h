@@ -39,11 +39,13 @@ using DisplayFactory  = display::IDisplayPort*  (*)(const Binding&, HAL&);
 using AudioFactory    = audio::IAudioSink*      (*)(const Binding&, HAL&);
 
 /// One device found by a driver's discovery scan (bus enumeration before any
-/// binding exists). `value` is an optional preview sample (e.g. temperature).
+/// binding exists). `value` is an optional preview sample (e.g. temperature);
+/// `rssi` is an optional signal level for radios (BLE) — 0 = not applicable.
 struct DiscoveredDevice {
-    char  address[24] = {};
-    float value       = 0.0f;
-    bool  has_value   = false;
+    char   address[24] = {};   // ROM address / BLE MAC / bus device id
+    float  value       = 0.0f;
+    bool   has_value   = false;
+    int8_t rssi        = 0;    // dBm, 0 = unavailable (wired buses leave it 0)
 };
 
 /// Scan the board resource `hw_id` (id from board.json, e.g. "ow_1") and fill

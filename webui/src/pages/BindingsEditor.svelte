@@ -10,10 +10,31 @@
   // Roles/hardware metadata з ui.json bindings page
   $: bindingsPage = $pages.find(p => p.id === 'bindings') || {};
   $: roles = bindingsPage.roles || [];
-  $: hwInventory = bindingsPage.hardware || [];
+
+  // Hardware inventory = board.json (build-time, from ui.json) ∪ runtime-subscribed
+  // devices (GET /api/devices — remote devices the user added on the Devices page),
+  // runtime-wins-by-id. A subscribed device surfaces in the hardware dropdown for every
+  // compatible role and the role binds to it exactly like a factory device — no MAC in
+  // the binding. Mirrors find_ble_device's merge on the firmware side.
+  $: boardHw = bindingsPage.hardware || [];
+  $: hwInventory = mergeHw(boardHw, runtimeDevices);
+
+  function mergeHw(board, runtime) {
+    const byId = new Map(board.map(h => [h.id, h]));
+    for (const d of runtime) {
+      byId.set(d.id, {
+        id: d.id,
+        hw_type: d.hw_type || 'ble',
+        label: d.label || d.id,
+        shareable: true,   // a remote device backs several channel-roles (temp/hum/batt)
+      });
+    }
+    return [...byId.values()];
+  }
 
   // Поточні bindings (завантажуються з /api/bindings)
   let bindings = [];
+  let runtimeDevices = [];   // GET /api/devices — user-subscribed remote devices
   let loading = true;
   let error = null;
   let saving = false;
@@ -25,9 +46,16 @@
       bindings = data.bindings || [];
     } catch (e) {
       error = e.message;
-    } finally {
-      loading = false;
     }
+    // Runtime device registry — degrade gracefully: if it fails or is empty the editor
+    // still lists board.json hardware, so a BLE-less build is unaffected.
+    try {
+      const dd = await apiGet('/api/devices');
+      runtimeDevices = dd.devices || [];
+    } catch (e) {
+      /* no runtime devices — factory hardware only */
+    }
+    loading = false;
   });
 
   // ── Hardware helpers ──
@@ -224,7 +252,9 @@
             <BindingCard {roleDef} {binding}
               hwList={compatibleHw(roleDef)}
               usedIds={usedHwIds(roleDef.role)}
+              {assignedAddresses}
               on:changeHw={e => setHardware(e.detail.role, e.detail.hw)}
+              on:changeAddr={e => setAddress(e.detail.role, e.detail.addr)}
               on:remove={e => removeRole(e.detail)} />
           {/if}
         {/each}

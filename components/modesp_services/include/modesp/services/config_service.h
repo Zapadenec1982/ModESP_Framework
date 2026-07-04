@@ -31,6 +31,7 @@ private:
 
     bool mount_littlefs();
     bool parse_board_json();
+    bool parse_devices_json();
     bool parse_bindings_json();
 
     // JSON parsing limits (static buffers in BSS — не впливає на стек)

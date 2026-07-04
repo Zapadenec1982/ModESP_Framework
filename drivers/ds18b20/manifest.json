@@ -30,7 +30,8 @@
   },
   "discovery": {
     "supported": true,
-    "scan_endpoint": "/api/drivers/ds18b20/scan",
+    "scan_endpoint": "/api/drivers/scan?driver=ds18b20",
+    "assigns": "address",
     "returns": [
       {"field": "address",     "type": "string", "description": "ROM адреса (64-bit)"},
       {"field": "temperature", "type": "float",  "description": "Поточне показання (для ідентифікації)"},

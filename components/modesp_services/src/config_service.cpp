@@ -128,6 +128,14 @@ bool ConfigService::on_init() {
         return false;
     }
 
+    // Runtime device registry (/data/devices.json) — user-subscribed remote devices
+    // (BLE by MAC today). Merges into board_config_.ble_devices, runtime-wins-by-id,
+    // so a subscribed device becomes indistinguishable from a factory board.json one.
+    // Absent/empty file is non-fatal (returns true) — board.json remains the seed.
+    if (!parse_devices_json()) {
+        ESP_LOGW(TAG, "devices.json present but malformed — ignoring runtime devices");
+    }
+
     if (!parse_bindings_json()) {
         ESP_LOGE(TAG, "Failed to parse bindings.json");
         free_parse_buffers();
@@ -732,6 +740,116 @@ bool ConfigService::parse_board_json() {
             // Пропустити невідомий ключ + значення (масиви/об'єкти коректно)
             i++;  // skip key
             i = skip_token(tokens, i, ntokens);  // skip value
+        }
+    }
+
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Parse devices.json (runtime device registry)
+// ═══════════════════════════════════════════════════════════════
+
+// Runtime-writable sibling of board.json ble_devices. Rows: {id, hw_type, mac, label}.
+// Merged into board_config_.ble_devices with runtime-wins-by-id, so a subscribed device
+// resolves via find_ble_device exactly like a factory one — the role layer never sees a
+// MAC. Only hw_type "ble" is honoured today; hw_type is the generalization hook for
+// future transports. Absent file → no runtime devices (returns true, non-fatal).
+bool ConfigService::parse_devices_json() {
+    char* buf = s_json_buf;
+    jsmntok_t* tokens = s_json_tokens;
+
+    FILE* f = fopen("/data/devices.json", "r");
+    if (!f) {
+        return true;   // no runtime registry — board.json ble_devices are the seed
+    }
+    size_t len = fread(buf, 1, MAX_JSON_SIZE - 1, f);
+    fclose(f);
+    buf[len] = '\0';
+
+    jsmn_parser parser;
+    jsmn_init(&parser);
+    int ntokens = jsmn_parse(&parser, buf, len, tokens, MAX_TOKENS);
+    if (ntokens < 0) {
+        ESP_LOGE(TAG, "devices.json parse error: %d", ntokens);
+        return false;
+    }
+    if (ntokens < 1 || tokens[0].type != JSMN_OBJECT) {
+        ESP_LOGE(TAG, "devices.json: root is not object");
+        return false;
+    }
+
+    char tmp[32];
+
+    for (int i = 1; i < ntokens; ) {
+        if (jsoneq(buf, &tokens[i], "devices")) {
+            if (tokens[i + 1].type != JSMN_ARRAY) {
+                ESP_LOGE(TAG, "devices.json: 'devices' is not array");
+                return false;
+            }
+            int arr_size = tokens[i + 1].size;
+            int j = i + 2;
+
+            for (int elem = 0; elem < arr_size; elem++) {
+                // devices.json is runtime-written — a malformed element must not abort the
+                // whole registry (that would drop already-parsed valid rows while the caller
+                // logs "ignoring"). Skip the bad element and continue.
+                if (tokens[j].type != JSMN_OBJECT) {
+                    ESP_LOGW(TAG, "devices.json: device entry is not object — skipped");
+                    j = skip_token(tokens, j, ntokens);
+                    continue;
+                }
+                int obj_keys = tokens[j].size;
+                j++;
+
+                BleDeviceConfig cfg = {};
+                char hw_type[8] = "ble";   // default; only "ble" honoured today
+                for (int k = 0; k < obj_keys; k++) {
+                    if (jsoneq(buf, &tokens[j], "id")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.id = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "mac")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.mac = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "label") ||
+                               jsoneq(buf, &tokens[j], "name")) {
+                        // Webui writes "label"; board.json uses "name" — accept both into
+                        // BleDeviceConfig.name (the human label / connect adv-name prefix).
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.name = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "hw_type")) {
+                        tok_to_str(buf, &tokens[j + 1], hw_type, sizeof(hw_type));
+                    }
+                    // Advance past the key, then past the value SUBTREE. A blind j += 2 would
+                    // desync the walk if a hand-crafted row carried a nested object/array
+                    // value (mirrors parse_bindings_json's nested-settings handling).
+                    j++;
+                    j = skip_token(tokens, j, ntokens);
+                }
+
+                if (strcmp(hw_type, "ble") != 0 || cfg.id.empty() || cfg.mac.empty()) {
+                    continue;   // unsupported transport, or missing id/mac — skip
+                }
+
+                // Merge: runtime row overrides a board.json device of the same id,
+                // else appends. runtime-wins-by-id keeps one merged inventory.
+                bool merged = false;
+                for (auto& dev : board_config_.ble_devices) {
+                    if (dev.id == cfg.id) {
+                        dev.mac  = cfg.mac;
+                        dev.name = cfg.name;
+                        merged = true;
+                        break;
+                    }
+                }
+                if (!merged && !board_config_.ble_devices.full()) {
+                    board_config_.ble_devices.push_back(cfg);
+                }
+            }
+            i = j;
+        } else {
+            i++;
+            i = skip_token(tokens, i, ntokens);
         }
     }
 
