@@ -2,6 +2,26 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "modesp/board.schema.json",
   "title": "ModESP board.json",
+  "$defs": {
+    "remote_device_array": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id":        { "type": "string", "minLength": 1, "maxLength": 16 },
+          "label":     { "type": "string" },
+          "transport": { "type": "string" },
+          "identity":  { "type": "string" },
+          "mac":       { "type": "string", "pattern": "^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$" },
+          "name":      { "type": "string" },
+          "format":    { "type": "string" }
+        },
+        "required": [ "id" ],
+        "patternProperties": { "^_": {} },
+        "additionalProperties": false
+      }
+    }
+  },
   "type": "object",
   "properties": {
     "manifest_version": {
@@ -525,37 +545,12 @@
       }
     },
     "ble_devices": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 16
-          },
-          "label": {
-            "type": "string"
-          },
-          "mac": {
-            "type": "string",
-            "pattern": "^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$"
-          },
-          "name": {
-            "type": "string"
-          },
-          "format": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "patternProperties": {
-          "^_": {}
-        },
-        "additionalProperties": false
-      }
+      "$comment": "Legacy key alias for remote_devices (BLE-only seed).",
+      "$ref": "#/$defs/remote_device_array"
+    },
+    "remote_devices": {
+      "$comment": "Off-board devices seeded at factory (transport-generic). Runtime subscriptions live in /data/devices.json.",
+      "$ref": "#/$defs/remote_device_array"
     }
   },
   "required": [

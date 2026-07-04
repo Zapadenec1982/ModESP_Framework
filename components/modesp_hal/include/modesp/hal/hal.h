@@ -62,9 +62,11 @@ public:
     /// channel and owns its DMA buffers + feeder task (mirrors ADC ownership).
     I2SBusResource*            find_i2s_bus(etl::string_view id);
 
-    /// Find a BLE-observer device config by hardware ID (e.g. "ble_xiaomi_bthome").
-    /// HAL holds only the MAC; modesp_ble (BleCentral) owns decode/cache.
-    BleDeviceConfig*           find_ble_device(etl::string_view id);
+    /// Find a remote device config by hardware ID (e.g. "ble_xiaomi_bthome"). HAL holds only
+    /// the transport tag + identity blob; the transport component (BleCentral) owns decode/cache.
+    RemoteDeviceConfig*        find_remote_device(etl::string_view id);
+    /// Legacy alias — callers pre-dating the transport-generic rename.
+    BleDeviceConfig*           find_ble_device(etl::string_view id) { return find_remote_device(id); }
 
     size_t gpio_output_count()  const { return gpio_output_count_; }
     size_t onewire_count()      const { return onewire_count_; }
@@ -86,7 +88,7 @@ private:
     etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>        i2c_displays_;
     etl::array<UartBusResource, MAX_UART_BUSES>           uart_buses_;
     etl::array<I2SBusResource, MAX_I2S_BUSES>            i2s_buses_;
-    etl::vector<BleDeviceConfig, MAX_BLE_DEVICES>        ble_devices_;
+    etl::vector<RemoteDeviceConfig, MAX_REMOTE_DEVICES>  remote_devices_;
 
     size_t gpio_output_count_  = 0;
     size_t onewire_count_      = 0;

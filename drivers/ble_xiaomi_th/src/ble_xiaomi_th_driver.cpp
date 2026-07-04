@@ -163,8 +163,8 @@ modesp::ISensorDriver* ble_xiaomi_th_factory(const modesp::Binding& b, modesp::H
                  b.role.c_str(), b.hardware_id.c_str());
         return nullptr;
     }
-    if (!parse_mac(dev->mac.c_str(), mac)) {
-        ESP_LOGE(TAG, "bad MAC '%s' for '%s'", dev->mac.c_str(), b.hardware_id.c_str());
+    if (!parse_mac(dev->identity.c_str(), mac)) {
+        ESP_LOGE(TAG, "bad MAC '%s' for '%s'", dev->identity.c_str(), b.hardware_id.c_str());
         return nullptr;
     }
     const modesp::BleReading* cache = modesp::BleCentral::instance().register_mac(mac);

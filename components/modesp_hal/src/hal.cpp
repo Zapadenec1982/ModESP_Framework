@@ -67,13 +67,13 @@ bool HAL::init(const BoardConfig& config) {
         }
     }
 
-    // BLE-observer devices: config-only (MAC). modesp_ble (BleCentral) owns the
-    // decode/cache; the ble_* driver reads it via find_ble_device(). No HW init.
-    ble_devices_.clear();
-    for (const auto& c : config.ble_devices) {
-        if (ble_devices_.full()) break;
-        ble_devices_.push_back(c);
-        ESP_LOGI(TAG, "  BLE device '%s' mac=%s", c.id.c_str(), c.mac.c_str());
+    // Remote devices: config-only (transport tag + identity). The transport component
+    // (BleCentral etc.) owns decode/cache; the driver reads it via find_remote_device(). No HW init.
+    remote_devices_.clear();
+    for (const auto& c : config.remote_devices) {
+        if (remote_devices_.full()) break;
+        remote_devices_.push_back(c);
+        ESP_LOGI(TAG, "  remote device '%s' %s=%s", c.id.c_str(), c.transport.c_str(), c.identity.c_str());
     }
 
     ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_exp, %d uart, %d i2s",
@@ -577,8 +577,8 @@ bool HAL::init_i2s(const BoardConfig& config) {
     return true;
 }
 
-BleDeviceConfig* HAL::find_ble_device(etl::string_view id) {
-    for (auto& cfg : ble_devices_) {
+RemoteDeviceConfig* HAL::find_remote_device(etl::string_view id) {
+    for (auto& cfg : remote_devices_) {
         if (cfg.id.size() == id.size() &&
             etl::string_view(cfg.id.c_str(), cfg.id.size()) == id) {
             return &cfg;

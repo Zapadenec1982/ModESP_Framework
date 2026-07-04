@@ -138,9 +138,9 @@ POST /api/devices ─► handle_post_devices → validate → write /data/device
       │             (MAX_RUNTIME_DEVICES=12; логує "restart needed")
       ▼  RESTART
 ConfigService::on_init: parse_board_json ∪ parse_devices_json  (runtime-wins-by-id)
-      │  merged → HAL.ble_devices_ (MAX_BLE_DEVICES=16)
+      │  merged → HAL.remote_devices_ (MAX_REMOTE_DEVICES=16; RemoteDeviceConfig{transport,identity,name})
       ▼
-роль біндиться до device id (транспорт-агностично; find_ble_device резолвить id→MAC/name)
+роль біндиться до device id (транспорт-агностично; find_remote_device резолвить id→identity/name)
 ```
 
 **Два транспортні seam'и:**
@@ -252,7 +252,7 @@ boards/<b>/bindings.json ─┘                                    + main/Kconfi
 
 1. **Роль оголошує лише модуль-власник** (той, що її споживає). Не клади роль у чужий модуль. Це стосується ВСІХ типів периферії — навіть багатий connect-драйвер (panel) оголошує роль у своєму модулі й резолвиться за роллю, а не через глобал.
 2. **НІКОЛИ не редагуй згенеровані файли** — `data/ui.json`, весь `generated/*.h` + `generated/*.cmake`, `components/modesp_hal/Kconfig`, `main/Kconfig.boards`, `data/www/i18n/*`. Змінюй МАНІФЕСТ; CMAKE_CONFIGURE_DEPENDS перегенерує.
-3. **Ніякого транспорт-специфічного поля на Binding.** Binding посилається на device id; ідентичність (MAC/adv-name) живе на рядку пристрою (board.json/devices.json), не в bindings.json. `find_ble_device` резолвить id→MAC/name.
+3. **Ніякого транспорт-специфічного поля на Binding.** Binding посилається на device id; ідентичність (transport identity/adv-name) живе на рядку пристрою (board.json/devices.json), не в bindings.json. `find_remote_device` резолвить id→identity/name (транспорт-агностично).
 4. **Декодери/матчери реєструються на BOOT** (register-хук `modesp_register_driver_<name>`), НЕ у фабриці — інакше неприв'язаний пристрій невидимий у скані й не підписується.
 5. **Дротове → board.json; runtime-BLE → devices.json.** board.json — GET-only; його BLE-секція — лише factory seed. Не хардкодь BLE в board.json.
 6. **Напрями залежностей:** modules→framework→platform; drivers→hal; ble→net (НЕ net→ble); ніщо не залежить від modesp_core у зворотний бік; framework не залежить від product.
@@ -261,4 +261,4 @@ boards/<b>/bindings.json ─┘                                    + main/Kconfi
 9. **Опційні компоненти гейтять лише SRCS на CONFIG_*, ніколи REQUIRES.** Драйвер завжди через `modesp_driver_component()`, ніколи голий `idf_component_register`.
 10. **Модулі не чіпають GPIO** — тільки `ISensorDriver`/`IActuatorDriver`/`IDisplayPort`/`IAudioSink`/`IPanelPort` через bindings + SharedState/publish. Один драйвер = один register-макрос. Аналогові актуатори мусять override'ити `set_value/get_value/supports_analog` (default = discrete on/off).
 11. **Cloud — взаємовиключний** (mqtt XOR aws XOR none); board хардкод у модулях заборонений — залізо виражається лише через board.json/bindings.json. Редагуй їх у `boards/<board>/`, НЕ в `data/` (там копії, що перезаписуються).
-12. **Ліміти — жорсткі кепи:** MAX_BINDINGS=24, MAX_BLE_DEVICES=16, MAX_RUNTIME_DEVICES=12, MAX_LOG_CHANNELS=6, меню ≤255 nodes / ≤15 root-submenus. Незнана секція board.json тихо ігнорується (лише warning) — hardware зникає.
+12. **Ліміти — жорсткі кепи:** MAX_BINDINGS=24, MAX_REMOTE_DEVICES=16, MAX_RUNTIME_DEVICES=12, MAX_LOG_CHANNELS=6, меню ≤255 nodes / ≤15 root-submenus. Незнана секція board.json тихо ігнорується (лише warning) — hardware зникає.

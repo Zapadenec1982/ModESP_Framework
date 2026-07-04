@@ -882,7 +882,8 @@ BOARD_SECTION_TO_HW_TYPE = {
     "pwm_outputs": "pwm_output",
     "uart_buses": "uart_bus",
     "i2s_buses": "i2s_bus",
-    "ble_devices": "ble",
+    "ble_devices": "ble",       # legacy key alias for remote_devices (BLE-only seed)
+    "remote_devices": "ble",    # transport-generic key; per-entry transport→hw_type is a P6 refinement (only "ble" wired today)
 }
 
 # Hardware types a driver manifest may declare = every type a board section maps to
@@ -1132,16 +1133,17 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings,
                 continue
             hw_type[hw_id] = htype
             hw_section[hw_id] = section
-            # BLE devices: observers identified by MAC, connect devices (panels) by adv 'name'.
+            # Remote devices: an observer identity ("identity"/legacy "mac") OR a connect 'name'.
+            # For the BLE transport the identity is a MAC (format-checked); other transports opaque.
             if htype == "ble":
-                mac = entry.get("mac", "")
+                identity = entry.get("identity") or entry.get("mac", "")   # "mac" = legacy field alias
                 name = entry.get("name", "")
-                if mac and not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
+                if identity and not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", identity):
                     errors.append(
-                        f"[board] ble_devices '{hw_id}' has invalid 'mac': '{mac}'")
-                if not mac and not name:
+                        f"[board] {section} '{hw_id}' has invalid MAC identity: '{identity}'")
+                if not identity and not name:
                     errors.append(
-                        f"[board] ble_devices '{hw_id}' needs 'mac' (observer) or 'name' (connect device)")
+                        f"[board] {section} '{hw_id}' needs 'identity'/'mac' (observer) or 'name' (connect device)")
 
     valid_ids = ", ".join(sorted(hw_type)) or "(none)"
     hw_usage = {}             # hw_id -> [(role, driver, address)]

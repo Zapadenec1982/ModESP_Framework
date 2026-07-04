@@ -38,7 +38,8 @@ static constexpr size_t MAX_I2C_DISPLAYS   = 2;
 static constexpr size_t MAX_UART_BUSES     = 2;   // UART0 — консоль; лишаються 1/2
 static constexpr size_t MAX_I2S_BUSES      = 1;   // I2S TX (аудіо: MAX98357A тощо)
 static constexpr size_t MAX_EXPANDER_IOS   = 16;   // Outputs + Inputs через expanders
-static constexpr size_t MAX_BLE_DEVICES    = 16;   // BLE-observer devices: board.json factory seed + runtime /data/devices.json subscriptions (merged)
+static constexpr size_t MAX_REMOTE_DEVICES = 16;   // remote devices (any transport): board.json factory seed + runtime /data/devices.json subscriptions (merged)
+static constexpr size_t MAX_BLE_DEVICES    = MAX_REMOTE_DEVICES;   // legacy alias (transitional)
 static constexpr size_t MAX_BINDING_SETTINGS = 6;  // per-binding driver settings
 
 // ═══════════════════════════════════════════════════════════════
@@ -157,14 +158,17 @@ struct I2SBusConfig {
     uint32_t   sample_rate_hz = 16000;        // частота дискретизації (аларм-тони: 16k достатньо)
 };
 
-/// BLE-observer device (broadcast sensor: Xiaomi pvvx/ATC/BTHome тощо). HAL зберігає
-/// лише identity (MAC) — config-only, як I2CDisplayConfig. Декод/кеш живе у modesp_ble
-/// (BleCentral), а ble_* драйвер читає його через hardware_type "ble".
-struct BleDeviceConfig {
-    HalId           id;      // "ble_xiaomi_bthome" (hardware_id для bindings)
-    etl::string<18> mac;     // observer (broadcast sensor): "a4:c1:38:b4:dc:11"; empty for connect panels
-    etl::string<24> name;    // connect device (panel) adv-name prefix; empty for sensors
+/// Remote device (off-board sensor/actuator reached over a transport). HAL зберігає лише
+/// transport-тег + identity-blob — config-only, як I2CDisplayConfig. Декод/кеш живе у
+/// транспортному компоненті (напр. modesp_ble BleCentral), а драйвер читає його через свій
+/// hardware_type. Транспорт-генерик за задумом: "ble" сьогодні, "lora"/"mqtt"/"espnow" далі.
+struct RemoteDeviceConfig {
+    HalId           id;                 // "ble_xiaomi_bthome" (hardware_id для bindings)
+    etl::string<8>  transport = "ble";  // transport-тег; "ble" сьогодні, "lora"/"mqtt"/"espnow" далі
+    etl::string<40> identity;           // transport identity blob (BLE observer MAC "a4:c1:38:b4:dc:11"); empty for connect
+    etl::string<24> name;               // connect device (panel) adv-name prefix; empty for observers
 };
+using BleDeviceConfig = RemoteDeviceConfig;   // legacy alias (transitional)
 
 struct BoardConfig {
     etl::string<24> board_name;
@@ -181,7 +185,7 @@ struct BoardConfig {
     etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>               i2c_displays;
     etl::vector<UartBusConfig, MAX_UART_BUSES>                   uart_buses;
     etl::vector<I2SBusConfig, MAX_I2S_BUSES>                     i2s_buses;
-    etl::vector<BleDeviceConfig, MAX_BLE_DEVICES>               ble_devices;
+    etl::vector<RemoteDeviceConfig, MAX_REMOTE_DEVICES>         remote_devices;
 };
 
 // ═══════════════════════════════════════════════════════════════

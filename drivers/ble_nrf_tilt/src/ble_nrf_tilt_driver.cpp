@@ -171,8 +171,8 @@ modesp::ISensorDriver* ble_nrf_tilt_factory(const modesp::Binding& b, modesp::HA
         return nullptr;
     }
     uint8_t disp[6], le[6];
-    if (!parse_mac(dev->mac.c_str(), disp)) {
-        ESP_LOGE(TAG, "bad MAC '%s' for '%s'", dev->mac.c_str(), b.hardware_id.c_str());
+    if (!parse_mac(dev->identity.c_str(), disp)) {
+        ESP_LOGE(TAG, "bad MAC '%s' for '%s'", dev->identity.c_str(), b.hardware_id.c_str());
         return nullptr;
     }
     for (int i = 0; i < 6; i++) le[i] = disp[5 - i];   // display → addr.val (LE)

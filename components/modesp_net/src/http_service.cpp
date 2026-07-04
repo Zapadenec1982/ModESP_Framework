@@ -431,11 +431,11 @@ esp_err_t HttpService::handle_post_bindings(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// Runtime device registry (/data/devices.json). User-subscribed remote devices (BLE by
-// MAC today) — the runtime-writable sibling of board.json ble_devices. GET/POST mirror
-// the bindings handlers; ConfigService merges the file into the device inventory at boot
-// (runtime-wins-by-id). Bounded so the merged set fits MAX_BLE_DEVICES.
-static constexpr int MAX_RUNTIME_DEVICES = 12;   // headroom below MAX_BLE_DEVICES (16) for the board seed
+// Runtime device registry (/data/devices.json). User-subscribed remote devices (BLE by MAC
+// today; transport-generic) — the runtime-writable sibling of board.json remote_devices. GET/POST
+// mirror the bindings handlers; ConfigService merges the file into the device inventory at boot
+// (runtime-wins-by-id). Bounded so the merged set fits MAX_REMOTE_DEVICES.
+static constexpr int MAX_RUNTIME_DEVICES = 12;   // headroom below MAX_REMOTE_DEVICES (16) for the board seed
 
 esp_err_t HttpService::handle_get_devices(httpd_req_t* req) {
     if (!check_auth(req)) return ESP_OK;

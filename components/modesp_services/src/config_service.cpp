@@ -215,7 +215,7 @@ bool ConfigService::parse_board_json() {
         return false;
     }
 
-    char tmp[32];
+    char tmp[48];   // fits remote_devices identity<40> (+NUL); matches parse_devices_json
 
     // Iterate top-level keys
     for (int i = 1; i < ntokens; ) {
@@ -701,9 +701,10 @@ bool ConfigService::parse_board_json() {
                 }
             }
             i = j;
-        } else if (jsoneq(buf, &tokens[i], "ble_devices")) {
+        } else if (jsoneq(buf, &tokens[i], "remote_devices") ||
+                   jsoneq(buf, &tokens[i], "ble_devices")) {   // "ble_devices" = legacy key alias
             if (tokens[i + 1].type != JSMN_ARRAY) {
-                ESP_LOGE(TAG, "board.json: 'ble_devices' is not array");
+                ESP_LOGE(TAG, "board.json: 'remote_devices' is not array");
                 return false;
             }
             int arr_size = tokens[i + 1].size;
@@ -711,28 +712,32 @@ bool ConfigService::parse_board_json() {
 
             for (int elem = 0; elem < arr_size; elem++) {
                 if (tokens[j].type != JSMN_OBJECT) {
-                    ESP_LOGE(TAG, "board.json: ble_device entry is not object");
+                    ESP_LOGE(TAG, "board.json: remote_device entry is not object");
                     return false;
                 }
                 int obj_keys = tokens[j].size;
                 j++;
 
-                BleDeviceConfig cfg = {};
+                RemoteDeviceConfig cfg = {};   // transport defaults "ble"
                 for (int k = 0; k < obj_keys; k++) {
                     if (jsoneq(buf, &tokens[j], "id")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.id = tmp;
-                    } else if (jsoneq(buf, &tokens[j], "mac")) {
+                    } else if (jsoneq(buf, &tokens[j], "identity") ||
+                               jsoneq(buf, &tokens[j], "mac")) {   // "mac" = legacy field alias for identity
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
-                        cfg.mac = tmp;
+                        cfg.identity = tmp;
                     } else if (jsoneq(buf, &tokens[j], "name")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.name = tmp;
+                    } else if (jsoneq(buf, &tokens[j], "transport")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.transport = tmp;
                     }
                     j += 2;
                 }
-                if (!board_config_.ble_devices.full()) {
-                    board_config_.ble_devices.push_back(cfg);
+                if (!board_config_.remote_devices.full()) {
+                    board_config_.remote_devices.push_back(cfg);
                 }
             }
             i = j;
@@ -750,11 +755,12 @@ bool ConfigService::parse_board_json() {
 // Parse devices.json (runtime device registry)
 // ═══════════════════════════════════════════════════════════════
 
-// Runtime-writable sibling of board.json ble_devices. Rows: {id, hw_type, mac, label}.
-// Merged into board_config_.ble_devices with runtime-wins-by-id, so a subscribed device
-// resolves via find_ble_device exactly like a factory one — the role layer never sees a
-// MAC. Only hw_type "ble" is honoured today; hw_type is the generalization hook for
-// future transports. Absent file → no runtime devices (returns true, non-fatal).
+// Runtime-writable sibling of board.json remote_devices. Rows: {id, transport, identity, name, label}
+// (legacy aliases: hw_type→transport, mac→identity). Merged into board_config_.remote_devices with
+// runtime-wins-by-id, so a subscribed device resolves via find_remote_device exactly like a factory
+// one — the role layer never sees an identity. Any transport is honoured (only "ble" is wired to a
+// transport driver today; others sit inert until their driver lands). Absent file → no runtime
+// devices (returns true, non-fatal).
 bool ConfigService::parse_devices_json() {
     char* buf = s_json_buf;
     jsmntok_t* tokens = s_json_tokens;
@@ -779,7 +785,7 @@ bool ConfigService::parse_devices_json() {
         return false;
     }
 
-    char tmp[32];
+    char tmp[48];   // fits identity<40> (+NUL); MAC is 17
 
     for (int i = 1; i < ntokens; ) {
         if (jsoneq(buf, &tokens[i], "devices")) {
@@ -802,23 +808,25 @@ bool ConfigService::parse_devices_json() {
                 int obj_keys = tokens[j].size;
                 j++;
 
-                BleDeviceConfig cfg = {};
-                char hw_type[8] = "ble";   // default; only "ble" honoured today
+                RemoteDeviceConfig cfg = {};   // transport defaults "ble"
+                char transport[8] = "ble";     // "hw_type"/"transport" override; any value honoured
                 for (int k = 0; k < obj_keys; k++) {
                     if (jsoneq(buf, &tokens[j], "id")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.id = tmp;
-                    } else if (jsoneq(buf, &tokens[j], "mac")) {
+                    } else if (jsoneq(buf, &tokens[j], "identity") ||
+                               jsoneq(buf, &tokens[j], "mac")) {   // "mac" = legacy field alias
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
-                        cfg.mac = tmp;
+                        cfg.identity = tmp;
                     } else if (jsoneq(buf, &tokens[j], "name")) {
                         // Connect device's adv-name (the connect target). Distinct from the
                         // human "label" (UI-only, round-trips via GET) — must NOT be conflated
                         // or a panel's name would be overwritten by its display label.
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.name = tmp;
-                    } else if (jsoneq(buf, &tokens[j], "hw_type")) {
-                        tok_to_str(buf, &tokens[j + 1], hw_type, sizeof(hw_type));
+                    } else if (jsoneq(buf, &tokens[j], "transport") ||
+                               jsoneq(buf, &tokens[j], "hw_type")) {   // "hw_type" = legacy field alias
+                        tok_to_str(buf, &tokens[j + 1], transport, sizeof(transport));
                     }
                     // Advance past the key, then past the value SUBTREE. A blind j += 2 would
                     // desync the walk if a hand-crafted row carried a nested object/array
@@ -826,27 +834,29 @@ bool ConfigService::parse_devices_json() {
                     j++;
                     j = skip_token(tokens, j, ntokens);
                 }
+                cfg.transport = transport;
 
-                // Valid when it has an identity: a MAC (broadcast observer) OR a name
-                // (connect device). id is always required.
-                if (strcmp(hw_type, "ble") != 0 || cfg.id.empty() ||
-                    (cfg.mac.empty() && cfg.name.empty())) {
-                    continue;   // unsupported transport, or missing id + identity — skip
+                // Valid when it has an identity: a broadcast/observer identity (BLE MAC) OR a
+                // connect name. id is always required. Any transport is accepted — a row for a
+                // transport whose driver is not present just sits inert (no driver resolves it).
+                if (cfg.id.empty() || (cfg.identity.empty() && cfg.name.empty())) {
+                    continue;   // missing id + identity — skip
                 }
 
                 // Merge: runtime row overrides a board.json device of the same id,
                 // else appends. runtime-wins-by-id keeps one merged inventory.
                 bool merged = false;
-                for (auto& dev : board_config_.ble_devices) {
+                for (auto& dev : board_config_.remote_devices) {
                     if (dev.id == cfg.id) {
-                        dev.mac  = cfg.mac;
-                        dev.name = cfg.name;
+                        dev.identity  = cfg.identity;
+                        dev.name      = cfg.name;
+                        dev.transport = cfg.transport;
                         merged = true;
                         break;
                     }
                 }
-                if (!merged && !board_config_.ble_devices.full()) {
-                    board_config_.ble_devices.push_back(cfg);
+                if (!merged && !board_config_.remote_devices.full()) {
+                    board_config_.remote_devices.push_back(cfg);
                 }
             }
             i = j;
