@@ -258,4 +258,9 @@ generic-слова), додати/прибрати модуль, драйвер 
 
 **Перевірки, які варто прогнати на залізі / окремій конфізі:**
 - Мінімальна offline-збірка на мінімальній платі (гейти підтверджено на місці — див. §5).
-- **Рантайм BLE Ф3.1** — прошити панель/сенсор (компіляція+рев'ю пройдені, рантайм не перевіряли).
+- ✅ **Рантайм BLE Ф3.1 — ПІДТВЕРДЖЕНО НА ЗАЛІЗІ (2026-07-04, stand_s3 N16R8).** Boot-лог:
+  Half A — BTHome-декодер (у драйвері ble_xiaomi_th) декодує Xiaomi `T=24.64C RH=40.36% batt=95%`;
+  Half B — `central-link target='LED_BLE_...'` → `Panel: panel backend resolved` (IPanelPort у on_bind)
+  → `chr uuid=0xfa02/0xfa03` (generic chr_role по профільних UUID) → `central-link READY (write+notify)`
+  → `ble_led_panel: panel show_text '08:41' (149-byte frame)` — панель крутить час/темп/вологість.
+  Board-профіль Ф3.4 теж підтверджено (16MB flash + partitions_16mb + BLE з sdkconfig.board).
