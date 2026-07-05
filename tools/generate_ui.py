@@ -1108,10 +1108,11 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings,
         for section in board:
             if (section not in BOARD_SECTION_TO_HW_TYPE
                     and section not in BOARD_META_KEYS
-                    and section not in BOARD_AUX_SECTIONS):
+                    and section not in BOARD_AUX_SECTIONS
+                    and not section.startswith("_")):   # schema allows _-prefixed comment/annotation keys
                 warnings.append(
                     f"[board] unknown top-level section '{section}' — ignored. "
-                    f"Known sections: {', '.join(sorted(BOARD_SECTION_TO_HW_TYPE | BOARD_AUX_SECTIONS))}")
+                    f"Known sections: {', '.join(sorted(set(BOARD_SECTION_TO_HW_TYPE) | BOARD_AUX_SECTIONS))}")
 
     # (a) No board or no bindings → nothing to cross-check.
     if not board or not bindings:

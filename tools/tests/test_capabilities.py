@@ -16,7 +16,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from generate_ui import (  # noqa: E402
     load_capabilities, derive_driver_capabilities, cross_validate, schema_errors,
-    role_channels_for, _driver_declared_capabilities)
+    role_channels_for, _driver_declared_capabilities, validate_bindings)
 
 
 # ── vocabulary load + validation ────────────────────────────────
@@ -246,6 +246,23 @@ def test_cross_validate_capability_wrong_kind_errors():
     cross_validate([{"module": "m", "requires": [{"role": "x", "type": "actuator", "capability": "temperature"}]}],
                    {}, errors, warnings, caps, {"temperature": ["ds18b20"]})
     assert any("kind" in e for e in errors), errors
+
+
+def test_validate_bindings_tolerates_comment_and_unknown_board_sections():
+    """A schema-allowed `_`-comment key + a genuinely unknown board section must NOT crash
+    validate_bindings. Regression: building the "unknown section" warning did `dict | set`
+    (BOARD_SECTION_TO_HW_TYPE | BOARD_AUX_SECTIONS) → TypeError, so ANY unknown/`_` key aborted
+    the generator (and the build), despite the schema allowing `^_` keys via patternProperties."""
+    board = {
+        "manifest_version": 1, "board": "x",
+        "_note_runtime": "BLE devices are added at runtime",   # schema-allowed comment key
+        "gpio_outputs": [{"id": "relay_0", "pin": 2}],
+        "made_up_section": [{"id": "z"}],                       # genuinely unknown → should warn
+    }
+    errors, warnings = [], []
+    validate_bindings(board, [], {}, errors, warnings)         # must not raise
+    assert any("made_up_section" in w for w in warnings), warnings   # real unknown → warned
+    assert not any("_note_runtime" in w for w in warnings), warnings  # comment key → skipped
 
 
 def test_cross_validate_warns_on_driver_plus_capability():
