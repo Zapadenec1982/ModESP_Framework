@@ -41,8 +41,10 @@ persist across reboots.
 
 ## How it's wired
 
-Reads `equipment.air_temp` (provided by Equipment Manager + temperature
-driver), writes `simple_thermo.output`. To actually drive а relay, route
+Reads `equipment.air_temp` (provided by Equipment Manager + а `temperature`
+capability driver), writes `simple_thermo.output`. The module never knows
+who supplies the temperature (ds18b20 / NTC / remote channel) — it only
+consumes the value by its state key (R0.1). To actually drive а relay, route
 `simple_thermo.output` to an actuator role through your business
 logic OR an additional binding-aware module.
 
@@ -88,6 +90,7 @@ Publishes:
 - `<base>/simple_thermo/temperature`
 - `<base>/simple_thermo/state`
 - `<base>/simple_thermo/output`
+- `<base>/simple_thermo/setpoint`
 
 Accepts:
 - `<base>/cmd/simple_thermo.setpoint`

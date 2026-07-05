@@ -6,8 +6,11 @@ NTC thermistor via ESP32 ADC channel із B-parameter equation. Cheap,
 simple, common у refrigeration і HVAC where ±0.5 °C accuracy is enough.
 Range typically -40…+125 °C depending on resistor і thermistor choice.
 
-The driver registers as а `sensor` із `hardware_type: adc_channel` і
-`requires_address: false`. Single sensor per bound ADC channel.
+The driver registers as а `sensor` із `hardware_type: adc_channel`,
+provides capability `temperature` і has `requires_address: false`.
+Single sensor per bound ADC channel. А role binds by capability, not by
+driver (R0.1 / R3.1) — the module asks for `temperature` without knowing
+who supplies it (ntc / ds18b20 / а BLE channel).
 
 REQUIRES: ESP-IDF ADC driver, `modesp_hal`.
 
@@ -17,15 +20,17 @@ REQUIRES: ESP-IDF ADC driver, `modesp_hal`.
 {
   "id": "ambient",
   "driver": "ntc",
-  "hardware_id": "ntc_ambient",
-  "role": "ambient_temp",
-  "channel": "adc_channel_3"
+  "hardware_id": "adc_1",
+  "role": "ambient_temp"
 }
 ```
 
-`channel` references а board-defined ADC channel (із attenuation і
-bit-width). The driver doesn't configure the ADC itself — that's the
-board's responsibility.
+`role` declares а capability (`capability: temperature`), not а driver —
+the Equipment Manager resolves it by role (e.g. `equipment.ambient_temp`),
+the source is swappable (R0.1). `hardware_id` references а board-defined
+ADC channel (`adc_channels[].id` in board.json, із attenuation і
+bit-width) — the driver resolves it via `find_adc_channel`. The driver
+doesn't configure the ADC itself — that's the board's responsibility.
 
 ## Settings (not persisted by default — adjust manifest)
 
@@ -41,11 +46,14 @@ Most NTCs ship із datasheet values for B і R25. Common: B = 3950, R25 = 10 k�
 
 ## Provides
 
-`{"type": "float", "unit": "°C", "range": [-40, 125]}` — published to
+`{"capability": "temperature", "type": "float", "unit": "°C", "range": [-40, 125]}` — published to
 `equipment.<role>`.
 
-NaN published if ADC reading is rail (0 or full-scale → sensor open or
-short).
+If the ADC reading is at rail (raw < 50 or > 4045 → sensor open or
+short) or the temperature is out of range, the driver skips the update
+and keeps the last valid value; `read()` returns `false` until а valid
+reading has been taken. After 5 consecutive errors the sensor is marked
+unhealthy (`is_healthy()` = `false`).
 
 ## B-parameter equation
 
@@ -100,6 +108,7 @@ The shipped manifest doesn't declare ui cards (terse manifest). Add
 ## Next steps
 
 - **[drivers/ds18b20.md](ds18b20.md)** — digital alternative.
+- **[rules.md](../rules.md)** — R0.1 (role=capability), R3.1 (match by capability).
 - **[02-module-author-guide/writing-a-driver.md](../../02-module-author-guide/writing-a-driver.md)**
 
 ## Source

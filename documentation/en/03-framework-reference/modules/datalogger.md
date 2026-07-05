@@ -23,8 +23,7 @@ REQUIRES: `modesp_core`, `modesp_services`, LittleFS partition.
   Stores `(timestamp, event_id)` records.
 - **Retention:** drops oldest records once total exceeds
   `datalogger.retention_hours` (default 48, range 12-168).
-- **WebUI access:** chart widget queries `/api/datalogger/series?key=X&window=1h`.
-- **CSV export:** `GET /api/datalogger/export?key=X&from=...&to=...`.
+- **WebUI access:** chart widget queries `/api/log?hours=N` (streaming chunked JSON).
 
 ## State keys
 
@@ -36,11 +35,13 @@ REQUIRES: `modesp_core`, `modesp_services`, LittleFS partition.
 | `datalogger.records_count` | int | Total channel records у buffer. |
 | `datalogger.events_count` | int | Total event records. |
 | `datalogger.flash_used` | int | Bytes consumed (KB). |
-| `datalogger.log_<channel>` | bool | Per-channel enable flag. |
 
-Per-channel enables (`log_evap`, `log_cond`, `log_setpoint`, etc.) are
-auto-generated з registered channels' `default` flag — if the manifest
-said `"default": true`, the corresponding `log_<channel>` defaults true.
+Per-channel enable toggles are NOT keys of this module. Each channel in
+`loggable.channels` may declare its own `enable_key` (a state key on the
+owning module); the generator emits it as `LOG_CHANNELS[].enable_key`. A
+channel with no `enable_key` is always on. The channel's `default` flag only
+seeds the starting value of that `enable_key`. An optional `requires`
+(→ `requires_key`) additionally gates the channel on hardware presence.
 
 ## How modules declare channels і events
 
@@ -75,61 +76,79 @@ See [02-module-author-guide/manifest.md](../../02-module-author-guide/manifest.m
 
 ## Storage format
 
-LittleFS partition (default 960 KB):
+LittleFS partition, directory `/data/log/`:
 
 ```
-/data/
-└── datalogger/
-    ├── channels.bin          binary records (timestamp + channel_id + value)
-    ├── events.bin            binary records (timestamp + event_id + flags)
-    └── ... (rotated files for retention pruning)
+/data/log/
+├── temp.bin      active temperature file (append-only)
+├── temp.old      rotated previous temperature file
+├── events.bin    active events file (append-only)
+└── events.old    rotated previous events file
 ```
+
+Rotation is single-stage: when the active file exceeds its limit (temperature:
+`retention_hours` × records/hour × 16 bytes; events: a hard 16 KB), it is
+renamed to `.old` (the previous `.old` is dropped).
 
 Compact binary encoding:
-- Channel record: 12 bytes (4 timestamp + 1 channel_id + 4 float value + 3 padding).
-- Event record: 8 bytes (4 timestamp + 2 event_id + 1 edge_type + 1 padding).
+- Temperature record (`TempRecord`, 16 bytes): 4 timestamp + 6 channels × int16 (value ×10; `TEMP_NO_DATA` = INT16_MIN when the channel isn't logged). ALL channels live in one record, not one record per channel.
+- Event record (`EventRecord`, 8 bytes): 4 timestamp + 1 event_type + 3 padding.
 
-48-hour buffer at 60 s sampling = ~3000 records per channel. 6 channels
-= ~18000 records = ~216 KB. Fits comfortably.
+48-hour buffer at 60 s sampling = ~2880 records (one record carries all
+channels) = ~46 KB. Fits comfortably.
 
 ## HTTP API
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/datalogger/series?key=X&window=1h` | JSON: `[{t, v}, ...]` filtered by time window. |
-| `GET /api/datalogger/events?from=T&to=T` | JSON event list. |
-| `GET /api/datalogger/export?key=X&from=T&to=T` | CSV download. |
-| `POST /api/datalogger/clear` | Wipe all logs. |
-| `POST /api/datalogger/settings` | Update enabled flags / intervals. |
+| `GET /api/log?hours=N` | Streaming chunked JSON of all active channels + events, filtered to the last `hours` hours (`hours<=0` = everything). |
+| `GET /api/log/summary` | Compact counters: `{"hours","temp_count","event_count","flash_kb","channels"}`. |
 
-Window strings: `10m` / `1h` / `24h` / `7d` / `30d` (limited by retention).
+The module self-registers as the history source (`log_source::set(this)` in
+`on_init`); `HttpService` reads the slot — no `set_datalogger()` in
+`main.cpp`. Settings (interval, retention, enable) are driven through the
+ordinary state endpoint from the manifest; there are no separate log routes.
+
+`/api/log` format (JSON v3):
+
+```json
+{"channels":["air","evap","setpoint"],
+ "temp":[[1700000000,225,180,220], ...],
+ "events":[[1700000000,10], ...]}
+```
+
+`channels` lists only channel ids that have at least one value; temperature
+values are integers ×10 (`22.5°C` → `225`) or `null` when that record has no
+value for the channel.
 
 ## Chart widget integration
 
-UI manifest:
+UI manifest (as in `datalogger/manifest.json` itself):
 
 ```json
 {
-  "key": "equipment.air_temp",
+  "key": "datalogger.chart",
   "widget": "chart",
-  "window": "1h",
-  "height": 200
+  "label": "Temperature chart",
+  "data_source": "/api/log",
+  "default_hours": 24
 }
 ```
 
-Widget queries the series endpoint, renders SVG line chart. Multi-series
-not yet supported у MVP (Stage 1.5).
+Widget queries `/api/log`, renders an SVG line chart for each active channel
+in the response.
 
 ## Performance і memory
 
 | Resource | Cost |
 |---|---|
-| In-RAM ring buffer | ~8 KB (most recent records cached) |
-| LittleFS write batch | ~1 KB per flush (every 5 minutes) |
+| In-RAM buffers (temp 16 × 16 B + events 32 × 8 B) | ~0.5 KB |
+| LittleFS write batch | append of buffered records (every 10 minutes) |
 | Per-tick CPU | < 0.5 ms typical |
 
-Sample writes throttled — actual flash writes happen every ~5 min
-(configurable). NVS-style debounce protects flash endurance.
+Sample writes throttled — actual flash writes happen every 10 min
+(`FLUSH_INTERVAL_MS`), plus a forced flush when the RAM buffer fills and on
+`on_stop`. NVS-style debounce protects flash endurance.
 
 ## Common patterns
 
@@ -157,11 +176,13 @@ DataLogger samples it next reboot.
 ```python
 import requests
 data = requests.get(
-    "http://192.168.1.85/api/datalogger/series",
-    params={"key": "equipment.air_temp", "window": "24h"},
+    "http://192.168.1.85/api/log",
+    params={"hours": 24},
     auth=("admin", "modesp"),
 ).json()
-# data = [{"t": 1700000000, "v": 22.5}, ...]
+# data = {"channels": ["air", ...],
+#         "temp": [[1700000000, 225, ...], ...],   # values ×10 or null
+#         "events": [[1700000000, 10], ...]}
 ```
 
 ## Common pitfalls
@@ -173,14 +194,15 @@ LittleFS files encode the old IDs; renumbering causes wrong labels.
 для а reason. Flash endurance ~100k erase cycles per sector. At 30 s
 sampling, plausible firmware lifetime is decades. At 1 s, just months.
 
-**Forgetting to enable per-channel toggles:** even if а channel is
-declared у manifest, `datalogger.log_<channel>` flag controls whether
-it's actually sampled. WebUI exposes the toggles.
+**Forgetting to enable per-channel toggles:** if a channel declares an
+`enable_key`, that state key (on the owning module) controls whether it's
+actually sampled; a channel with no `enable_key` is always on. If the channel
+has a `requires`, it also needs the hardware present.
 
-**Chart widget shows blank:** check the key is registered у
-`datalogger.channels`. If а business module's loggable section was added
-mid-development, datalogger may not have any records yet. Wait 1-2
-sample intervals.
+**Chart widget shows blank:** check the key is registered in the business
+module's `loggable.channels` (which feeds `datalogger_channels.h`). If a
+loggable section was added mid-development, datalogger may not have any
+records yet. Wait 1-2 sample intervals.
 
 ## Next steps
 

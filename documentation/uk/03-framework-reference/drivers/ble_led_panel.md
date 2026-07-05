@@ -2,7 +2,7 @@
 
 > 📖 **In English:** [documentation/en/03-framework-reference/drivers/ble_led_panel.md](../../../en/03-framework-reference/drivers/ble_led_panel.md)
 
-Драйвер керує китайською RGB LED-матрицею **iPixel Color / LED_BLE 64×16** через BLE. Це **actuator** з `hardware_type: ble_device`, який підключається до панелі **за ім'ям реклами (ADV-NAME)**, а не за MAC. Драйвер володіє **всім форматом дротового протоколу iPixel**: GATT-UUID'ами, control-байтами (живлення / яскравість), нативним кодером TEXT-кадру (гліфи + CRC32 + чанкінг) і фоновою render-задачею. BLE-лінк він отримує, реєструючи **connect-профіль** у загальному central-link seam хоста `modesp_ble` (`central_link.h`) — цей транспорт **не знає** жодного формату пристрою. Модуль [`panel`](../modules/panel.md) володіє **лише контентом** (що показувати) і керує драйвером через інтерфейс `IPanelPort`.
+Драйвер керує китайською RGB LED-матрицею **iPixel Color / LED_BLE 64×16** через BLE. Це **actuator** з `hardware_type: ble` (`transport: ble`), який оголошує `capability: panel` і підключається до панелі **за ім'ям реклами (ADV-NAME)**, а не за MAC. Ідентичність (adv-name) живе на рядку пристрою в `ble_devices`, ніколи на біндінгу ролі ([R0.3](../rules.md)). Драйвер володіє **всім форматом дротового протоколу iPixel**: GATT-UUID'ами, control-байтами (живлення / яскравість), нативним кодером TEXT-кадру (гліфи + CRC32 + чанкінг) і фоновою render-задачею. BLE-лінк він отримує, реєструючи **connect-профіль** у загальному central-link seam хоста `modesp_ble` (`central_link.h`) — цей транспорт **не знає** жодного формату пристрою. Модуль [`panel`](../modules/panel.md) володіє **лише контентом** (що показувати) і керує драйвером через інтерфейс `IPanelPort`.
 
 Драйвер носить **два капелюхи**:
 
@@ -26,7 +26,7 @@
 | Поле | Опис |
 |---|---|
 | `id` | Локальний ідентифікатор пристрою, на нього посилається binding. |
-| `name` | ADV-NAME панелі для підключення. Драйвер сканує префікс **`LED_BLE_`**. |
+| `name` | ADV-NAME панелі для підключення. Драйвер сканує префікс **`LED_BLE`** (`connect_name_prefix` у маніфесті). |
 
 ## Прив'язки (bindings.json)
 
@@ -46,7 +46,7 @@
 Драйвер віддає свій `ConnectProfile` (префікс ADV-NAME + write/notify UUID) загальному central-link'у `modesp_ble`, який далі веде машину станів connect/discover/READY:
 
 ```
-скан ADV-NAME "LED_BLE_" ──▶ connect ──▶ discover
+скан ADV-NAME "LED_BLE" ──▶ connect ──▶ discover
    write char fa02 (write-хендл) + notify char fa03 ──▶ READY
 ```
 
@@ -71,7 +71,7 @@
 ```cpp
 // до транспорту (modesp::ble, central_link.h) — драйвер реєструє профіль і пише крізь лінк:
 struct ConnectProfile {
-    const char*       name_prefix;   // префікс ADV-NAME ("LED_BLE_")
+    const char*       name_prefix;   // префікс ADV-NAME ("LED_BLE")
     const ble_uuid_t* write_uuid;    // fa02 — write-хендл
     const ble_uuid_t* notify_uuid;   // fa03 — підписка
     CentralNotifyCb   on_notify;     // приймач notify (тут nullptr)

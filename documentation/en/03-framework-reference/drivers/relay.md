@@ -7,8 +7,11 @@ mechanical relay, SSR, MOSFET, або anything else triggered by а GPIO
 high/low level. Зadдrives a typical compressor, fan, heater, valve
 у refrigeration.
 
-The driver registers as an `actuator` із `hardware_type: gpio_output`
-і `requires_address: false`. One actuator per bound GPIO.
+The driver registers as an `actuator` and provides the `relay_out`
+capability (`hardware_type: gpio_output`, `requires_address: false`).
+A role declares the `relay_out` capability, not this driver
+(R0.1/R3.1) — the signal source stays swappable. One actuator per
+bound GPIO.
 
 REQUIRES: `modesp_hal`. No external dependencies.
 
@@ -39,8 +42,9 @@ flag on the GPIO definition, not у the driver.
 
 ## Provides
 
-`{"type": "bool"}` — current commanded state, mirrored to
-`equipment.<role>`.
+`{"capability": "relay_out", "type": "bool"}` — current commanded
+state, mirrored to `equipment.<role>`. A role with the `relay_out`
+capability (out direction) matches this driver (R3.1).
 
 ## Pattern: how а business module drives це
 

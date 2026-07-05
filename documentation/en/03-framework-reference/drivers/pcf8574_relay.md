@@ -41,8 +41,10 @@ stay dumb. Inversion via board, timing via business module.
 
 ## Provides
 
-`{"type": "bool"}` — commanded level on the bound expander pin, mirrored
-to `equipment.<role>`.
+`{"capability": "relay_out", "type": "bool"}` — commanded level on the
+bound expander pin, mirrored to `equipment.<role>`. The consuming role
+declares the `relay_out` capability, not this driver; any actuator with
+the same capability is substitutable (R0.1, R3.1).
 
 ## Hardware notes
 

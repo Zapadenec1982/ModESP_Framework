@@ -4,10 +4,14 @@
 
 GPIO digital input — а binary sensor reading а switch, door contact,
 limit switch, або any dry-contact device. The simplest possible sensor
-driver — reads а GPIO level on each tick і publishes а bool.
+driver — reads а GPIO level on each tick, filters it with а software
+debounce (50 ms), і publishes а bool.
 
-The driver registers as а `sensor` із `hardware_type: gpio_input` і
-`requires_address: false`. One sensor per bound GPIO.
+The driver registers as а `sensor` із `hardware_type: gpio_input`,
+provides the `binary_in` capability, і has `requires_address: false`.
+One sensor per bound GPIO. The role binds by capability, not by driver
+(R0.1 / R3.1) — а module asks for `binary_in` without knowing who
+supplies it.
 
 REQUIRES: `modesp_hal`. No external dependencies.
 
@@ -33,13 +37,16 @@ configuration belongs у board.json.
 |---|---|---|---|
 | `invert` | bool | false | Invert logic (для NC vs NO contacts). Persisted. |
 
-That's it. Debouncing belongs у the consumer (e.g. door alarm module),
-not у the driver — different domains need different debounce timings.
+That's it. The driver already debounces the hardware contact with а
+built-in 50 ms filter (`DEBOUNCE_MS`) — the state is published only after
+the level stays stable for 50 ms. Higher-level logic (edge detect,
+timeouts, alarms) belongs у the consumer — different domains need
+different timings.
 
 ## Provides
 
-`{"type": "bool"}` — current pin level (із optional invert), published
-to `equipment.<role>`.
+`{"capability": "binary_in", "type": "bool"}` — debounced pin level (із
+optional invert), published to `equipment.<role>`.
 
 ## Pattern: consumed by business module
 
@@ -51,8 +58,8 @@ if (state.get("equipment.door_contact", door_open) && door_open) {
 }
 ```
 
-Debounce, edge detect, timeouts — all live у the consumer. Driver
-publishes the **raw level**.
+Edge detect, timeouts, alarms — all live у the consumer. Driver
+publishes the **debounced level** (50 ms filter).
 
 ## Hardware notes
 
@@ -77,9 +84,10 @@ board, you'll see noise. Always set pull-up або pull-down у board.json.
 — opposite of what а naive reader expects. Set `invert: true` to make
 "contact closed" → true.
 
-**Edge skipping:** driver polls at the tick rate (~100 Hz). Pulses
-shorter than ~10 ms can be missed. For interrupt-grade input, write а
-dedicated driver із GPIO ISR.
+**Edge skipping:** driver polls at the tick rate and requires 50 ms of
+stability (debounce). Pulses shorter than the debounce window are
+filtered out by design. For interrupt-grade input, write а dedicated
+driver із GPIO ISR.
 
 ## UI surface
 

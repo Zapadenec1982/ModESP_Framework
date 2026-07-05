@@ -9,7 +9,7 @@ The driver wears **two hats**:
 - **`modesp::IActuatorDriver`** — the hat that lets DriverManager create the driver from a binding and index it by role (`panel`, module `panel`). Its `update()` just logs the connect edge; `set()`/`set_value()` are effectively unused — power/brightness/text are driven by the `panel` module through `IPanelPort`.
 - **`modesp::panel::IPanelPort`** — the `panel` module resolves the SAME object by role (`find_actuator(role)->as_panel()`, a no-RTTI capability cast) and drives content (power / brightness / text) through it.
 
-The driver registers as an `actuator` with `hardware_type: ble_device`. Unlike `ble_xiaomi_th` (matched by MAC), this device is matched **by advertised name**.
+The driver registers as an `actuator` with `hardware_type: ble` (`transport: ble`) and declares `capability: panel`. Unlike `ble_xiaomi_th` (matched by MAC), this device is matched **by advertised name**. The identity (adv-name) lives on the `ble_devices` device row, never on the role binding ([R0.3](../rules.md)).
 
 REQUIRES: the `modesp_ble` component with `CONFIG_MODESP_BLE_ENABLE` and `CONFIG_MODESP_BLE_CENTRAL` (panel connect).
 
@@ -26,7 +26,7 @@ The panel is declared in the `ble_devices` section by **advertised name** (not M
 | Field | Meaning |
 |---|---|
 | `id` | Logical name referenced by `hardware` in bindings. |
-| `name` | Advertised name to connect to (scan matches the `LED_BLE_` prefix). |
+| `name` | Advertised name to connect to (scan matches the `LED_BLE` prefix — `connect_name_prefix` in the manifest). |
 
 ## Bindings
 
@@ -41,7 +41,7 @@ A single binding, bound to the `equipment` module:
 The driver supplies its `ConnectProfile` (adv-name prefix + write/notify UUIDs) to `modesp_ble`'s generic central link, which then runs the connect/discover/READY state machine:
 
 ```
-scan adv-name prefix "LED_BLE_"  ──▶  connect
+scan adv-name prefix "LED_BLE"  ──▶  connect
         │
         └─▶ discover
               ├─ write  char fa02   (commands, bound as the write handle)
@@ -69,7 +69,7 @@ Two seams meet in this driver. Toward the transport it registers a `ConnectProfi
 ```cpp
 // modesp::ble — the generic transport seam the driver supplies device data to:
 struct ConnectProfile {
-    const char*       name_prefix;   // adv-name prefix to scan+connect ("LED_BLE_")
+    const char*       name_prefix;   // adv-name prefix to scan+connect ("LED_BLE")
     const ble_uuid_t* write_uuid;    // fa02 — bound as the write handle
     const ble_uuid_t* notify_uuid;   // fa03 — subscribed
     CentralNotifyCb   on_notify;     // notify sink (nullptr here)

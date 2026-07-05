@@ -7,8 +7,10 @@ but bound here as а **sensor** — each pin reads as а dry contact via
 the chip's quasi-pull-up. Up to 8 chips per bus = 64 contact inputs
 sharing one I2C bus.
 
-The driver registers as а `sensor` із `hardware_type: i2c_expander_input`
-і `multiple_per_bus: true`. One binding per input bit.
+The driver registers as а `sensor` із `hardware_type: i2c_expander_input`,
+provides capability `binary_in` і has `multiple_per_bus: true`. One binding
+per input bit. The role binds by capability, not by driver (R0.1 / R3.1) —
+the module asks for `binary_in` without knowing who provides it.
 
 REQUIRES: ESP-IDF I2C driver, `modesp_hal`.
 
@@ -27,9 +29,10 @@ REQUIRES: ESP-IDF I2C driver, `modesp_hal`.
 ```
 
 - `bus`, `chip_address`, `pin` — same semantics as `pcf8574_relay`.
-- Driver aggregates all bindings sharing one `(bus, chip_address)` AND
-  issues а **single I2C read per chip per tick** — distributes the
-  byte to all 8 bindings без individual transactions.
+- Each binding is а separate driver instance: on every tick it issues its
+  **own I2C read** of the chip (`read_state`) and extracts its bit. Several
+  bindings on one chip = several reads per cycle (~6 reads per 100 ms at
+  100 kHz ~ 1.8 ms total — acceptable).
 
 ## Settings
 
@@ -41,8 +44,8 @@ Set за key, persisted via PersistService.
 
 ## Provides
 
-`{"type": "bool"}` — current contact state (із optional invert),
-mirrored to `equipment.<role>`.
+`{"capability": "binary_in", "type": "bool"}` — current contact state
+(із optional invert), mirrored to `equipment.<role>`.
 
 ## Hardware notes
 
@@ -85,7 +88,8 @@ None у shipped manifest.
 ## Why це а good driver to read
 
 - Variant of `pcf8574_relay` — same transport, different direction.
-- Demonstrates per-chip read aggregation pattern.
+- Demonstrates the `multiple_per_bus` pattern — several driver instances on
+  one chip, each with its own read.
 - Per-binding `invert` із persistence.
 
 ## Next steps

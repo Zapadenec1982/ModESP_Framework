@@ -31,8 +31,8 @@ pipeline (board.json → bindings.json → drivers → SharedState).
    read equipment.<role>, write equipment.req_<role>
 ```
 
-Equipment is а **service module** (priority `HIGH` = 1, runs у Phase 2 of
-init). The framework base (`EquipmentBase`) lives in `components/modesp_equipment/`; the demo subclass (`EquipmentModule`) and manifest ship in `modules/equipment/`.
+Equipment is а **service module** (priority `CRITICAL` = 0, starts first,
+stops last). The framework base (`EquipmentBase`) lives in `components/modesp_equipment/`; the demo subclass (`EquipmentModule`) and manifest ship in `modules/equipment/`.
 
 ## State keys exposed
 
@@ -76,13 +76,11 @@ degradation when hardware absent):
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `equipment.filter_coeff` | int | 4 | Digital filter coefficient for sensor smoothing (0=raw..10=heavy). |
-| `equipment.ntc_beta` | int | 3950 | NTC B-coefficient. Applies to all NTC sensors. |
-| `equipment.ntc_r_series` | int | 10000 | NTC series resistor у Ω. |
-| `equipment.ntc_r_nominal` | int | 10000 | NTC nominal resistance at 25 °C (Ω). |
-| `equipment.ds18b20_offset` | float | 0.0 | Global DS18B20 calibration offset (°C). |
 
-All persisted (`persist: true`) — user adjustments survive reboot. WebUI
-exposes these as setpoints; MQTT subscribes accept writes for remote tuning.
+Persisted (`persist: true`) — user adjustment survives reboot. WebUI
+exposes it as а setpoint; MQTT subscribe accepts writes for remote tuning.
+Sensor calibration itself (B-coefficient, resistances, offset) is а driver
+parameter on the binding, not an equipment state key.
 
 ## Update flow per tick
 
@@ -142,19 +140,19 @@ if (sensor_ok) {
 
 ## Configuration via WebUI / MQTT
 
-The `mqtt.subscribe` list lets external clients tune calibration без
+The `mqtt.subscribe` list lets external clients tune parameters без
 recompile:
 
 ```bash
-# Tune NTC B-coefficient via MQTT
-mosquitto_pub -t modesp/<device-id>/equipment/ntc_beta -m "3977"
+# Tune filter coefficient via MQTT
+mosquitto_pub -t modesp/<device-id>/equipment/filter_coeff -m "6"
 ```
 
 Or via HTTP:
 
 ```bash
 curl -u admin:modesp -X POST http://192.168.1.85/api/settings \
-  -d '{"equipment.ntc_beta": 3977}'
+  -d '{"equipment.filter_coeff": 6}'
 ```
 
 Or via the WebUI's "Equipment" page (auto-generated from manifest's `ui`
@@ -162,13 +160,14 @@ section — not shown here but lives у the equipment manifest).
 
 ## Customising the requires list
 
-Equipment manifest's `requires` declares **what kind of bindings the module
-expects**:
+Equipment manifest's `requires` declares **what roles (capabilities) the
+module expects**:
 
 ```json
 "requires": [
-  {"role": "air_temp",    "type": "sensor",   "driver": ["ds18b20", "ntc"], "label": "Temperature sensor"},
-  {"role": "actuator_1",  "type": "actuator", "driver": ["relay", "pcf8574_relay"], "label": "Actuator 1", "optional": true}
+  {"role": "air_temp",    "type": "sensor",   "capability": "temperature", "label": "Air temperature"},
+  {"role": "room_temp",   "type": "sensor",   "capability": "temperature", "label": "Room temperature", "optional": true},
+  {"role": "actuator_1",  "type": "actuator", "capability": "relay_out",    "label": "Actuator 1", "optional": true}
 ]
 ```
 
@@ -176,9 +175,13 @@ expects**:
 |---|---|
 | `role` | Must match а binding's `role` exactly. |
 | `type` | `"sensor"` / `"actuator"`. |
-| `driver` | Array of allowed driver types. Equipment accepts any of them. |
-| `label` | Human-readable name (for UI). |
+| `capability` | The capability the role consumes (`temperature`, `relay_out`…). А role declares а capability, **never а driver** — the source (ds18b20 / NTC / BLE channel / future LoRa) is swappable (R0.1 / R3.1). Vocabulary lives in `capabilities.json`. |
+| `label` | Human-readable name (for UI). No transport in it (R1.3). |
 | `optional` | If `true`, missing binding doesn't abort startup. Default `false`. |
+
+А role accepts а channel ⟺ `capability` matches і direction (in/out) agrees
+— no driver or transport in the predicate (R3.1). Which concrete driver fills
+the role is decided in `bindings.json` (routing, not part of `requires`).
 
 If you need more roles (multiple compressors, multiple temperature zones)
 edit equipment's manifest і add `requires` entries. Don't add roles
@@ -251,9 +254,11 @@ They diverge коли driver rejects (compressor min switch interval not yet
 elapsed). Always observe `equipment.<role>` to verify, don't trust the
 request immediately.
 
-**Persisting calibration accidentally:** `equipment.ntc_beta` is shared
-across all NTC sensors. Tuning the global value for one location skews
-all others. Stage 1.5 plans per-binding calibration overrides.
+**Global filter coefficient:** `equipment.filter_coeff` is shared across all
+of the module's sensors — one smoothing parameter, not per-role. If different
+sensors need different smoothing, split them into separate equipment
+subclasses. Per-sensor calibration (B-coefficient, offset) is set on the
+binding's driver, not here.
 
 ## Next steps
 

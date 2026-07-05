@@ -34,7 +34,7 @@ Output := без змін у решті випадків (у межах зони
 
 ## Як це підключається
 
-Читає `equipment.air_temp` (надається Equipment Manager + драйвером температури), записує `simple_thermo.output`. Щоб фактично керувати реле, направте `simple_thermo.output` до ролі актуатора через вашу бізнес-логіку АБО додатковий модуль, що знає про прив'язки.
+Читає `equipment.air_temp` (надається Equipment Manager + драйвером здатності `temperature`), записує `simple_thermo.output`. Модуль не знає, хто дає температуру (ds18b20 / NTC / віддалений канал) — лише споживає значення за ключем стану (R0.1). Щоб фактично керувати реле, направте `simple_thermo.output` до ролі актуатора через вашу бізнес-логіку АБО додатковий модуль, що знає про прив'язки.
 
 Типовий цикл:
 
@@ -74,6 +74,7 @@ private:
 - `<base>/simple_thermo/temperature`
 - `<base>/simple_thermo/state`
 - `<base>/simple_thermo/output`
+- `<base>/simple_thermo/setpoint`
 
 Приймає:
 - `<base>/cmd/simple_thermo.setpoint`

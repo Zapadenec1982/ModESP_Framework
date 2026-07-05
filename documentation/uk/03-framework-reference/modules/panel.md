@@ -4,14 +4,15 @@
 
 Бізнес-модуль, що володіє **тим, ЩО показує** BLE LED-панель iPixel Color / LED_BLE 64×16 RGB. **Чистий споживач SharedState** (як [`presence`](presence.md) / [`simple_thermo`](simple_thermo.md)): сам BLE не чіпає і **не має жодного BLE-хедера**. Драйвер [`ble_led_panel`](../drivers/ble_led_panel.md) володіє BLE-лінком і всім форматом дротового протоколу iPixel (UUID'и, control-байти, кодер тексту, шрифт, render-задача); цей модуль володіє **лише контентом**. Backend панелі модуль резолвить в override `on_bind` **за роллю** — `find_actuator(role)->as_panel()` → `modesp::panel::IPanelPort*` (панель — звичайний актуатор, якого створює DriverManager) — і подає все крізь цей порт (`connected()` / `set_power()` / `set_brightness()` / `show_text()`). Якщо драйвер панелі не прив'язано — порт `null`, і модуль не дає виводу. Фіча на гілці `feat/ble-led-panel`.
 
-Модуль ротує **три поля** кожні ~4 c — настінний **ГОДИННИК** (HH:MM з локального часу SNTP), **ТЕМПЕРАТУРА** (`equipment.room_temp`) і **ВОЛОГІСТЬ** (`equipment.room_humid`). Кожне поле health-гейтнуте (`equipment.<role>_ok`), де-дублюється і переоцінюється ~4 Гц.
+Модуль ротує **чотири поля** кожні ~4 c — настінний **ГОДИННИК** (HH:MM з локального часу SNTP), **ТЕМПЕРАТУРА** (`equipment.room_temp`), **ВОЛОГІСТЬ** (`equipment.room_humid`) і **ПРИСУТНІСТЬ** (гейтнута `presence.detected` → `HERE`/`AWAY`). Кожне поле health-гейтнуте (`equipment.<role>_ok` / `presence.sensor_ok`), де-дублюється і переоцінюється ~4 Гц.
 
 ## Потік даних
 
 ```
 SNTP local time ─┐
-equipment.room_temp  (equipment.room_temp_ok)  ─┼─▶ panel-модуль
-equipment.room_humid (equipment.room_humid_ok) ─┘   (ротація ~4 c · health-gate · de-dup · ~4 Гц)
+equipment.room_temp  (equipment.room_temp_ok)  ─┤
+equipment.room_humid (equipment.room_humid_ok) ─┼─▶ panel-модуль
+presence.detected    (presence.sensor_ok)      ─┘   (ротація ~4 c · health-gate · de-dup · ~4 Гц)
                                                           │
                                           port_->show_text (IPanelPort)
                                                           │

@@ -4,13 +4,14 @@
 
 The `panel` module owns **what** the iPixel / LED_BLE 64×16 RGB matrix shows. It is a decoupled counterpart of the [`ble_led_panel`](../drivers/ble_led_panel.md) driver: the driver owns the BLE link and the whole iPixel wire format (UUIDs, control bytes, text encoder, font, render task); the module owns the displayed **content**. The module is fully **BLE-agnostic** — it includes no BLE header. It resolves the panel backend in an `on_bind` override **by role** — `find_actuator(role)->as_panel()` → a `modesp::panel::IPanelPort*` (the panel is a normal actuator created by DriverManager) — and drives everything through that port (`connected()` / `set_power()` / `set_brightness()` / `show_text()`). If no panel driver is bound the port is null and the module produces no output.
 
-It rotates **three fields** every ~4 s, each health-gated (`equipment.<role>_ok`), de-duped, and re-evaluated at ~4 Hz:
+It rotates **four fields** every ~4 s, each health-gated, de-duped, and re-evaluated at ~4 Hz:
 
 | Field | Source | Health gate |
 |---|---|---|
 | Wall CLOCK (`HH:MM`) | SNTP local time | — |
 | TEMPERATURE | `equipment.room_temp` | `equipment.room_temp_ok` |
 | HUMIDITY | `equipment.room_humid` | `equipment.room_humid_ok` |
+| PRESENCE (`HERE`/`AWAY`) | `presence.detected` | `presence.sensor_ok` |
 
 (The room temperature/humidity come from the [`ble_xiaomi_th`](../drivers/ble_xiaomi_th.md) sensor via EquipmentBase.)
 
