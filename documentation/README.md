@@ -49,7 +49,8 @@ Every page in this directory follows the conventions in [`STYLE.md`](STYLE.md):
 | Concepts / Концепції | [link](en/01-getting-started/concepts.md) | [link](uk/01-getting-started/concepts.md) |
 | Module Author Guide | [link](en/02-module-author-guide/overview.md) | [link](uk/02-module-author-guide/overview.md) |
 | ⭐ Rules / Звід правил | [link](en/03-framework-reference/rules.md) | [link](uk/03-framework-reference/rules.md) |
-| Project hierarchy / Ієрархія | — 🇺🇦 | [link](uk/03-framework-reference/project-hierarchy.md) |
+| Project hierarchy / Ієрархія | [link](en/03-framework-reference/project-hierarchy.md) | [link](uk/03-framework-reference/project-hierarchy.md) |
+| Capability roadmap / Роадмап | [link](en/03-framework-reference/capability-roadmap.md) | [link](uk/03-framework-reference/capability-roadmap.md) |
 | Architecture | [link](en/03-framework-reference/architecture.md) | [link](uk/03-framework-reference/architecture.md) |
 | Scenario engine deep dive | [link](en/03-framework-reference/scenario-engine/README.md) | [link](uk/03-framework-reference/scenario-engine/README.md) |
 | CHANGELOG | [en/CHANGELOG.md](en/CHANGELOG.md) | [uk/CHANGELOG.md](uk/CHANGELOG.md) |

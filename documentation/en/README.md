@@ -59,8 +59,8 @@ In order:
 | Document | Status | Purpose |
 |---|---|---|
 | ⭐ [rules.md](03-framework-reference/rules.md) | ✅ | **Framework rules** — numbered (R0 role=capability … R9 docs), what not to break, at a glance. |
-| ⭐ [project-hierarchy.md](../uk/03-framework-reference/project-hierarchy.md) | 🇺🇦 | Authoritative hierarchy + peripheral route (Module↔Role↔Device↔Binding) + INVARIANTS. *(uk only)* |
-| [capability-roadmap.md](../uk/03-framework-reference/capability-roadmap.md) | 🇺🇦 | Role=capability model + transport-generic peripherals (RemoteDeviceConfig); P0-P5 status. *(uk only)* |
+| ⭐ [project-hierarchy.md](03-framework-reference/project-hierarchy.md) | ✅ | Authoritative hierarchy + peripheral route (Module↔Role↔Device↔Binding) + INVARIANTS. |
+| [capability-roadmap.md](03-framework-reference/capability-roadmap.md) | ✅ | Role=capability model + transport-generic peripherals (RemoteDeviceConfig); P0-P5 status. |
 | [architecture.md](03-framework-reference/architecture.md) | ✅ | System layers, dependencies, init phases. |
 | [components/modesp_core.md](03-framework-reference/components/modesp_core.md) | ✅ | SharedState, BaseModule, ModuleManager, App. |
 | [components/modesp_hal.md](03-framework-reference/components/modesp_hal.md) | ✅ | HAL abstractions, IDriver, DriverManager. |
