@@ -9,6 +9,10 @@ tests/host/build/
 data/ui.json
 data/board.json
 data/bindings.json
+# Runtime device registry — written by the device to /data/devices.json at runtime, NEVER a
+# build input. Must not be committed or left in data/ during a build, or a stray/test file gets
+# baked into data.bin and flashed, clobbering the device's real subscriptions.
+data/devices.json
 # Per-driver menuconfig toggles, generated from drivers/*/manifest.json
 components/modesp_hal/Kconfig
 # Board choice, generated from boards/*/board.json
