@@ -13,6 +13,14 @@ GPIO/ADC/I²C/OneWire на основі board.json), інтерфейсами д
 реалізують інтерфейси; HAL дає їм доступ до периферії. Ця сторінка
 описує, як структурований шар і які точки розширення доступні.
 
+Роль оголошує **capability** (temperature/relay_out/…), а не драйвер —
+модуль ніколи не знає, який драйвер його обслуговує (ds18b20 / NTC /
+віддалений BLE-канал / майбутній LoRa). `DriverManager` резолвить драйвери
+за роллю; прив'язка роль↔канал відбувається лише за capability (R0.1,
+R3.1). Периферія за межами плати (віддалені сенсори/актуатори) описується
+транспорт-генерично як `RemoteDeviceConfig`, а ідентичність (MAC/adv-name/
+topic) живе на рядку пристрою, ніколи на ролі (R0.3, R4.1).
+
 REQUIRES: `modesp_core`, `modesp_services` (config_service для читання
 board.json/bindings.json), периферійні драйвери ESP-IDF (`driver`,
 `esp_adc`).
@@ -46,6 +54,10 @@ public:
 
     // ADC unit access (used by NTC, generic ADC)
     AdcUnit* adc();
+
+    // Remote-device lookup by hardware id (any transport). Legacy alias
+    // find_ble_device() forwards here.
+    RemoteDeviceConfig* find_remote_device(etl::string_view id);
 };
 ```
 
@@ -221,33 +233,54 @@ struct I2cExpanderCfg {
     uint8_t pins;
 };
 
+// Remote device (off-board sensor/actuator reached over a transport).
+// Config-only: HAL зберігає transport-тег + непрозорий identity-блоб;
+// декод/кеш живе у транспортному компоненті (напр. modesp_ble). R4.1.
+struct RemoteDeviceConfig {
+    HalId           id;                 // "ble_xiaomi_bthome" (hardware_id для bindings)
+    etl::string<8>  transport = "ble";  // "ble" сьогодні; "lora"/"mqtt"/"espnow" далі
+    etl::string<40> identity;           // transport identity blob (BLE MAC); empty for connect
+    etl::string<24> name;               // connect-пристрій (panel) adv-name prefix; empty for observers
+};
+using BleDeviceConfig = RemoteDeviceConfig;   // legacy alias (transitional)
+
 struct BoardConfig {
-    etl::string<32> board_name;
-    etl::vector<GpioOutputCfg, 16> gpio_outputs;
-    etl::vector<GpioInputCfg, 8> gpio_inputs;
-    etl::vector<OneWireBusCfg, 4> onewire_buses;
-    etl::vector<I2cBusCfg, 2> i2c_buses;
-    etl::vector<I2cExpanderCfg, 4> i2c_expanders;
-    etl::vector<ExpanderOutputCfg, 32> expander_outputs;
-    etl::vector<ExpanderInputCfg, 32> expander_inputs;
-    etl::vector<AdcChannelCfg, 8> adc_channels;
+    etl::string<24> board_name;
+    etl::string<8>  board_version;
+    etl::vector<GpioOutputConfig, MAX_RELAYS>        gpio_outputs;
+    etl::vector<OneWireBusConfig, MAX_ONEWIRE_BUSES> onewire_buses;
+    etl::vector<GpioInputConfig, MAX_ADC_CHANNELS>   gpio_inputs;
+    etl::vector<AdcChannelConfig, MAX_ADC_CHANNELS>  adc_channels;
+    // ... encoders, i2c_buses/expanders, expander I/O, displays, uart, i2s ...
+    etl::vector<RemoteDeviceConfig, MAX_REMOTE_DEVICES> remote_devices;
 };
 
-struct BindingEntry {
-    etl::string<16> hardware;        // matches board.json's id
-    etl::string<16> driver;          // driver type
-    etl::string<16> role;            // logical role
-    etl::string<16> module;          // owner module
-    etl::string<24> address;         // optional (OneWire ROM, I²C addr)
-    // plus driver-specific fields...
+// One per-binding numeric driver setting (e.g. "beta" → 3900).
+struct BindingSetting {
+    etl::string<16> key;
+    float           value = 0.0f;
+};
+
+struct Binding {
+    HalId         hardware_id;   // matches board.json's id (or remote device id)
+    Role          role;          // logical role (capability owner)
+    DriverType    driver_type;   // driver that services this role
+    ModuleName    module_name;   // owner module (routing) — R3.4
+    SensorAddress address;       // optional (OneWire ROM, I²C addr, channel)
+    etl::vector<BindingSetting, MAX_BINDING_SETTINGS> settings;
+
+    float setting_or(const char* key, float def) const; // per-binding config lookup
 };
 
 struct BindingTable {
-    etl::vector<BindingEntry, 32> bindings;
+    etl::vector<Binding, MAX_BINDINGS> bindings;
 };
 ```
 
-Усі рядки ETL — без купи, з детермінованою місткістю.
+Усі рядки ETL — без купи, з детермінованою місткістю. Ліміти —
+`MAX_BINDINGS=24`, `MAX_REMOTE_DEVICES=16` (R7.1). `Binding` посилається
+на device `id`; ідентичність (MAC/adv-name/topic) НЕ на біндінгу ролі —
+`find_remote_device(id)` резолвить id→identity/name (R0.3, R4.1).
 
 ## Часування ініціалізації
 
@@ -296,7 +329,22 @@ DriverManager, і подає їх як ключі стану. З погляду 
 ```
 
 Бізнес-модулі читають `equipment.air_temp` — вони ніколи не бачать клас
-DS18B20Driver.
+DS18B20Driver. Модуль оголошує лише capability (`temperature`); який
+драйвер (ds18b20 / NTC / віддалений BLE-канал) її дає — вирішує прив'язка
+за capability, не модуль (R0.1, R3.1).
+
+### Віддалені пристрої (транспорт-генерично)
+
+Периферія за межами плати описується як `RemoteDeviceConfig` у секції
+`remote_devices` (factory-seed з board.json, змерджений з runtime
+`/data/devices.json`). HAL зберігає лише `transport`-тег + непрозорий
+`identity`-блоб — жодного HW-init; декод/кеш живе у транспортному
+компоненті (напр. `modesp_ble` `BleCentral`), а драйвер читає його через
+свій `hardware_type`. Прив'язка вказує device `id`; `find_remote_device(id)`
+резолвить його до identity/name. Ідентичність (MAC) ніколи не лежить на
+ролі — роль лишається транспорт-агностичною (R0.3, R4.1). Новий транспорт
+(LoRa/MQTT/ESP-NOW) = новий компонент + драйвер-міст; HAL не чіпається
+(R4.2).
 
 ## Стан здоров'я і режими відмов
 

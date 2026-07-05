@@ -53,9 +53,9 @@ OneWire-шини, ADC-канали, I2C-розширювачі — кожен з
 |------------|----------|
 | `hardware` | `id` із `board.json` (фізичний ресурс). |
 | `driver`   | Поле `driver` з маніфесту драйвера (його тип-рядок). |
-| `role`     | Логічна назва. Стає ключем SharedState `equipment.<role>`. |
+| `role`     | Логічна назва ролі, яку оголосив модуль-власник (з `capability`, не з драйвером — R0.1). Стає ключем SharedState `equipment.<role>`. Binding валідний лише коли `capability` драйвера збігається зі здатністю ролі (R3.1). |
 | `module`   | Модуль-власник (зазвичай `equipment`). |
-| `address`  | Опційно. ROM-адреса для мультипристроєвих шин (кілька DS18B20 на одному OneWire-піні). Пропусти для одно-пристроєвих шин. |
+| `address`  | Опційно. ROM-адреса для мультипристроєвих шин (кілька DS18B20 на одному OneWire-піні). Для не-дротових драйверів ідентичність (BLE MAC тощо) живе на рядку пристрою, НЕ тут (R0.3). Пропусти для одно-пристроєвих шин. |
 
 `DriverManager::init()` проходить bindings, питає в реєстру фабрику за рядком
 `driver`, і фабрика будує інстанс із HAL-ресурсу, названого в `hardware`.
@@ -125,9 +125,10 @@ drivers/my_sensor/
   "description": "Demo analog sensor",
   "category": "sensor",
   "hardware_type": "adc",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": false,
-  "provides": {"type": "float", "unit": "°C", "range": [-40, 150]},
+  "provides": {"capability": "temperature", "type": "float", "unit": "°C", "range": [-40, 150]},
   "settings": [
     {"key": "read_interval_ms", "type": "int",   "default": 1000, "min": 100, "max": 60000, "unit": "мс", "persist": true},
     {"key": "offset",           "type": "float", "default": 0.0,  "min": -10.0, "max": 10.0, "step": 0.1, "unit": "°C", "persist": true}
@@ -138,6 +139,29 @@ drivers/my_sensor/
 `category` (`sensor`/`actuator`) і назва `driver` — усе, що потрібно
 **генератору** (ім'я C++-класу йому не потрібне). Повний опис полів:
 [manifest.md](manifest.md#driver-only-sections).
+
+**Драйвер оголошує CAPABILITY, а не тип-до-типу** (R0.1, R3.1). Роль
+модуля просить *здатність* (`temperature`), а не твій драйвер; генератор
+зводить роль↔канал **лише за рівністю `capability`** (+ напрям in/out) — ніколи
+за назвою драйвера, `hardware_type` чи транспортом. Тому `provides` мусить
+назвати здатність:
+
+- **Одноканальний драйвер** — `provides.capability` (один рядок ∈
+  [`tools/capabilities.json`](../../../tools/capabilities.json), напр.
+  `"temperature"`, `"relay_out"`). Поля `type`/`unit`/`range` лишаються
+  метаданими значення.
+- **Багатоканальний драйвер** — не став `provides.capability`; замість цього
+  `provides.channels: [{"channel": ..., "capability": ...}]` (рекомендовано) або
+  per-адресні `address_channels[].capability` для пристроїв, де `binding.address`
+  обирає величину (один device живить кілька ролей). Приклади — BLE-обзервери
+  `ble_xiaomi_th` (temperature/humidity/battery) і `ble_nrf_tilt`
+  (angle/tilted/battery/осі accel).
+
+**`transport`** — окреме top-level поле (`wired`/`ble`/`lora`/`mqtt`/`espnow`,
+R4.1). Дефолт виводиться з `hardware_type`, тож для дротового драйвера його
+можна опустити; став явно для не-дротового (напр. `"ble"`). Воно ортогональне
+шині — LoRa/MQTT/ESP-NOW не перевантажують `hardware_type`. Невідома capability
+ламає білд (R8.3).
 
 ### Крок 2 — реалізуй інтерфейс
 

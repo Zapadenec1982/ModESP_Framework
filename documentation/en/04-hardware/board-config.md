@@ -22,8 +22,12 @@ relays) і `boards/kc868a6/` (Kincony KC868-A6 із PCF8574 I2C expanders).
 - Stored у `boards/<name>/board.json` і copied to LittleFS image at build.
 
 **Isn't:**
-- A driver-to-role mapping (that's `bindings.json`).
-- А runtime configuration (the file ships read-only on the device).
+- A driver-to-role mapping (that's `bindings.json`). A role declares a
+  **capability** (temperature/relay_out/…), never a driver — `bindings.json`
+  wires driver ↔ role ↔ capability (R0.1, R3.1).
+- А runtime configuration (the file ships read-only on the device). Even the
+  remote section (below) is only a factory seed; live subscriptions live in
+  `/data/devices.json` (R4.3, R6.2).
 - А schematic. The framework doesn't know how things are wired beyond the
   fields listed below — board layout, ground planes, power topology stay
   in your PCB design tools.
@@ -189,16 +193,52 @@ open-drain, so writing `0` pulls the line low і turns the relay ON
 low, але logically that's "input active" — invert у board.json і your
 driver sees clean `true`/`false`.
 
-## What about RS-485, CAN, SPI?
+### `remote_devices` (legacy alias `ble_devices`)
 
-Stage 1.5 hardware roadmap adds:
-- `rs485_buses` для serial industrial protocols.
-- `spi_buses` для high-speed peripherals.
-- `can_buses` для automotive / industrial CAN.
+**Off-board** devices seeded at the factory — a sensor/actuator reached not
+over wires but over a transport (today BLE; LoRa/MQTT/ESP-NOW planned). The
+section is transport-generic: a row describes a device, not a wire. The key is
+`remote_devices`; `ble_devices` is a **legacy alias** for the BLE-only seed
+(the generator reads both identically).
 
-Currently absent from the framework — Stage 1 focused on the most common
-ESP32 hardware patterns. Если ви запускаєте такі periphery — file а
-request, or contribute а driver.
+```json
+"remote_devices": [
+  {"id": "room_1", "transport": "ble", "identity": "AA:BB:CC:DD:EE:FF", "name": "Room sensor"}
+]
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | Unique ID (≤16). `bindings.json` references **this**, not the identity (R0.3). |
+| `transport` | string | no | Transport (`"ble"`, …). Auto-derived from `hardware_type` when omitted (R4.1). |
+| `identity` | string | no | Opaque transport identifier: BLE MAC, future LoRa devaddr / MQTT topic (R4.1). |
+| `name` | string | no | adv-name / human name for scan and UI. |
+
+`identity` is an opaque blob; identity lives **on the device**, never on a
+role's `Binding` — a MAC on a role binding would tie the role to a transport
+(R0.3). Resolve id → identity/name via `find_remote_device(id)` in the HAL.
+
+> **Legacy `mac` field.** The early BLE seed carried a `mac` field (validated
+> against the `AA:BB:…` format) instead of `identity`. The schema still accepts
+> it for compatibility, but new boards should use the transport-neutral
+> `identity` (R4.1).
+
+**This is a factory seed only.** board.json is GET-only on the device; its
+remote section merely seeds the starting devices. Real runtime subscriptions
+are written by the device itself to `/data/devices.json` — that file is
+**never** a build input and is gitignored, or else data.bin would overwrite
+the live subscriptions (R4.3, R6.2). Don't hardcode BLE in board.json beyond
+the seed.
+
+## What about CAN?
+
+The hardware roadmap adds:
+- `can_buses` for automotive / industrial CAN.
+
+RS-485 / serial buses are already covered by `uart_buses`, and SPI peripherals
+by `spi_buses` / `spi_displays` (both present in the schema). CAN is currently
+absent from the framework. If you run such periphery — file a request, or
+contribute a driver.
 
 ## Reference examples
 

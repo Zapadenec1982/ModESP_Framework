@@ -383,6 +383,52 @@ void MyModule::on_update(uint32_t dt_ms) {
 Full HAL details: [components/modesp_hal.md](../03-framework-reference/components/modesp_hal.md)
 *(planned)* і [hardware/bindings.md](../04-hardware/bindings.md) *(planned)*.
 
+### A driver-owning module: `requires` declares a capability
+
+A module like `equipment` doesn't read ready-made keys — it **owns** the
+drivers. Such a module declares the peripherals it needs у the `requires`
+array of its manifest. Each entry declares a **role** and a **capability** —
+never a concrete driver (**R0.1**):
+
+```json
+// modules/equipment/manifest.json
+"requires": [
+  {"role": "air_temp",   "type": "sensor",   "capability": "temperature", "label": "Air temperature"},
+  {"role": "room_temp",  "type": "sensor",   "capability": "temperature", "label": "Room temperature", "optional": true},
+  {"role": "actuator_1", "type": "actuator", "capability": "relay_out",    "label": "Actuator 1",       "optional": true}
+]
+```
+
+The `air_temp` role says "I need `temperature`" — and does not know who
+supplies it: `ds18b20`, `ntc`, a BLE channel, or a future LoRa one. The
+driver is picked у `bindings.json` (a `role` → `driver` → device binding),
+not у module code. A role is declared only by the **owning** module that
+consumes it (**R1.2**).
+
+**On-device resolution by role name.** `DriverManager` resolves the
+role↔driver binding; the module obtains a driver by **role name**, never by
+driver type:
+
+```cpp
+modesp::ISensorDriver*   s = dm.find_sensor("air_temp");      // capability temperature
+modesp::IActuatorDriver* a = dm.find_actuator("actuator_1");  // capability relay_out
+```
+
+`find_sensor(role)` / `find_actuator(role)` (у
+[`driver_manager.h`](../../../components/modesp_hal/include/modesp/hal/driver_manager.h))
+look up by the role string and return the abstract `ISensorDriver` /
+`IActuatorDriver` interface. The module calls through that interface — it
+never touches GPIO (**R3.3**). `EquipmentBase` does this у `bind_drivers()`
+and thereafter works with roles only; the `capability` field is the SSOT
+for role↔channel matching, and `optional: true` allows an absent binding.
+
+> 💡 The capability is swappable: if a thermostat needs "temperature," the
+> source (a wired sensor today, a BLE channel tomorrow) changes у
+> `bindings.json` без editing module code. Don't hardcode a driver у a role
+> or in a module — it defeats the whole abstraction. See
+> [rules.md](../03-framework-reference/rules.md) (R0.1–R0.3) and
+> [bindings.md](../04-hardware/bindings.md) *(planned)*.
+
 ## Generated headers — what's automatic
 
 After `idf.py build`, `generated/` contains:

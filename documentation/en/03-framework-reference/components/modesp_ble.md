@@ -8,11 +8,11 @@ The host serves **three roles simultaneously**:
 
 | Role | What it does |
 |---|---|
-| **Observer** | Passive scan. Hands each advertisement's 16-bit service-data to the decoders that BLE sensor drivers register (`adv_decoder.h`); a recognized reading is cached **per MAC** for the bound driver. The transport knows no device format — the decoders themselves (e.g. BTHome `0xFCD2`, pvvx/ATC `0x181A`) live in the driver, e.g. `ble_xiaomi_th`. |
+| **Observer** | Passive scan. Hands each advertisement's 16-bit service-data to the decoders that BLE sensor drivers register (`adv_decoder.h`); a recognized reading is cached per the device's identity (the MAC, for the BLE transport) for the bound driver. The transport knows no device format — the decoders themselves (e.g. BTHome `0xFCD2`, pvvx/ATC `0x181A`) live in the driver, e.g. `ble_xiaomi_th`. |
 | **Central** | Connects to a device and writes/subscribes to its GATT characteristics. A CONNECT driver registers a `ConnectProfile` (adv-name + write/notify UUIDs) via `central_link.h` and gets a generic `ICentralLink` — the transport knows no device format. Connecting **pauses** the observer scan, then **resumes** it afterwards. |
 | **Peripheral** | Its own GATT server (telemetry/control + Wi-Fi provisioning), advertising the name `"ModESP"`. |
 
-Modules never touch BLE (or GPIO) directly — **drivers do the I/O, modules read/write SharedState**. The Xiaomi sensor (`ble_xiaomi_th`, passive observer) and the iPixel panel (`ble_led_panel` connect + `panel` module content) are two independent features riding on this one host.
+Modules never touch BLE (or GPIO) directly — **drivers do the I/O, modules read/write SharedState**. A module sees only a **role** (a capability), never the driver or transport behind it (R0.1); the device's identity (a BLE MAC today, a future LoRa devaddr / MQTT topic) lives on the device row, never on the role binding (R0.3). The HAL stores each device as a transport-generic `RemoteDeviceConfig{id, transport, identity, name}` and resolves `id`→identity via `find_remote_device(id)` (R4.1). BLE is just one transport of many. The Xiaomi sensor (`ble_xiaomi_th`, passive observer) and the iPixel panel (`ble_led_panel` connect + `panel` module content) are two independent features riding on this one host.
 
 ## Build & configuration (Kconfig)
 
@@ -62,7 +62,7 @@ The `panel` module drives content through the driver's [`IPanelPort`](../../../.
 
 ### Sensor — `ble_xiaomi_th` (observer)
 
-A **sensor** driver (`hardware_type "ble_device"`) that reads a Xiaomi LYWSD03MMC hygro-thermo sensor flashed with custom firmware (pvvx / ATC / BTHome) via the **observer** — no connection, passive broadcast. One physical sensor maps to 3 channels (temperature / humidity / battery), selected by the binding's `address`. Bound to the `equipment` module, it publishes `equipment.room_temp` / `equipment.room_humid` / `equipment.room_batt` (plus `equipment.<role>_ok` health flags). Stale timeout **60 s** — no broadcast → not healthy. See [drivers/ble_xiaomi_th.md](../drivers/ble_xiaomi_th.md).
+A **sensor** driver (`hardware_type "ble"`) that reads a Xiaomi LYWSD03MMC hygro-thermo sensor flashed with custom firmware (pvvx / ATC / BTHome) via the **observer** — no connection, passive broadcast. Its decoders cache the reading per the device's identity (here, the BLE MAC); that MAC is never hardcoded on the binding — it lives in the `identity` field (legacy alias `mac`) of the device row in board.json `remote_devices` / runtime `devices.json` and is resolved by `id` (R0.3, R4.1). One physical sensor maps to 3 channels (temperature / humidity / battery), selected by the binding's `address`. Bound to the `equipment` module, it publishes `equipment.room_temp` / `equipment.room_humid` / `equipment.room_batt` (plus `equipment.<role>_ok` health flags). Stale timeout **60 s** — no broadcast → not healthy. See [drivers/ble_xiaomi_th.md](../drivers/ble_xiaomi_th.md).
 
 ### Panel — `ble_led_panel` (central) + `panel` module
 

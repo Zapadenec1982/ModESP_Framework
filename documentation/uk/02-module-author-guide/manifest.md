@@ -69,6 +69,49 @@ ModESP розрізняє три типи на основі полів верх�
 }
 ```
 
+## Секція: `requires` (сервісні модулі)
+
+Декларує **ролі** периферії, які потрібні модулю. Роль — це *здатність*
+(capability), а не драйвер: термостат потребує «температуру» і не знає,
+хто її дає (ds18b20 / NTC / BLE-канал / майбутній LoRa). Генератор і
+runtime підбирають будь-яке джерело тієї ж capability під роль. Це
+основний founding-принцип фреймворку — див.
+[R0.1](../03-framework-reference/rules.md#r01--роль--здатність-capability-ніколи-не-драйвер)
+і [R3.1](../03-framework-reference/rules.md#r31--матч-ролі-й-каналу--лише-за-capability).
+
+### Поля на кожну роль
+
+| Поле | Тип | Обов'язкове | Примітки |
+|---|---|---|---|
+| `role` | string | так | Ім'я ролі, за яким код резолвить джерело (`find_sensor("air_temp")`). Унікальне в межах модуля. |
+| `type` | string | так | Груба категорія: `"sensor"` / `"actuator"`. |
+| `capability` | string | рекомендовано | **Матчер.** Здатність, яку роль потребує — має бути в [`tools/capabilities.json`](../../../tools/capabilities.json). Будь-яке джерело тієї ж capability заповнює роль. Саме це поле, а НЕ `driver`, визначає збіг. |
+| `kind` | `"sensor"` / `"actuator"` | опційно | Грубий дискримінатор напряму. Якщо відсутній — генератор нормалізує його з `type`. |
+| `label` | string | опційно | Людиночитна назва ролі в UI прив'язок. **Без транспорту** («Room temperature», не «BLE room sensor») — [R1.3](../03-framework-reference/rules.md#r13--назви-ролейканалів--без-транспорту). |
+| `optional` | bool | опційно | `true` → модуль стартує й без прив'язаного джерела. За замовчуванням `false`. |
+
+### Приклад
+
+Приклад із `modules/equipment/manifest.json`:
+
+```json
+"requires": [
+  {"role": "air_temp",    "type": "sensor",   "capability": "temperature", "label": "Air temperature"},
+  {"role": "room_temp",   "type": "sensor",   "capability": "temperature", "label": "Room temperature", "optional": true},
+  {"role": "orientation", "type": "sensor",   "capability": "angle",       "label": "Orientation",      "optional": true},
+  {"role": "actuator_1",  "type": "actuator", "capability": "relay_out",   "label": "Actuator 1",       "optional": true}
+]
+```
+
+> ⚠️ **Ніколи не хардкодьте драйвер у ролі.** Роль оголошує capability;
+> прив'язка конкретного заліза живе в `bindings.json` (поле `driver` +
+> `device`), а ідентичність remote-пристрою (MAC/topic) — на рядку
+> пристрою (board.json/devices.json), НІКОЛИ на ролі
+> ([R0.3](../03-framework-reference/rules.md#r03--ідентичність--на-пристрої-ніколи-на-ролі)).
+> Генератор перехресно валідує `capability` проти словника —
+> невідома здатність ламає білд
+> ([R8.3](../03-framework-reference/rules.md#r83--валідація-на-build-time)).
+
 ## Секція: `state` (сервісні модулі)
 
 Декларує ключі SharedState, якими володіє модуль. Кожен ключ отримує
@@ -498,3 +541,5 @@ runtime. Якщо користувачі коригуватимуть значе
   драйвер із settings, provides, discovery.
 - [`modules/datalogger/manifest.json`](../../../modules/datalogger/manifest.json) —
   більший сервісний модуль з каналами та можливостями.
+- [`modules/equipment/manifest.json`](../../../modules/equipment/manifest.json) —
+  секція `requires` з ролями як capability (temperature, angle, relay_out).

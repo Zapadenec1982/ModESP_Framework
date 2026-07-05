@@ -66,6 +66,23 @@ write higher-level state — `simple_thermo.output`, `alarm.fire_active`,
 etc. **Modules don't touch hardware directly** — they consume the
 hardware abstraction that drivers provide.
 
+**A role = a capability, never a driver** (R0.1). A module declares a
+role by its **capability** — `temperature`, `relay_out`, `humidity`,
+`dimmer`, etc. — NOT by a concrete driver. A thermostat needs
+"temperature" and doesn't know who supplies it: `ds18b20`, an NTC, a BLE
+channel, or a future LoRa sensor. Capabilities — both sensor and
+actuator — are enumerated in `tools/capabilities.json` (the single
+vocabulary source). A role accepts a driver channel ⟺ their `capability`
+is equal and the direction (in/out) is consistent — never by driver
+name, `hw_type`, or transport (R3.1).
+
+Consequence: **the source of a capability is swappable**. A wired
+driver, a BLE device, or a future transport (LoRa/MQTT/ESP-NOW) fill the
+same role with no module change (R0.2). A remote device's identity (BLE
+MAC, adv-name, topic) lives on the **device** row (`board.json` /
+runtime `devices.json`), NEVER on the role binding (R0.3) — so the role
+stays transport-agnostic.
+
 A special case is **recipe modules** — modules із `module_type:
 "recipe"` whose behaviour is а scenario `.modr` binary instead of а
 C++ class.

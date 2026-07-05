@@ -68,6 +68,49 @@ Example top of `drivers/ds18b20/manifest.json`:
 }
 ```
 
+## Section: `requires` (service modules)
+
+Declares the peripheral **roles** the module needs. A role is a
+*capability*, not a driver: a thermostat needs "temperature" and does not
+know who supplies it (ds18b20 / NTC / a BLE channel / a future LoRa link).
+The generator and runtime bind any source of the same capability to the
+role. This is a founding principle of the framework — see
+[R0.1](../03-framework-reference/rules.md#r01--роль--здатність-capability-ніколи-не-драйвер)
+and [R3.1](../03-framework-reference/rules.md#r31--матч-ролі-й-каналу--лише-за-capability).
+
+### Per-role fields
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `role` | string | yes | Role name the code resolves a source by (`find_sensor("air_temp")`). Unique within the module. |
+| `type` | string | yes | Coarse category: `"sensor"` / `"actuator"`. |
+| `capability` | string | recommended | **The matcher.** The capability the role needs — must exist in [`tools/capabilities.json`](../../../tools/capabilities.json). Any source of the same capability fills the role. This field, not `driver`, decides the match. |
+| `kind` | `"sensor"` / `"actuator"` | optional | Coarse direction discriminator. When absent, the generator normalizes it from `type`. |
+| `label` | string | optional | Human-readable role name in the bindings UI. **No transport** ("Room temperature", not "BLE room sensor") — [R1.3](../03-framework-reference/rules.md#r13--назви-ролейканалів--без-транспорту). |
+| `optional` | bool | optional | `true` → the module starts even without a bound source. Default `false`. |
+
+### Example
+
+From `modules/equipment/manifest.json`:
+
+```json
+"requires": [
+  {"role": "air_temp",    "type": "sensor",   "capability": "temperature", "label": "Air temperature"},
+  {"role": "room_temp",   "type": "sensor",   "capability": "temperature", "label": "Room temperature", "optional": true},
+  {"role": "orientation", "type": "sensor",   "capability": "angle",       "label": "Orientation",      "optional": true},
+  {"role": "actuator_1",  "type": "actuator", "capability": "relay_out",   "label": "Actuator 1",       "optional": true}
+]
+```
+
+> ⚠️ **Never hardcode a driver in a role.** The role declares a capability;
+> the binding to concrete hardware lives in `bindings.json` (the `driver` +
+> `device` fields), and a remote device's identity (MAC/topic) lives on the
+> device row (board.json/devices.json), NEVER on the role
+> ([R0.3](../03-framework-reference/rules.md#r03--ідентичність--на-пристрої-ніколи-на-ролі)).
+> The generator cross-validates `capability` against the vocabulary — an
+> unknown capability fails the build
+> ([R8.3](../03-framework-reference/rules.md#r83--валідація-на-build-time)).
+
 ## Section: `state` (service modules)
 
 Declares the SharedState keys the module owns. Each key gets typed metadata
@@ -485,3 +528,5 @@ Existing manifests worth reading source-first:
   driver із settings, provides, discovery.
 - [`modules/datalogger/manifest.json`](../../../modules/datalogger/manifest.json) —
   larger service module із channels, features.
+- [`modules/equipment/manifest.json`](../../../modules/equipment/manifest.json) —
+  `requires` section with roles as capabilities (temperature, angle, relay_out).

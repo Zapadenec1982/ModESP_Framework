@@ -305,6 +305,51 @@ WebUI / MQTT see changes
 Рушій — це звичайний BaseModule, зареєстрований у Фазі 2. Див.
 [scenario-engine/](scenario-engine/) для поглибленого розгляду.
 
+## Модель периферії: роль = здатність (capability)
+
+Модулі ніколи не називають драйвер. Роль оголошує **здатність
+(capability)** — `temperature`, `relay_out`, `panel`… — а не джерело.
+Термостат потребує «температуру» і не знає, хто її дає (ds18b20 / NTC /
+BLE-канал / майбутній LoRa) — джерело замінне (R0.1, R3.1).
+
+`capability` — **концепт часу складання**. Він живе в маніфестах
+(`tools/capabilities.json` — SSOT словника) і в `generate_ui.py`; на
+пристрої він **компілюється геть**. Прив'язка резолвиться за **роллю**:
+генератор під час білду перевіряє, що роль і канал драйвера мають рівну
+`capability` й узгоджений напрям (in/out), а C++ читає лише
+`equipment.<role>` та резолвить джерело через `find_sensor(role)` /
+`find_actuator(role)`. Тому HAL ніколи не вчить слово «capability» —
+`Binding{hardware_id, role, driver_type, module_name, address}`
+(`hal_types.h`) уже транспорт-агностичний.
+
+Ланцюг прив'язки (єдиний маршрут периферії):
+
+```
+manifest модуля  →  роль {capability}          (що потрібно)
+board.json       →  hardware / remote-пристрій  (що є на платі)
+bindings.json    →  Binding{hardware,driver,role,module}  (build-time матч за capability)
+       │
+       ▼ generate_ui.py (cross_validate — R8.3)
+on-device: find_sensor/find_actuator(role) → ISensorDriver/IActuatorDriver
+```
+
+### Транспорт-генеричні віддалені пристрої
+
+Off-board сенсор/актуатор, доступний через транспорт, описується як
+`RemoteDeviceConfig{id, transport, identity, name}` (`hal_types.h`,
+реєстр `BoardConfig::remote_devices`, кеп `MAX_REMOTE_DEVICES = 16`).
+`transport` — окреме поле (`ble` сьогодні; `lora`/`mqtt`/`espnow` далі),
+авто-виводиться з `hardware_type`. `identity` — **непрозорий блоб**
+(BLE MAC, майбутні LoRa devaddr / MQTT topic), що живе на рядку пристрою
+(board.json factory-seed або runtime `/data/devices.json`), **ніколи не
+на біндінгу ролі** (R0.3, R4.1). Резолв id→identity через
+`find_remote_device(id)`. Тому роль лишається транспорт-агностичною:
+той самий термостат байдужий, чи «температура» приходить дротом чи по
+BLE. Новий транспорт = новий компонент + драйвер-міст (як `modesp_ble`);
+HAL/генератор/webui не чіпаються, а HAL не залежить від жодного
+транспорту (R4.2, інваріант `core←hal←…←ble`). Повний звід —
+[rules.md](rules.md) (R0–R4).
+
 ## Що ви зазвичай не торкаєтесь напряму
 
 - `app_main`, завдання ESP-IDF — чистий каркас завантаження у main.cpp.
@@ -312,8 +357,9 @@ WebUI / MQTT see changes
   BaseModule.
 - Обробники HTTP / WebSocket — генеруйте UI через маніфести.
 - Клієнт MQTT — оголошуйте у маніфесті.
-- Екземпляри драйверів — bindings.json підключає їх; ви пишете модулі,
-  що читають `equipment.<role>`.
+- Екземпляри драйверів — bindings.json підключає їх за роллю
+  (build-time матч за capability); ви пишете модулі, що читають
+  `equipment.<role>`, і ніколи не називаєте драйвер.
 
 ## Що ви часто налаштовуєте
 

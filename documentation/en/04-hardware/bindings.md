@@ -8,6 +8,16 @@ handles which hardware pin, і what semantic **role** (a name like
 `board.json` says "I have these GPIO outputs", `bindings.json` says "GPIO
 relay 1 is actuator_1, talk to it through the `relay` driver".
 
+> **Role = capability, never a driver (R0.1).** A role accepts its
+> hardware by **capability** (temperature / relay_out / …) and direction
+> (in/out), not by driver name (R3.1). The `driver` in a binding only
+> says *what to instantiate* for this particular piece of hardware; the
+> module consuming the role never knows the driver. The same thermostat
+> takes "temperature" whether it comes from `ds18b20`, `ntc`, or a future
+> BLE channel. `address` (where present) selects a **channel** within that
+> hardware (e.g. the ROM of one specific sensor on a bus) — not a device
+> identity.
+
 This page is the reference для writing bindings, supplemented із real
 examples з the dev і KC868-A6 reference boards.
 
@@ -74,9 +84,9 @@ That's it. Single array. Each object у the array is one binding —
 |---|---|---|---|
 | `hardware` | string | yes | Must match an `id` declared у `board.json` (any section: `gpio_outputs`, `onewire_buses`, `expander_outputs`, etc.). |
 | `driver` | string | yes | Must match а driver name declared у `drivers/<name>/manifest.json`. |
-| `role` | string | yes | Semantic name. Becomes `equipment.<role>` (sensors) or `equipment.req_<role>` (actuators) у SharedState. |
-| `module` | string | yes | Module що owns the binding (today: always `"equipment"`). |
-| `address` | string | sometimes | Required if driver manifest declares `"requires_address": true` (1-Wire ROM, I²C extra addressing). |
+| `role` | string | yes | Semantic name. A role accepts this hardware by **capability**, not by driver (R0.1/R3.1). Becomes `equipment.<role>` (sensors) or `equipment.req_<role>` (actuators) у SharedState. |
+| `module` | string | yes | Module що owns the binding and declares the role (today: almost always `"equipment"`; connect-style drivers like `display`/`player` declare the role in their own module). |
+| `address` | string | sometimes | Selects a **channel** within the hardware (1-Wire ROM, I²C extra addressing) — not a device identity. Required if driver manifest declares `"requires_address": true`. |
 | `settings` | object | optional | Per-binding driver settings — see below. |
 
 ### Per-binding settings
@@ -187,6 +197,17 @@ usually discovered у software). Bindings reference the bus's `id` (z
 The `multiple_per_bus: true` flag у the driver manifest tells the framework
 that multiple bindings can target the same `hardware` ID.
 
+### Channels and the WebUI channel picker
+
+`address` selects a **channel** of the capability. The generator emits
+`role.channels_by_driver` for each role — the channel list grouped by the
+**bound** driver, not by the role-aggregate (R3.5). The WebUI shows a
+channel picker **only** when the bound driver exposes 2+ channels of the
+same capability; a single channel auto-binds with no extra step. This is
+why per-driver attributes (`requires_address` / `channels` / `scan`) are
+keyed on the **bound** driver: a wired binding never demands, say, a BLE
+address just because some *other* driver of the same capability needs one.
+
 ## Sensors vs. actuators у SharedState
 
 After bindings load, Equipment Manager spawns driver instances і exposes
@@ -236,6 +257,21 @@ Bindings can declare themselves as optional via а driver manifest's
 bindings silently. Required bindings що can't be resolved abort startup
 із а log message — so production deployments don't run із silently-broken
 hardware.
+
+## Identity lives on the device, never on the binding
+
+`bindings.json` describes **wired** hardware only. The identity of remote
+devices (BLE MAC, future LoRa devaddr / MQTT topic) **never** lives on a
+role binding (R0.3) — otherwise the role would be pinned to a transport.
+Such devices are added at **runtime** (scan → subscribe on the "Devices"
+page), written to `/data/devices.json`, and a role resolves to them by
+capability exactly as it would to a wired channel. A `Binding` holds only
+the device `id`; `find_remote_device(id)` resolves `id → identity/name`.
+
+That is why the reference `boards/stand_s3/bindings.json` contains **only**
+wired bindings (display `disp_0`, audio `i2s_0`), while every BLE device
+(Xiaomi/nRF observers, iPixel panel) is added at runtime and binds the
+`room_temp` / `orientation` / `panel` roles there.
 
 ## Validation
 

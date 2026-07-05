@@ -25,24 +25,20 @@
 
 Без `CENTRAL` драйвер не має чим під'єднатися до панелі.
 
-## Крок 2 — Оголосити панель (board.json + bindings.json)
+## Крок 2 — Підписати панель у runtime (сторінка «Пристрої») і прив'язати роль
 
-Активний конфіг — `data/board.json` + `data/bindings.json` (шаблон плати — `boards/<board>/`). Панель оголошується у `ble_devices` через **`name`** (ADV-ім'я, не MAC — це connect-пристрій):
+Панель — це **remote-пристрій BLE**, а не дротове залізо: її НЕ оголошують у `board.json`. Драйвер реєструє connect-префікс `LED_BLE` на BOOT, тож неприв'язана панель з'являється в уніфікованому скані `GET /api/ble/scan` ще до будь-якого біндінгу. Порядок: **скан → підписка → прив'язка ролі** (R4.3, R6.2).
 
-```json
-// board.json
-"ble_devices": [
-  {"id": "led_panel", "name": "LED_BLE_E6C5EBE2",
-   "label": "iPixel Color 16x64 LED matrix (connect device)"}
-]
-```
+1. **Скан + підписка.** WebUI → сторінка **«Пристрої»** → скан BLE → знайди свою панель за ADV-ім'ям (`LED_BLE_XXXXXXXX`) → **Підписати**. Підписка пишеться у `/data/devices.json` (runtime-only, gitignored) як `RemoteDeviceConfig{id, transport, identity, name}` — де `name` = ПОВНЕ ADV-ім'я панелі (її connect-таргет), `transport` авто-виводиться (`ble`), а `id` (напр. `led_panel`) — це стабільний хендл пристрою (R4.1, R4.3).
+
+2. **Прив'язка ролі** — у `data/bindings.json` (шаблон — `boards/<board>/bindings.json`) прив'яжи роль до пристрою за його **`id`**:
 
 ```json
 // bindings.json
-{"hardware": "led_panel", "driver": "ble_led_panel", "role": "panel", "module": "equipment"}
+{"hardware": "led_panel", "driver": "ble_led_panel", "role": "panel", "module": "panel"}
 ```
 
-Заміни `LED_BLE_E6C5EBE2` на ADV-ім'я **своєї** панелі. Деталі полів — [board-config.md](board-config.md) і [bindings.md](bindings.md).
+Біндінг посилається на device `id`, **ніколи** на ADV-ім'я/MAC — ідентичність живе на рядку пристрою в `devices.json`, не на ролі (R0.3). Роль `panel` оголошує сам `panel`-модуль (`requires: [{"role":"panel","capability":"panel"}]`), тож панель резолвиться за **capability `panel`**, а не за драйвером — модуль не знає, який транспорт її дає (R0.1, R1.2). Деталі полів — [board-config.md](board-config.md) і [bindings.md](bindings.md).
 
 ## Крок 3 — Підключити модулі
 
@@ -110,7 +106,7 @@ state_set(modesp::panel_text::slot(0), "");          // очистити сло�
 
 ## Типові помилки
 
-- **Панель не знаходиться** — невірне ADV-ім'я в `board.json`, або вимкнений `CONFIG_MODESP_BLE_CENTRAL`, або панель поза радіусом. Перевір ім'я BLE-сканером.
+- **Панель не знаходиться** — панель не підписана на сторінці «Пристрої» (немає рядка в `/data/devices.json`), або роль `panel` не прив'язана до її `id` у `bindings.json`, або вимкнений `CONFIG_MODESP_BLE_CENTRAL`, або панель поза радіусом. Пересканай у «Пристроях» і перевір підписку.
 - **Build FATAL про вимкнений драйвер** — плата прив'язує `ble_led_panel`, але його вимкнено в menuconfig. `python tools/drivers_sync.py --fix`.
 - **Повідомлення не очищується у WebUI** — стерти весь текст і клікнути поза полем (commit на blur/Enter); порожнє значення повертає ротацію.
 - **Текст обрізається на 31 символі** — це стеля рядка стану (`etl::string<32>`); панель скролить до 31 символа.

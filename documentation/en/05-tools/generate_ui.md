@@ -32,10 +32,20 @@ REQUIRES: Python 3.8+. No external packages (stdlib only).
 | Input | Purpose |
 |---|---|
 | `project.json` | Module list AND build-time options. |
-| `modules/<name>/manifest.json` | Per-module state/ui/mqtt/loggable. |
-| `drivers/<name>/manifest.json` | Per-driver state/settings/ui. |
+| `modules/<name>/manifest.json` | Per-module state/ui/mqtt/loggable + `requires` (role↔`capability`). |
+| `drivers/<name>/manifest.json` | Per-driver state/settings/ui + `provides` (`capability` / `channels[]`). |
+| `tools/capabilities.json` | SSOT capability vocabulary (`temperature`, `relay_out`, `panel`…): `kind` (sensor/actuator), `direction` (in/out), `value_type`, `label`, `unit`. |
 
 Both module AND driver manifests are loaded і cross-validated.
+
+**Role = capability (R0.1, R3.1).** A role in a module's `requires`
+declares a `capability`, not a driver. The generator builds a `cap_index`
+(`capability` → sorted driver list) by lightly scanning
+`drivers/*/manifest.json` for their `provides`, and matches a role to
+drivers **by `capability` equality** — never by driver name,
+`hardware_type`, or transport. `capabilities.json` is the single source of
+that vocabulary; a missing file disables the capability layer (matching
+falls back to `category == type`, legacy).
 
 ## What it validates
 
@@ -53,6 +63,13 @@ The `ManifestValidator` runs over each manifest before generation:
   `hardware_type` matches the board section of its hardware; `requires_address`
   honored; hardware reuse only with `multiple_per_bus` + distinct addresses;
   unique role per module. A mis-wired binding fails the build.
+- **Capability consistency** (R8.3): every `capability` a role declares
+  (`requires`) or a driver declares (`provides`) must exist in
+  `tools/capabilities.json`; the capability's `kind` (sensor/actuator) must
+  match what the role expects / the driver declares; every capability role
+  must resolve to at least one driver in `cap_index`. A capability role must
+  **not** also pin a `driver` (that re-couples the role to a source, R0.1).
+  An unknown capability or a `kind` mismatch fails the build.
 
 On error, the generator prints `<file>:<line>:<col>: error[<code>]: <msg>`
 (or `[context] message` for cross-checks) і exits з code 1. Build fails.
@@ -78,6 +95,27 @@ Schema structure:
 WebUI fetches це once on load і re-renders if hash differs from
 previous load. Localised strings from each manifest's `i18n` blocks
 get merged into top-level dictionaries.
+
+**Role metadata for the BindingsEditor.** Alongside the UI schema the
+generator emits one entry per role. Because a role = capability (R0.1)
+and its drivers are heterogeneous (a wired direct-read that needs no
+address AND a BLE channel that does), the per-driver attributes key off
+the CHOSEN hardware, not the role aggregate (R3.5):
+
+| Role field | From | Meaning |
+|---|---|---|
+| `capability` | `requires.capability` | the capability the WebUI matches devices against (R3.1). |
+| `direction` | `capabilities.json` (`in`/`out`) | the capability's direction; the WebUI groups bindings by it. |
+| `drivers` | `cap_index[capability]` | every driver that provides the capability (not a hand list). |
+| `addr_drivers` | drivers with `requires_address` | only the eligible drivers that need an address; the editor requires one ONLY when the chosen hardware uses such a driver. |
+| `channels_by_driver` | `provides.channels[]` / `address_channels[]`, filtered to the capability | per-driver channel enum; a channel `<select>` shows ONLY when the bound device's driver exposes 2+ channels of the capability (a single one is auto-bound). |
+
+A channel with no explicit driver label derives its label from the
+capability's `label`/`unit` in `capabilities.json` (R1.3) — a temperature
+channel reads the same whatever driver provides it. A legacy driver-typed
+role with a single driver also emits `driver`/`hw_type`; a capability role
+does not (its eligible-driver count is incidental, so a later 2nd provider
+must not silently flip the entry's shape).
 
 ## Output 2: `generated/state_meta.h`
 
@@ -223,4 +261,6 @@ an issue.
 ## Source
 
 - [`tools/generate_ui.py`](../../../tools/generate_ui.py)
+- [`tools/capabilities.json`](../../../tools/capabilities.json) — SSOT capability vocabulary (role=capability).
 - [`tools/known_actions.json`](../../../tools/known_actions.json) — action/condition catalog.
+- [rules.md](../03-framework-reference/rules.md) — R0.1, R3.1, R3.5, R8.3 (the capability model).

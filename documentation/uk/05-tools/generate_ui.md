@@ -34,11 +34,21 @@ manifest-driven.
 | Вхід | Призначення |
 |---|---|
 | `project.json` | Список модулів і опції часу складання. |
-| `modules/<name>/manifest.json` | Стан, UI, MQTT, журналювання для модуля. |
-| `drivers/<name>/manifest.json` | Стан, налаштування, UI для драйвера. |
+| `modules/<name>/manifest.json` | Стан, UI, MQTT, журналювання + `requires` (роль↔`capability`) для модуля. |
+| `drivers/<name>/manifest.json` | Стан, налаштування, UI + `provides` (`capability` / `channels[]`) драйвера. |
+| `tools/capabilities.json` | SSOT словника здатностей (`temperature`, `relay_out`, `panel`…): `kind` (sensor/actuator), `direction` (in/out), `value_type`, `label`, `unit`. |
 
 Завантажуються і перехресно перевіряються як маніфести модулів, так і
 маніфести драйверів.
+
+**Роль = здатність (R0.1, R3.1).** Роль у `requires` модуля оголошує
+`capability`, а не драйвер. Генератор будує `cap_index`
+(`capability` → відсортований список драйверів) легким скануванням
+`drivers/*/manifest.json` за їхніми `provides`, і матчить роль до
+драйверів **за рівністю `capability`** — ніколи за іменем драйвера,
+`hardware_type` чи транспортом. `capabilities.json` — єдине джерело цього
+словника; відсутність файлу вимикає capability-шар (матч падає назад на
+`category == type`, legacy).
 
 ## Що валідує
 
@@ -58,6 +68,13 @@ manifest-driven.
   драйвера збігається з секцією board його hardware; `requires_address`
   дотримано; повтор hardware лише з `multiple_per_bus` + окремими адресами;
   унікальна role в межах модуля. Неправильна прив'язка ламає білд.
+- **Узгодженість capability** (R8.3): кожна `capability`, яку оголошує роль
+  (`requires`) або драйвер (`provides`), мусить існувати в
+  `tools/capabilities.json`; `kind` здатності (sensor/actuator) має збігатися
+  з тим, що очікує роль / оголошує драйвер; для кожної capability-ролі має
+  бути принаймні один драйвер у `cap_index`. Роль-здатність **не сміє** також
+  прибивати драйвер (`driver`) — це знову зчіпило б роль із джерелом (R0.1).
+  Невідома capability або невідповідність `kind` ламає білд.
 
 У разі помилки генератор виводить
 `<file>:<line>:<col>: error[<code>]: <msg>` (або `[context] message` для
@@ -84,6 +101,27 @@ manifest-driven.
 WebUI отримує це один раз при завантаженні та перерендерює, якщо хеш
 відрізняється від попереднього завантаження. Локалізовані рядки з
 блоків `i18n` кожного маніфесту об'єднуються у словники верхнього рівня.
+
+**Метадані ролей для BindingsEditor.** Разом зі схемою UI генератор
+кладе запис на кожну роль. Оскільки роль = здатність (R0.1), а її
+драйвери гетерогенні (дротовий прямочит без адреси І BLE-канал, що її
+потребує), per-driver атрибути ключаться на ОБРАНОМУ залізі, не на
+роль-агрегаті (R3.5):
+
+| Поле ролі | З чого | Що означає |
+|---|---|---|
+| `capability` | `requires.capability` | здатність, за якою WebUI матчить пристрої (R3.1). |
+| `direction` | `capabilities.json` (`in`/`out`) | напрям здатності; WebUI групує прив'язки за напрямом. |
+| `drivers` | `cap_index[capability]` | усі драйвери, що дають цю здатність (не ручний список). |
+| `addr_drivers` | драйвери з `requires_address` | лише ті eligible-драйвери, що потребують адресу; редактор вимагає адресу ЛИШЕ коли обране залізо використовує такий драйвер. |
+| `channels_by_driver` | `provides.channels[]` / `address_channels[]`, відфільтровані за capability | per-driver enum каналів; `<select>` каналу показується ЛИШЕ коли драйвер обраного пристрою має 2+ канали здатності (єдиний авто-прив'язується). |
+
+Мітка каналу без явного driver-label деривується з `label`/`unit`
+здатності в `capabilities.json` (R1.3) — канал температури читається
+однаково, хай яким драйвером наданий. Legacy driver-типова роль з єдиним
+драйвером додатково емітить `driver`/`hw_type`; capability-роль — ні (її
+кількість eligible-драйверів випадкова, тож поява 2-го провайдера не
+змінює форму запису тихо).
 
 ## Вихід 2: `generated/state_meta.h`
 
@@ -232,4 +270,6 @@ stdout на UTF-8. Якщо перенаправляєте у файл і бач
 ## Джерела
 
 - [`tools/generate_ui.py`](../../../tools/generate_ui.py)
+- [`tools/capabilities.json`](../../../tools/capabilities.json) — SSOT словника здатностей (role=capability).
 - [`tools/known_actions.json`](../../../tools/known_actions.json) — каталог дій / умов.
+- [rules.md](../03-framework-reference/rules.md) — R0.1, R3.1, R3.5, R8.3 (модель capability).

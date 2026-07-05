@@ -296,14 +296,60 @@ WebUI / MQTT see changes
 Engine is а regular BaseModule registered у Phase 2. See
 [scenario-engine/](scenario-engine/) for deep dives.
 
+## The peripheral / binding model: role = capability
+
+Modules never name a driver. A role declares a **capability** —
+`temperature`, `relay_out`, `panel`… — not a source. A thermostat needs
+"temperature" and doesn't know who supplies it (ds18b20 / NTC / a BLE
+channel / a future LoRa link) — the source is swappable (R0.1, R3.1).
+
+`capability` is a **build-time concept**. It lives in the manifests
+(`tools/capabilities.json` — the dictionary SSOT) and in `generate_ui.py`;
+on the device it **compiles away**. A binding is resolved by **role**: at
+build time the generator checks that the role and the driver channel share
+an equal `capability` and an agreeing direction (in/out), while C++ only
+reads `equipment.<role>` and resolves the source via `find_sensor(role)` /
+`find_actuator(role)`. That is why the HAL never learns the word
+"capability" — `Binding{hardware_id, role, driver_type, module_name,
+address}` (`hal_types.h`) is already transport-agnostic.
+
+The binding chain (the single peripheral route):
+
+```
+module manifest  →  role {capability}          (what is needed)
+board.json       →  hardware / remote device     (what the board has)
+bindings.json    →  Binding{hardware,driver,role,module}  (build-time capability match)
+       │
+       ▼ generate_ui.py (cross_validate — R8.3)
+on-device: find_sensor/find_actuator(role) → ISensorDriver/IActuatorDriver
+```
+
+### Transport-generic remote devices
+
+An off-board sensor/actuator reached over a transport is described as
+`RemoteDeviceConfig{id, transport, identity, name}` (`hal_types.h`,
+registry `BoardConfig::remote_devices`, cap `MAX_REMOTE_DEVICES = 16`).
+`transport` is a separate field (`ble` today; `lora`/`mqtt`/`espnow`
+later), auto-derived from `hardware_type`. `identity` is an **opaque blob**
+(a BLE MAC; future LoRa devaddr / MQTT topic) that lives on the device row
+(a board.json factory seed or the runtime `/data/devices.json`), **never on
+a role binding** (R0.3, R4.1). id→identity is resolved via
+`find_remote_device(id)`. So a role stays transport-agnostic: the same
+thermostat is indifferent to whether "temperature" arrives over a wire or
+over BLE. A new transport = a new component + a bridge driver (like
+`modesp_ble`); the HAL / generator / webui are untouched, and the HAL
+depends on no transport (R4.2, invariant `core←hal←…←ble`). Full ruleset:
+[rules.md](rules.md) (R0–R4).
+
 ## What you typically don't touch directly
 
 - `app_main`, ESP-IDF tasks — pure boot scaffolding у main.cpp.
 - `modesp_core::SharedState` directly — use BaseModule helpers.
 - HTTP / WebSocket handlers — generate UI through manifests.
 - MQTT client — declare у manifest.
-- Driver instances — bindings.json wires them; you write modules що read
-  `equipment.<role>`.
+- Driver instances — bindings.json wires them by role (build-time
+  capability match); you write modules що read `equipment.<role>`, and
+  never name a driver.
 
 ## What you customise often
 

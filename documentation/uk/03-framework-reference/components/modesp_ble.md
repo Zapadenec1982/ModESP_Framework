@@ -10,7 +10,7 @@
 
 | Роль | Призначення |
 |---|---|
-| **OBSERVER** | Пасивне сканування. Роздає кожен кадр 16-бітного service-data декодерам, які реєструють BLE-сенсорні драйвери (`adv_decoder.h`); впізнаний показник кешується **за MAC** для прив'язаного драйвера. Транспорт формату пристрою не знає — самі декодери (напр. BTHome `0xFCD2`, pvvx/ATC `0x181A`) живуть у драйвері, напр. `ble_xiaomi_th`. |
+| **OBSERVER** | Пасивне сканування. Роздає кожен кадр 16-бітного service-data декодерам, які реєструють BLE-сенсорні драйвери (`adv_decoder.h`); впізнаний показник кешується за identity пристрою (для BLE-транспорту це MAC) для прив'язаного драйвера. Транспорт формату пристрою не знає — самі декодери (напр. BTHome `0xFCD2`, pvvx/ATC `0x181A`) живуть у драйвері, напр. `ble_xiaomi_th`. |
 | **CENTRAL** | Підключається до пристрою, пише/підписується на його GATT-характеристики. Connect-драйвер реєструє `ConnectProfile` (adv-name + write/notify UUID) через `central_link.h` і отримує генеричний `ICentralLink` — транспорт формату пристрою не знає. Підключення **ставить на паузу** сканування observer, потім **відновлює** його. |
 | **PERIPHERAL** | Власний GATT-сервер (телеметрія/керування + Wi-Fi provisioning), рекламує ім'я `"ModESP"`. |
 
@@ -55,7 +55,7 @@ control-записів інших писачів. Усе байтове коду
 
 ## Фічі поверх хоста
 
-`modesp_ble` — це лише інфраструктура; конкретні пристрої під'єднуються через драйвери з `hardware_type: "ble_device"`. Модулі **ніколи** не чіпають BLE/GPIO напряму — I/O роблять драйвери, модулі читають/пишуть SharedState.
+`modesp_ble` — це лише інфраструктура; конкретні пристрої під'єднуються через драйвери з `hardware_type: "ble"`. Модулі **ніколи** не чіпають BLE/GPIO напряму — I/O роблять драйвери, модулі читають/пишуть SharedState. Модуль бачить лише **роль** (capability), не драйвер і не транспорт (R0.1); ідентичність пристрою (BLE MAC чи майбутній LoRa devaddr/MQTT topic) живе на рядку пристрою, ніколи на біндінгу ролі (R0.3). HAL зберігає пристрій як транспорт-генеричний `RemoteDeviceConfig{id, transport, identity, name}` і резолвить `id`→identity через `find_remote_device(id)` (R4.1).
 
 | Фіча | Роль хоста | Драйвер / модуль |
 |---|---|---|
@@ -64,7 +64,7 @@ control-записів інших писачів. Усе байтове коду
 
 ### Observer → сенсор
 
-`ble_xiaomi_th` читає Xiaomi LYWSD03MMC з кастомною прошивкою (pvvx/ATC/BTHome) **пасивно** — observer ловить broadcast, а декодери самого драйвера (зареєстровані через `adv_decoder.h`) розбирають байти й кешують показник за MAC. Один фізичний сенсор → 3 канали (temperature / humidity / battery), які прив'язка обирає полем `address`. Публікується в `equipment.room_temp` / `equipment.room_humid` / `equipment.room_batt` (+ health-прапорці `equipment.<role>_ok`). Stale-timeout 60 c: немає broadcast → не healthy.
+`ble_xiaomi_th` читає Xiaomi LYWSD03MMC з кастомною прошивкою (pvvx/ATC/BTHome) **пасивно** — observer ловить broadcast, а декодери самого драйвера (зареєстровані через `adv_decoder.h`) розбирають байти й кешують показник за identity пристрою (тут — BLE MAC). Той MAC не хардкодиться у біндінгу: він живе полем `identity` (legacy-псевдонім `mac`) на рядку пристрою в `remote_devices` board.json / runtime `devices.json` і резолвиться за `id` (R0.3, R4.1). Один фізичний сенсор → 3 канали (temperature / humidity / battery), які прив'язка обирає полем `address`. Публікується в `equipment.room_temp` / `equipment.room_humid` / `equipment.room_batt` (+ health-прапорці `equipment.<role>_ok`). Stale-timeout 60 c: немає broadcast → не healthy.
 
 ### Central → панель
 

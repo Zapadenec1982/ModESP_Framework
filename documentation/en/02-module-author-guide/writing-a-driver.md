@@ -52,9 +52,9 @@ logical `role`:
 |------------|---------|
 | `hardware` | An `id` from `board.json` (the physical resource). |
 | `driver`   | The driver's manifest `driver` field (its type string). |
-| `role`     | Logical name. Becomes the `equipment.<role>` SharedState key. |
+| `role`     | The logical role name declared by its owning module (with a `capability`, never a driver — R0.1). Becomes the `equipment.<role>` SharedState key. A binding is valid only when the driver's `capability` matches the role's capability (R3.1). |
 | `module`   | Owning module (usually `equipment`). |
-| `address`  | Optional. ROM address for multi-device buses (e.g. several DS18B20 on one OneWire pin). Omit for single-device buses. |
+| `address`  | Optional. ROM address for multi-device buses (e.g. several DS18B20 on one OneWire pin). For non-wired drivers the identity (BLE MAC, etc.) lives on the device record, NOT here (R0.3). Omit for single-device buses. |
 
 `DriverManager::init()` walks the bindings, asks the registry for a factory
 matching each `driver` string, and the factory builds the instance from the HAL
@@ -125,9 +125,10 @@ The folder name, the manifest `driver` field, and the registration macro name
   "description": "Demo analog sensor",
   "category": "sensor",
   "hardware_type": "adc",
+  "transport": "wired",
   "requires_address": false,
   "multiple_per_bus": false,
-  "provides": {"type": "float", "unit": "°C", "range": [-40, 150]},
+  "provides": {"capability": "temperature", "type": "float", "unit": "°C", "range": [-40, 150]},
   "settings": [
     {"key": "read_interval_ms", "type": "int",   "default": 1000, "min": 100, "max": 60000, "unit": "ms", "persist": true},
     {"key": "offset",           "type": "float", "default": 0.0,  "min": -10.0, "max": 10.0, "step": 0.1, "unit": "°C", "persist": true}
@@ -138,6 +139,29 @@ The folder name, the manifest `driver` field, and the registration macro name
 `category` (`sensor`/`actuator`) and the `driver` name are all the **generator**
 needs — it does not need your C++ class name. Full field reference:
 [manifest.md](manifest.md#driver-only-sections).
+
+**A driver declares the CAPABILITY it provides, not a type-to-type binding**
+(R0.1, R3.1). A module's role asks for a *capability* (`temperature`), never for
+your driver; the generator matches role↔channel **by `capability` equality
+alone** (plus in/out direction) — never by driver name, `hardware_type`, or
+transport. So `provides` must name the capability:
+
+- **Single-value driver** — `provides.capability` (one string ∈
+  [`tools/capabilities.json`](../../../tools/capabilities.json), e.g.
+  `"temperature"`, `"relay_out"`). The `type`/`unit`/`range` fields stay as value
+  metadata.
+- **Multi-channel driver** — do not set `provides.capability`; instead use
+  `provides.channels: [{"channel": ..., "capability": ...}]` (recommended) or the
+  per-address `address_channels[].capability` for devices where `binding.address`
+  picks the quantity (one device feeds several roles). See the BLE observers
+  `ble_xiaomi_th` (temperature/humidity/battery) and `ble_nrf_tilt`
+  (angle/tilted/battery/accel axes).
+
+**`transport`** is a separate top-level field (`wired`/`ble`/`lora`/`mqtt`/`espnow`,
+R4.1). It defaults from `hardware_type`, so a wired driver may omit it; set it
+explicitly for non-wired (e.g. `"ble"`). It is orthogonal to the bus, so
+LoRa/MQTT/ESP-NOW don't overload `hardware_type`. An unknown capability fails
+the build (R8.3).
 
 ### Step 2 — implement the interface
 

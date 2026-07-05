@@ -25,24 +25,20 @@ A practical guide: how to connect the Chinese **iPixel Color / LED_BLE 64×16** 
 
 Without `CENTRAL` the driver has nothing to connect to the panel with.
 
-## Step 2 — Declare the panel (board.json + bindings.json)
+## Step 2 — Subscribe the panel at runtime (Devices page) and bind the role
 
-The active config is `data/board.json` + `data/bindings.json` (the board template lives in `boards/<board>/`). The panel is declared in `ble_devices` by **`name`** (the adv-name, not a MAC — it is a connect device):
+The panel is a **BLE remote device**, not wired hardware: it is NOT declared in `board.json`. The driver registers the `LED_BLE` connect-prefix at BOOT, so an unbound panel appears in the unified `GET /api/ble/scan` before any binding exists. The flow is: **scan → subscribe → bind the role** (R4.3, R6.2).
 
-```json
-// board.json
-"ble_devices": [
-  {"id": "led_panel", "name": "LED_BLE_E6C5EBE2",
-   "label": "iPixel Color 16x64 LED matrix (connect device)"}
-]
-```
+1. **Scan + subscribe.** WebUI → the **Devices** page → BLE scan → find your panel by its adv-name (`LED_BLE_XXXXXXXX`) → **Subscribe**. The subscription is written to `/data/devices.json` (runtime-only, gitignored) as `RemoteDeviceConfig{id, transport, identity, name}` — where `name` is the panel's FULL adv-name (its connect target), `transport` is auto-derived (`ble`), and `id` (e.g. `led_panel`) is the stable device handle (R4.1, R4.3).
+
+2. **Bind the role** — in `data/bindings.json` (template: `boards/<board>/bindings.json`) bind the role to the device by its **`id`**:
 
 ```json
 // bindings.json
-{"hardware": "led_panel", "driver": "ble_led_panel", "role": "panel", "module": "equipment"}
+{"hardware": "led_panel", "driver": "ble_led_panel", "role": "panel", "module": "panel"}
 ```
 
-Replace `LED_BLE_E6C5EBE2` with **your** panel's adv-name. Field details: [board-config.md](board-config.md) and [bindings.md](bindings.md).
+The binding references the device `id`, **never** an adv-name/MAC — identity lives on the device row in `devices.json`, not on the role (R0.3). The `panel` role is declared by the `panel` module itself (`requires: [{"role":"panel","capability":"panel"}]`), so the panel resolves by **capability `panel`**, not by driver — the module never knows which transport provides it (R0.1, R1.2). Field details: [board-config.md](board-config.md) and [bindings.md](bindings.md).
 
 ## Step 3 — Wire in the modules
 
@@ -110,7 +106,7 @@ Non-empty slots **rotate on the display** (white) alongside the sensors. An empt
 
 ## Common pitfalls
 
-- **Panel not found** — wrong adv-name in `board.json`, `CONFIG_MODESP_BLE_CENTRAL` disabled, or the panel is out of range. Check the name with a BLE scanner.
+- **Panel not found** — the panel is not subscribed on the Devices page (no row in `/data/devices.json`), the `panel` role is not bound to its `id` in `bindings.json`, `CONFIG_MODESP_BLE_CENTRAL` is disabled, or the panel is out of range. Re-scan under Devices and confirm the subscription.
 - **Build FATAL about a disabled driver** — the board binds `ble_led_panel` but it is disabled in menuconfig. `python tools/drivers_sync.py --fix`.
 - **Message won't clear in the WebUI** — delete all the text and click outside the field (commit on blur/Enter); the empty value brings back the rotation.
 - **Text truncates at 31 chars** — that is the string-state ceiling (`etl::string<32>`); the panel scrolls up to 31 chars.

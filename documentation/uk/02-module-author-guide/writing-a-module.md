@@ -394,6 +394,50 @@ void MyModule::on_update(uint32_t dt_ms) {
 *(заплановано)* та [hardware/bindings.md](../04-hardware/bindings.md)
 *(заплановано)*.
 
+### Модуль-власник драйверів: `requires` оголошує здатність (capability)
+
+Модуль на кшталт `equipment` не читає готові ключі — він **володіє**
+драйверами. Такий модуль декларує потрібну периферію у масиві `requires`
+свого маніфесту. Кожен запис оголошує **роль** та **здатність
+(capability)** — ніколи не конкретний драйвер (**R0.1**):
+
+```json
+// modules/equipment/manifest.json
+"requires": [
+  {"role": "air_temp",   "type": "sensor",   "capability": "temperature", "label": "Air temperature"},
+  {"role": "room_temp",  "type": "sensor",   "capability": "temperature", "label": "Room temperature", "optional": true},
+  {"role": "actuator_1", "type": "actuator", "capability": "relay_out",    "label": "Actuator 1",       "optional": true}
+]
+```
+
+Роль `air_temp` каже «мені потрібна `temperature`» — і не знає, хто її
+дає: `ds18b20`, `ntc`, BLE-канал чи майбутній LoRa. Драйвер обирається у
+`bindings.json` (прив'язка `role` → `driver` → device), а не в коді
+модуля. Роль оголошує лише **той** модуль, що її споживає (**R1.2**).
+
+**On-device резолв за іменем ролі.** Прив'язку роль↔драйвер розв'язує
+`DriverManager`; модуль отримує драйвер за **іменем ролі**, ніколи не за
+типом драйвера:
+
+```cpp
+modesp::ISensorDriver*   s = dm.find_sensor("air_temp");      // capability temperature
+modesp::IActuatorDriver* a = dm.find_actuator("actuator_1");  // capability relay_out
+```
+
+`find_sensor(role)` / `find_actuator(role)` (у
+[`driver_manager.h`](../../../components/modesp_hal/include/modesp/hal/driver_manager.h))
+шукають за рядком ролі й повертають абстрактний інтерфейс
+`ISensorDriver` / `IActuatorDriver`. Модуль викликає через цей інтерфейс —
+GPIO не чіпає ніколи (**R3.3**). `EquipmentBase` робить це у `bind_drivers()`
+й далі оперує тільки ролями; поле `capability` — SSOT для матчингу
+роль↔канал, `optional: true` дозволяє відсутню прив'язку.
+
+> 💡 Здатність — замінна: якщо термостат потребує «температуру», джерело
+> (провідний датчик сьогодні, BLE-канал завтра) міняється у `bindings.json`
+> без правки коду модуля. Не хардкодь драйвер у ролі чи в модулі —
+> це руйнує всю абстракцію. Див. [rules.md](../03-framework-reference/rules.md)
+> (R0.1–R0.3) і [bindings.md](../04-hardware/bindings.md) *(заплановано)*.
+
 ## Згенеровані заголовки — що автоматично
 
 Після `idf.py build` у `generated/` міститься:
