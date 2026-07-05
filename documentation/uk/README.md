@@ -60,6 +60,9 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 
 | Документ | Статус | Призначення |
 |---|---|---|
+| ⭐ [rules.md](03-framework-reference/rules.md) | ✅ | **Звід правил** — нумерований (R0 роль=capability … R9 доки), «що не ламати» одним поглядом. |
+| ⭐ [project-hierarchy.md](03-framework-reference/project-hierarchy.md) | ✅ | Авторитетна ієрархія + маршрут периферії (Module↔Role↔Device↔Binding) + INVARIANTS. |
+| [capability-roadmap.md](03-framework-reference/capability-roadmap.md) | ✅ | Модель роль=capability + транспорт-генерична периферія (RemoteDeviceConfig); статус P0-P5. |
 | [architecture.md](03-framework-reference/architecture.md) | ✅ | Шари системи, залежності, фази ініціалізації. |
 | [components/modesp_core.md](03-framework-reference/components/modesp_core.md) | ✅ | SharedState, BaseModule, ModuleManager, App. |
 | [components/modesp_hal.md](03-framework-reference/components/modesp_hal.md) | ✅ | Абстракції HAL, IDriver, DriverManager. |
