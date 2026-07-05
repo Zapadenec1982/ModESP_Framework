@@ -8,14 +8,15 @@
   "requires_address": true,
   "multiple_per_bus": true,
   "provides": {"type": "float", "description": "кут нахилу ° / tilted / батарея мВ / сирі осі — залежно від address-каналу"},
-  "_address_channels_note": "address_channels: фіксований enum каналів (не сканується). Один пристрій (device id) живить кілька ролей; binding.address обирає величину. Генератор → role.channels → канальний <select>.",
+  "_address_channels_note": "address_channels: фіксований enum каналів (не сканується). Один пристрій (device id) живить кілька ролей; binding.address обирає величину. Генератор → role.channels_by_driver; канал-<select> лише за 2+ каналів здатності (напр. осі accel), інакше єдиний авто-прив'язується.",
+  "_channels_note": "label omitted → derives from capabilities.json (Angle, Battery mV). tilted + the 3 accel axes keep explicit labels: binary_in/accel are generic capabilities, so the driver names them to distinguish same-capability channels in the picker.",
   "address_channels": [
-    {"value": "angle",   "label": "Кут нахилу, °",   "capability": "angle"},
-    {"value": "tilted",  "label": "Нахилено (0/1)",  "capability": "binary_in"},
-    {"value": "battery", "label": "Батарея, мВ",     "capability": "battery"},
-    {"value": "ax",      "label": "Вісь X (сира)",   "capability": "accel"},
-    {"value": "ay",      "label": "Вісь Y (сира)",   "capability": "accel"},
-    {"value": "az",      "label": "Вісь Z (сира)",   "capability": "accel"}
+    {"value": "angle",   "capability": "angle"},
+    {"value": "tilted",  "capability": "binary_in", "label": "Tilted (0/1)"},
+    {"value": "battery", "capability": "battery"},
+    {"value": "ax",      "capability": "accel", "label": "Axis X (raw)"},
+    {"value": "ay",      "capability": "accel", "label": "Axis Y (raw)"},
+    {"value": "az",      "capability": "accel", "label": "Axis Z (raw)"}
   ],
   "settings": [
     {"key": "stale_ms", "type": "int", "default": 60000, "min": 5000, "max": 600000, "step": 1000, "unit": "мс", "description": "Без adv-кадру довше — датчик несправний", "persist": true}

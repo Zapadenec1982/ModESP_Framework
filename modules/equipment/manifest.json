@@ -4,9 +4,9 @@
   "description": "Equipment Manager — universal HAL abstraction layer",
 
   "requires": [
-    {"role": "air_temp",    "type": "sensor",   "capability": "temperature", "label": "Temperature sensor"},
-    {"role": "room_temp",   "type": "sensor",   "capability": "temperature", "label": "BLE room sensor", "optional": true},
-    {"role": "orientation", "type": "sensor",   "capability": "angle", "label": "BLE tilt sensor", "optional": true},
+    {"role": "air_temp",    "type": "sensor",   "capability": "temperature", "label": "Air temperature"},
+    {"role": "room_temp",   "type": "sensor",   "capability": "temperature", "label": "Room temperature", "optional": true},
+    {"role": "orientation", "type": "sensor",   "capability": "angle", "label": "Orientation", "optional": true},
     {"role": "actuator_1",  "type": "actuator", "capability": "relay_out", "label": "Actuator 1", "optional": true}
   ],
 

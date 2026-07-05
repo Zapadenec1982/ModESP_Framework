@@ -373,6 +373,17 @@ class TestBindingsPageKC868A6:
         assert "ds18b20" not in air["addr_drivers"]
         assert "ntc" not in air["addr_drivers"]
 
+    def test_air_temp_channels_by_driver(self, bindings_page):
+        """channels_by_driver is PER-DRIVER: the BLE temp driver exposes its temperature channel;
+        the address-free wired ds18b20/ntc contribute none (a wired pick needs no channel). The
+        channel label derives from capabilities.json — no hardcoded per-driver label."""
+        air = self._role(bindings_page, "air_temp")
+        cbd = air.get("channels_by_driver", {})
+        assert [c["value"] for c in cbd.get("ble_xiaomi_th", [])] == ["temperature"]
+        assert cbd["ble_xiaomi_th"][0]["label"] == "Temperature, °C"   # from capabilities.json
+        assert "ds18b20" not in cbd    # single-value wired driver → no channel enum
+        assert "ntc" not in cbd
+
     def test_roles_match_equipment_requires(self, bindings_page, equipment):
         """Кожна equipment-роль присутня на сторінці bindings."""
         page_roles = {r["role"] for r in bindings_page["roles"]}

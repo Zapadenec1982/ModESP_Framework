@@ -15,19 +15,23 @@
   //  1) scan picker — the driver discovers per-role channels on a shared bus (roleDef.scan,
   //     e.g. a OneWire ROM). Gated on the SELECTED hardware being that driver's own bus type
   //     so a multi-driver role (ds18b20+ntc) doesn't show the OneWire scanner on an ADC pick.
-  //  2) channel <select> — the driver exposes a fixed channel enum (roleDef.channels, e.g. a
-  //     BLE sensor's temperature/humidity/battery). No scan; the device identity is chosen on
-  //     the Devices page and this role just picks which value of it to read.
+  //  2) channel <select> — the bound device's driver exposes a per-driver capability channel enum
+  //     (roleDef.channels_by_driver, e.g. a BLE sensor's temperature/humidity/battery). Shown ONLY
+  //     when that driver has 2+ channels of the role's capability; a single one is auto-bound on
+  //     hardware select (BindingsEditor.setHardware). The device identity is chosen on the Devices page.
   // Manifest-driven — no hardcoded hw_type/driver/channel here.
   $: selectedHw = hwList.find(h => h.id === binding.hardware);
   $: scanCfg = (roleDef && roleDef.scan) || null;
   $: needsPicker = !!(scanCfg && selectedHw && selectedHw.hw_type === scanCfg.hw_type);
-  $: channels = (roleDef && roleDef.channels) || null;
-  // channels are a PER-DRIVER enum (a BLE device's temperature/humidity/battery). Only
-  // channel-bearing devices are shareable (multiple_per_bus), so gate on selectedHw.shareable
-  // — otherwise a capability role (e.g. temperature) that also accepts a wired ADC/NTC would
-  // wrongly demand a channel pick for that wired hardware.
-  $: needsChannel = !!(channels && selectedHw && selectedHw.shareable && !needsPicker);
+  // channels are a PER-DRIVER enum of the role's capability. Look them up for the SELECTED
+  // device's driver (a temperature role on a Xiaomi → its temperature channels only).
+  $: channelsByDriver = (roleDef && roleDef.channels_by_driver) || null;
+  $: driverCh = (channelsByDriver && selectedHw && selectedHw.driver)
+                ? (channelsByDriver[selectedHw.driver] || []) : [];
+  // A picker appears ONLY when the device exposes 2+ channels of the capability. A device with
+  // a single matching channel (the common case — Xiaomi temperature, nRF angle) is auto-bound
+  // in BindingsEditor.setHardware, so there's no pointless one-option dropdown.
+  $: needsChannel = !!(driverCh.length >= 2 && !needsPicker);
 
   function onPick(value) {
     dispatch('changeAddr', { role: roleDef.role, addr: value });
@@ -58,7 +62,7 @@
             value={binding.address || ''}
             on:change={e => onPick(e.target.value)}>
       <option value="" disabled>— {$t['bind.choose_channel'] || 'Оберіть канал'} —</option>
-      {#each channels as ch}
+      {#each driverCh as ch}
         <option value={ch.value}>{ch.label}</option>
       {/each}
     </select>

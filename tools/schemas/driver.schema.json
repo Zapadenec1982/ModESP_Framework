@@ -69,13 +69,13 @@
         "type": "object",
         "properties": {
           "value": { "type": "string" },
-          "label": { "type": "string" },
+          "label": { "type": "string", "description": "Optional — omit to derive the label from the channel's capability (capabilities.json). Set only to override (a differing unit, e.g. battery %) or to distinguish 2+ channels of one capability (e.g. accel axes)." },
           "capability": {
             "type": "string",
             "description": "Capability of this channel (∈ tools/capabilities.json) — back-compat per-channel path; provides.channels[] is the recommended form."
           }
         },
-        "required": ["value", "label"],
+        "required": ["value"],
         "patternProperties": { "^_": {} },
         "additionalProperties": false
       }

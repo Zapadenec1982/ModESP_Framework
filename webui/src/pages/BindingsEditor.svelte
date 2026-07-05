@@ -116,23 +116,34 @@
     return bindings.find(b => b.role === role);
   }
 
+  // Channels of the role's capability that a given driver exposes (generator: role.channels_by_driver,
+  // keyed by the same driver string driverForHw returns). Exactly one → the sensor IS the channel and
+  // is auto-bound; 2+ → BindingCard shows a picker; 0 → no channel enum (wired/scan role).
+  function roleChannelsForHw(roleDef, driver) {
+    const cbd = roleDef && roleDef.channels_by_driver;
+    return (cbd && driver && cbd[driver]) || [];
+  }
+
   function setHardware(role, hwId) {
     const roleDef = roles.find(r => r.role === role);
     const oldBinding = bindings.find(b => b.role === role);
     const oldHw = oldBinding ? hwInventory.find(h => h.id === oldBinding.hardware) : null;
     const newHw = hwInventory.find(h => h.id === hwId);
-    // Clear the address when leaving a shareable bus, or moving onto a different
-    // shareable bus (the old per-device address no longer applies). hw.shareable is
-    // manifest-driven (driver multiple_per_bus), not a hardcoded hw_type.
-    const clearAddr = (oldHw?.shareable && !newHw?.shareable)
-                   || (oldHw?.id !== hwId && newHw?.shareable);
+    const driver = roleDef ? driverForHw(roleDef, hwId) : (oldBinding ? oldBinding.driver : '');
+    // Per-driver channels of the role's capability for the CHOSEN device. Exactly one → auto-bind
+    // it (the sensor IS the channel; no picker shown). 2+ → clear so the user picks. 0 → fall back
+    // to the shareable-bus rule: clear when leaving a shareable bus or moving onto a different one.
+    const chs = roleChannelsForHw(roleDef, driver);
+    let addrPatch;
+    if (chs.length === 1)     addrPatch = { address: chs[0].value };
+    else if (chs.length >= 2) addrPatch = { address: '' };
+    else {
+      const clearAddr = (oldHw?.shareable && !newHw?.shareable)
+                     || (oldHw?.id !== hwId && newHw?.shareable);
+      addrPatch = clearAddr ? { address: '' } : {};
+    }
     bindings = bindings.map(b =>
-      b.role === role ? {
-        ...b,
-        hardware: hwId,
-        driver: roleDef ? driverForHw(roleDef, hwId) : b.driver,
-        ...(clearAddr ? { address: '' } : {})
-      } : b
+      b.role === role ? { ...b, hardware: hwId, driver, ...addrPatch } : b
     );
   }
 
@@ -149,15 +160,18 @@
   function addRole(roleDef) {
     const hw = availableHw(roleDef);
     if (hw.length === 0) return;
-    const autoAssign = hw.length === 1;
-    bindings = [...bindings, {
-      hardware: autoAssign ? hw[0].id : '',
-      driver: autoAssign ? driverForHw(roleDef, hw[0].id) : '',
-      role: roleDef.role,
-      // Role's module comes from ui.json (the generator emits role.module for every
-      // role provider), so the editor binds display/player/any module correctly.
-      module: roleDef.module,
-    }];
+    // Role's module comes from ui.json (role.module for every provider), so the editor
+    // binds display/player/any module correctly.
+    const b = { hardware: '', driver: '', role: roleDef.role, module: roleDef.module };
+    if (hw.length === 1) {                             // sole compatible hw → auto-assign
+      b.hardware = hw[0].id;
+      b.driver = driverForHw(roleDef, hw[0].id);
+      // Same auto-bind as setHardware: a sole capability-channel IS the sensor, so bind it now —
+      // else the role has no picker (1 channel shows none) and stays un-saveable (empty address).
+      const chs = roleChannelsForHw(roleDef, b.driver);
+      if (chs.length === 1) b.address = chs[0].value;
+    }
+    bindings = [...bindings, b];
   }
 
   // ── Derived state ──

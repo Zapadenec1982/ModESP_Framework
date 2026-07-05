@@ -33,3 +33,19 @@
 
 ## Міграція (без flag-day)
 Усі нові поля **опційні**; поки драйвер/роль не оголосили capability — генератор падає назад на теперішній `category==type`. `tools/migrate_capabilities.py` виводить capability з наявних сигналів (unit °C→temperature, category actuator+gpio→relay_out, address_channels temperature/humidity/battery, ld2410b presence/distance/energy, nRF angle/accel, digital_input→binary_in). `board.json ble_devices` читається як `remote_devices` (аліас; рядок без transport→"ble", без identity→mac). `bindings.json` — БЕЗ змін. Стара `/data/devices.json` на пристроях парситься після OTA.
+
+## Статус (2026-07)
+P0–P5 **зроблено й у `main`**. P4.5 (UX: роль без транспорту в назві, per-driver `channels_by_driver`, авто-прив'язка єдиного каналу, дружнє ім'я пристрою) — теж у `main`. P6 (2-й транспорт) відкладено. Деталі — пам'ять `capability-roadmap-status`.
+
+## Відкладені архітектурні напрями (bottom-up — після P5)
+Два питання того самого кореня: модель зараз **top-down** (периферія з'являється в системі лише коли якийсь модуль ЯВНО вимагає її роллю), а цільова універсальна візія — **bottom-up** (пристрій дав N каналів → усі N видимі; ролі опційні).
+
+### 1. Видимість каналів (channel visibility)
+**Симптом:** пристрій транслює кілька каналів (Xiaomi: temperature/humidity/**battery**; nRF: angle/**tilted**/**battery**/**осі**), але видно лише ті, під які є роль (`room_temp`=temperature, `orientation`=angle). Вологість/батарея/осі невидимі, бо їх ніхто не споживає. `EquipmentBase` публікує **один стан на РОЛЬ** (`equipment.<role>`), тож `equipment.room_humid` (який читає панель) ніхто не публікує — роль `room_humid` **ніколи не існувала** (не регресія, давня діра).
+
+**Напрям (обрано B):** кожен підписаний канал пристрою **авто-реєструється як сенсор** у SharedState (напр. `sensor.<device>.<channel>`), незалежно від ролей модулів. Ролі лишаються для **логіки** (термостату потрібна температура — це роль); але сира видимість/логування/MQTT/панель НЕ вимагають ролі. Фреймворк-зміна (SharedState-публікація каналів реєстру пристроїв + генератор/webui їх показує). Тимчасовий костиль A (додати ролі `room_humid`/`room_batt` у модуль) — **відкинуто** як per-channel хардкод проти філософії.
+
+### 2. Злиття `display` + `panel`
+Обидва «виводять інформацію»; поділ на дві capability — надмірна спеціалізація. Ціль — одна capability `display` з фасетами `as_menu()`/`as_text()` (за наявним патерном `IDisplayPort::as_*()`). Повний бриф — spawn_task chip + пам'ять `display-panel-unify-todo`.
+
+Обидва — реальні багатокомпонентні зміни: build + host-тести + adversarial review + review-before-commit.

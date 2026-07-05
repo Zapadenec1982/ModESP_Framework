@@ -8,11 +8,12 @@
   "requires_address": true,
   "multiple_per_bus": true,
   "provides": {"type": "float", "description": "температура °C / вологість % / батарея % залежно від address-каналу"},
-  "_address_channels_note": "address_channels: фіксований enum каналів (не сканується). Поле binding.address обирає величину; один пристрій (device id) живить кілька ролей. Генератор → role.channels → канальний <select> у BindingsEditor.",
+  "_address_channels_note": "address_channels: фіксований enum каналів (не сканується). binding.address обирає величину; один пристрій (device id) живить кілька ролей. Генератор → role.channels_by_driver; канал-<select> лише за 2+ каналів здатності, інакше єдиний авто-прив'язується.",
+  "_channels_note": "label omitted → derives from capabilities.json (Temperature/Humidity). battery keeps an explicit label: this device reports % while the battery capability's canonical unit is mV.",
   "address_channels": [
-    {"value": "temperature", "label": "Температура, °C", "capability": "temperature"},
-    {"value": "humidity",    "label": "Вологість, %",    "capability": "humidity"},
-    {"value": "battery",     "label": "Батарея, %",       "capability": "battery"}
+    {"value": "temperature", "capability": "temperature"},
+    {"value": "humidity",    "capability": "humidity"},
+    {"value": "battery",     "capability": "battery", "label": "Battery, %"}
   ],
   "settings": [
     {"key": "stale_ms", "type": "int", "default": 60000, "min": 5000, "max": 600000, "step": 1000, "unit": "мс", "description": "Без adv-кадру довше — датчик несправний", "persist": true}

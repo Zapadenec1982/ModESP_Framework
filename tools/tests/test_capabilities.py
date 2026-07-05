@@ -29,10 +29,15 @@ def test_capabilities_json_loads_and_is_consistent():
     assert caps["temperature"]["direction"] == "in"
     assert caps["relay_out"]["kind"] == "actuator"
     assert caps["relay_out"]["direction"] == "out"
+    # every capability carries a human label (channel-label SSOT: a channel with no explicit
+    # driver label derives its label from here, so a temperature channel reads the same
+    # whatever driver/transport provides it)
+    assert caps["temperature"]["label"] == "Temperature"
     # kind <-> direction consistency holds for every entry
     for name, c in caps.items():
         assert (c["kind"] == "sensor") == (c["direction"] == "in"), name
         assert c["value_type"] in ("float", "bool", "enum", "blob"), name
+        assert c.get("label"), name
 
 
 def test_missing_file_is_empty(tmp_path):

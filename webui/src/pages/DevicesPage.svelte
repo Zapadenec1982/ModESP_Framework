@@ -23,6 +23,13 @@
   let saving = false;
   let dirty = false;
   let restartPending = false;   // a change was saved; a restart applies it
+  let focusId = null;           // just-subscribed device → focus its name field (name-at-subscribe)
+
+  // Focus (and select) a device's name input the moment it mounts after subscribe, so the
+  // operator names the sensor right away instead of leaving the id as its label.
+  function focusInput(node, active) {
+    if (active) { node.focus(); node.select && node.select(); }
+  }
 
   // Single unified scan
   let scanning = false;
@@ -84,6 +91,7 @@
     if (isConnect) dev.name = res.name;   // connect target (adv-name)
     else           dev.mac  = res.address;
     devices = [...devices, dev];
+    focusId = dev.id;   // focus this device's name field on mount (name-at-subscribe)
     dirty = true;
     save();   // 1-click subscribe → persist immediately (no separate Save step)
   }
@@ -155,7 +163,7 @@
         <div class="dev-row">
           <div class="dev-main">
             <input class="dev-label" placeholder={d.id} maxlength={LABEL_MAX}
-                   value={d.label || ''}
+                   value={d.label || ''} use:focusInput={d.id === focusId}
                    on:input={e => renameDevice(d.id, e.target.value)} />
             <div class="dev-sub">
               {#if d.driver}<span class="dev-type">{typeLabel[d.driver] || d.driver}</span>{/if}

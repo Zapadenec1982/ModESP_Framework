@@ -1753,7 +1753,11 @@ class UIJsonGenerator:
             hw_types = []
             requires_address = False
             scan_cfg = None
-            channels = None
+            channels_by_driver = {}
+            cap_meta = (capabilities or {}).get(req_cap, {}) if req_cap else {}
+            _cap_lbl = cap_meta.get("label"); _cap_unit = cap_meta.get("unit")
+            cap_default_lbl = (f"{_cap_lbl}, {_cap_unit}" if _cap_lbl and _cap_unit
+                               else _cap_lbl)   # capability's canonical channel label (or None)
             for drv_name in drivers:
                 drv = driver_manifests.get(drv_name, {})
                 hw_t = drv.get("hardware_type", "")
@@ -1765,13 +1769,19 @@ class UIJsonGenerator:
                 # picker (mac-assigning drivers are handled on the Devices page instead).
                 if scan_cfg is None and drv_name in discovery_by_driver:
                     scan_cfg = discovery_by_driver[drv_name]
-                # Fixed channel enum — filtered to the role's capability so a temperature role
-                # on a Xiaomi device offers ONLY its temperature channel. The editor renders
-                # role.channels as a <select> so such a role is bindable without a scan.
-                if channels is None:
-                    chs = role_channels_for(drv, req_cap)
-                    if chs:
-                        channels = chs
+                # Fixed channel enum, PER DRIVER, filtered to the role's capability. The editor
+                # shows a channel <select> ONLY when the BOUND device's driver exposes 2+ channels
+                # of the capability; a device with a single matching channel is auto-bound (no
+                # picker). A channel without an explicit driver label shows the capability's
+                # canonical label — a temperature channel reads the same whatever driver provides it.
+                chs = role_channels_for(drv, req_cap)
+                if chs:
+                    channels_by_driver[drv_name] = [
+                        {"value": c["value"],
+                         "capability": c.get("capability", req_cap),
+                         "label": c.get("label") or cap_default_lbl or c["value"]}
+                        for c in chs
+                    ]
 
             # requires_address / channels / scan are PER-DRIVER properties. A capability role
             # spans HETEROGENEOUS drivers (e.g. a wired direct-read ds18b20 that needs no
@@ -1800,10 +1810,10 @@ class UIJsonGenerator:
             # Role's driver can enumerate devices → BindingsEditor shows the scan picker.
             if scan_cfg is not None:
                 role_entry["scan"] = scan_cfg
-            # Role's driver exposes a fixed channel enum → editor shows a channel <select>
-            # (gated in the editor to channel-bearing hardware, so a wired pick isn't asked).
-            if channels is not None:
-                role_entry["channels"] = channels
+            # Per-driver channel enums → editor shows a channel <select> ONLY when the bound
+            # device's driver has 2+ channels of the capability (else the sole one is auto-bound).
+            if channels_by_driver:
+                role_entry["channels_by_driver"] = channels_by_driver
             # Legacy driver-typed role with a single driver → emit driver/hw_type. NOT for a
             # capability role (its single-eligible-driver count is incidental, not declared, so
             # a later 2nd provider must not silently flip the shape).
