@@ -110,6 +110,46 @@ static modesp::MqttService     cloud_service;
 #include "module_register.h"
 
 // ═══════════════════════════════════════════════════════════════
+// Bounded boot-failure recovery
+// ═══════════════════════════════════════════════════════════════
+//
+// A failed HAL/driver/core init used to `return` from app_main into a
+// watchdog-free idle — the controller sat silently dead (no outputs, no
+// network, no reboot) until a manual power-cycle. That is the worst outcome
+// for a year-unattended fridge controller and is triggered by exactly the kind
+// of transient I2C/power glitch that happens when mains return after an outage.
+//
+// Instead we reboot with backoff: a few fast retries (a transient glitch
+// usually clears on the next boot), then slow retries so a genuine hardware
+// fault doesn't hammer the NVS/flash. The counter is cleared once init fully
+// succeeds (see clear_boot_fail_count before the main loop). All failure sites
+// are reached before the TWDT is subscribed, so the vTaskDelay below is safe.
+static void boot_fail_reboot(const char* what)
+{
+    int32_t fails = 0;
+    modesp::nvs_helper::read_i32("boot", "fail_cnt", fails);
+    fails++;
+    modesp::nvs_helper::write_i32("boot", "fail_cnt", fails);
+    ESP_LOGE(TAG, "Boot init failed at '%s' (attempt %ld) — rebooting with backoff",
+             what, (long)fails);
+    if (fails > 3) {
+        ESP_LOGE(TAG, "Repeated boot failures — waiting 60s before retry");
+        vTaskDelay(pdMS_TO_TICKS(60000));
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(1000));  // brief settle before a fast retry
+    }
+    esp_restart();
+}
+
+static void clear_boot_fail_count()
+{
+    int32_t fails = 0;
+    if (modesp::nvs_helper::read_i32("boot", "fail_cnt", fails) && fails != 0) {
+        modesp::nvs_helper::write_i32("boot", "fail_cnt", 0);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Entry point
 // ═══════════════════════════════════════════════════════════════
 
@@ -143,7 +183,7 @@ extern "C" void app_main(void)
     // ── Step 1: Core init ──
     if (!app.init()) {
         ESP_LOGE(TAG, "App init failed!");
-        return;
+        boot_fail_reboot("core");
     }
 
     // Публікуємо інформацію про прошивку в SharedState
@@ -202,13 +242,13 @@ extern "C" void app_main(void)
     // ── Step 5: Initialize HAL (GPIO setup) ──
     if (!hal.init(board_cfg)) {
         ESP_LOGE(TAG, "HAL init failed!");
-        return;
+        boot_fail_reboot("hal");
     }
 
     // ── Step 6: Create and init all drivers ──
     if (!driver_manager.init(bindings, hal)) {
         ESP_LOGE(TAG, "DriverManager init failed!");
-        return;
+        boot_fail_reboot("drivers");
     }
     ESP_LOGI(TAG, "Drivers: %d sensors, %d actuators",
              (int)driver_manager.sensor_count(),
@@ -322,6 +362,9 @@ extern "C" void app_main(void)
     }
 
     // ── Step 10: Main loop ──
+    // Init fully succeeded — break the boot-failure backoff chain.
+    clear_boot_fail_count();
+
     ESP_LOGI(TAG, "Registered %d modules total", (int)app.modules().module_count());
     ESP_LOGI(TAG, "Free heap after init: %lu bytes", esp_get_free_heap_size());
 
@@ -370,7 +413,12 @@ extern "C" void app_main(void)
 
         // 3. OTA rollback validation (60s timeout)
         if (ota_pending_verify) {
-            bool net_ok = wifi_service.is_connected() && http_service.server();
+            // Accept AP-mode too: firmware flashed over the device's own SoftAP
+            // on an offline site (no router) is a valid, working image — the old
+            // STA-only gate rolled it back after 60s. A running HTTP server plus
+            // either STA-connected or AP-active is sufficient proof of life.
+            bool net_ok = http_service.server() &&
+                          (wifi_service.is_connected() || wifi_service.is_ap_mode());
             if (net_ok) {
                 esp_ota_mark_app_valid_cancel_rollback();
                 ota_pending_verify = false;

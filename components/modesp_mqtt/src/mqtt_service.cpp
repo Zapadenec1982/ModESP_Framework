@@ -272,6 +272,14 @@ bool MqttService::start_client() {
 
     mqtt_cfg.network.disable_auto_reconnect = true;
 
+    // publish_state()/heartbeat()/publish_alarms_retained() call
+    // esp_mqtt_client_publish from the 100 Hz main-loop task, which performs the
+    // socket write on the caller and blocks up to network.timeout_ms when the TCP
+    // send buffer is full or the link is half-open. The default (10 s) exceeds the
+    // 5 s task-WDT (trigger_panic=true) → a stalled broker would hard-reboot the
+    // controller. Bound it well under the WDT so a degraded link cannot panic us.
+    mqtt_cfg.network.timeout_ms = 2000;
+
     // Heap optimization: зменшити task stack (default 6144)
     // Буфери 1024B — достатньо для OTA JSON payload (~300B) з запасом
     mqtt_cfg.task.stack_size = 4096;

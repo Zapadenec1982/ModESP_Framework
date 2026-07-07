@@ -35,6 +35,11 @@
 #include <etl/span.h>
 #include <cstdint>
 
+#ifndef HOST_BUILD
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#endif
+
 namespace modesp::scenario {
 
 class IStateBackend;
@@ -154,6 +159,17 @@ private:
     Slot                 slots_[MAX_SEQUENCES];
     ResourceArbiter      arbiter_;
     EngineError          last_error_ = EngineError::OK;
+
+#ifndef HOST_BUILD
+    // Serializes slot/arbiter state between the 100 Hz tick (on_update) and the
+    // REST lifecycle API, which is invoked from the httpd task. Without it,
+    // unload()/load_path() from the WebUI mutate a slot while the tick is
+    // mid-instance_tick dereferencing that slot's header — a LoadStoreProhibited
+    // panic that reboots the whole controller. Non-recursive: no locked method
+    // calls another locked method (runtime_for stays unlocked for the tick-task
+    // observers). Created in on_init(), lives for the engine's lifetime.
+    SemaphoreHandle_t api_mutex_ = nullptr;
+#endif
 
     // Track terminal-state transition: edge-detect coming from track_count
     // changing OR scenario state moving INTO COMPLETED/FAILED. Set per slot

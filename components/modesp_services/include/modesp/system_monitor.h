@@ -30,12 +30,20 @@ public:
     // Інтервал оновлення стану (ms)
     uint32_t report_interval_ms = 5000;
 
+    // Consecutive critical-heap intervals before escalating to FATAL (Safe Mode).
+    // A single dip can be a transient allocation spike; a sustained shortage
+    // means the system is genuinely exhausting heap (malloc failing in
+    // WiFi/httpd) and must fail safe rather than drive outputs blind.
+    uint8_t heap_critical_streak_max = 3;   // 3 × report_interval_ms (≈15 s)
+
 private:
     ErrorService& error_service_;
     uint32_t elapsed_ms_ = 0;
     uint32_t min_free_heap_ = UINT32_MAX;
     bool heap_warning_sent_ = false;
     bool heap_critical_sent_ = false;
+    uint8_t heap_critical_streak_ = 0;
+    bool heap_fatal_sent_ = false;
 };
 
 } // namespace modesp

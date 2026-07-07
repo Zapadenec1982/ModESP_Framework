@@ -609,6 +609,18 @@ esp_err_t HttpService::handle_post_wifi(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
+    // Reject a WPA2-invalid password before it ever reaches NVS. Otherwise a
+    // typo'd 7-char password stored here would make start_sta() reject the
+    // config on every boot (was a permanent panic loop before the abort fix).
+    if (pass && pass[0] != '\0') {
+        size_t pl = strlen(pass);
+        if (pl < 8 || pl > 63) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "Password must be 8-63 chars (WPA2) or empty (open)");
+            return ESP_FAIL;
+        }
+    }
+
     bool ok = self->wifi_->save_credentials(ssid, pass ? pass : "");
 
     set_cors_headers(req);

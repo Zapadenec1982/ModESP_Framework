@@ -35,9 +35,13 @@ void WiFiService::event_handler(void* arg, esp_event_base_t base,
 void WiFiService::handle_wifi_event(int32_t event_id, void* event_data) {
     switch (event_id) {
         case WIFI_EVENT_STA_START:
-            // При AP→STA probe connect викликається явно з attempt_ap_sta_probe()
+            // При AP→STA probe connect викликається явно з attempt_ap_sta_probe().
+            // Під час scan НЕ конектимось — інакше STA переходить у "connecting" і
+            // esp_wifi_scan_start() падає з ESP_ERR_WIFI_STATE ("scan not allowed").
             if (ap_sta_probing_) {
                 ESP_LOGD(TAG, "STA started (probe mode, connect deferred)");
+            } else if (scanning_) {
+                ESP_LOGD(TAG, "STA started (scan mode, connect suppressed)");
             } else {
                 ESP_LOGI(TAG, "STA started, connecting...");
                 esp_wifi_connect();
@@ -289,6 +293,18 @@ bool WiFiService::load_credentials() {
 bool WiFiService::save_credentials(const char* ssid, const char* password) {
     if (!ssid || ssid[0] == '\0') return false;
 
+    // Reject a password WPA2 can't use (1–7 chars). Storing it would make the
+    // next start_sta() fall back to AP anyway; refusing here gives the caller a
+    // clear error instead of a silent non-connect. Empty = open network is OK.
+    if (password && password[0] != '\0') {
+        size_t pl = strlen(password);
+        if (pl < 8 || pl > 63) {
+            ESP_LOGE(TAG, "Rejected WiFi password (len=%d; must be 8-63 or empty)",
+                     (int)pl);
+            return false;
+        }
+    }
+
     bool ok = nvs_helper::write_str("wifi", "ssid", ssid);
     if (ok && password) {
         ok = nvs_helper::write_str("wifi", "pass", password);
@@ -347,8 +363,12 @@ bool WiFiService::start_scan() {
         if (current_mode == WIFI_MODE_AP) {
             ensure_sta_netif();
             ESP_LOGI(TAG, "Switching AP -> APSTA for scan");
+            // Виставити ДО set_mode: switch піднімає STA-інтерфейс і генерує
+            // WIFI_EVENT_STA_START, обробник якого інакше викличе esp_wifi_connect().
+            scanning_ = true;
             esp_err_t mode_err = esp_wifi_set_mode(WIFI_MODE_APSTA);
             if (mode_err != ESP_OK) {
+                scanning_ = false;
                 ESP_LOGW(TAG, "Cannot switch to APSTA: %s", esp_err_to_name(mode_err));
                 return false;
             }
@@ -366,6 +386,7 @@ bool WiFiService::start_scan() {
     scan_config.scan_time.active.max = 500;  // 500ms per channel — більше шансів знайти всі AP
 
     esp_err_t err = esp_wifi_scan_start(&scan_config, true);  // blocking scan
+    scanning_ = false;  // scan call returned — STA_START suppression no longer needed
 
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Scan failed: %s (heap: %u)", esp_err_to_name(err),
@@ -435,21 +456,51 @@ void WiFiService::ensure_ap_netif() {
 // ── STA / AP ────────────────────────────────────────────────────
 
 bool WiFiService::start_sta() {
+    // A stored password of 1–7 chars is rejected by WPA2 (esp_wifi_set_config
+    // returns ESP_ERR_WIFI_PASSWORD). The old ESP_ERROR_CHECK turned that into
+    // an abort(), and since load_credentials() only checks SSID, the device
+    // panicked on every boot forever — recoverable only by serial reflash.
+    // Guard the length here and fall back to AP so the controller stays usable.
+    size_t pass_len = strlen(password_);
+    if (pass_len > 0 && pass_len < 8) {
+        ESP_LOGE(TAG, "Stored WiFi password invalid (len=%d; WPA2 needs 8-63) — "
+                      "falling back to AP mode", (int)pass_len);
+        return start_ap();
+    }
+
     ensure_sta_netif();
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_mode(STA) failed: %s — falling back to AP",
+                 esp_err_to_name(err));
+        return start_ap();
+    }
 
     wifi_config_t wifi_config = {};
     strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid),
             ssid_, sizeof(wifi_config.sta.ssid) - 1);
     strncpy(reinterpret_cast<char*>(wifi_config.sta.password),
             password_, sizeof(wifi_config.sta.password) - 1);
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    // Open networks (empty password) must not carry a WPA2 threshold, or
+    // esp_wifi_set_config rejects them too.
+    wifi_config.sta.threshold.authmode =
+        (pass_len == 0) ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
 
     ESP_LOGI(TAG, "Starting STA: SSID='%s' pass_len=%d",
-             ssid_, (int)strlen(password_));
+             ssid_, (int)pass_len);
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_config(STA) failed: %s — falling back to AP",
+                 esp_err_to_name(err));
+        return start_ap();
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start() failed: %s — falling back to AP",
+                 esp_err_to_name(err));
+        return start_ap();
+    }
 
     // Country code UA (канали 1-13) — потрібно викликати ПІСЛЯ esp_wifi_start(),
     // інакше налаштування не застосовуються у деяких версіях ESP-IDF v5.x
@@ -483,7 +534,15 @@ bool WiFiService::start_ap() {
         wifi_started_ = false;
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    // start_ap() is the last-resort fallback — never abort() here. A transient
+    // ESP_ERR_NO_MEM under heap pressure must degrade to "no network, keep
+    // controlling the fridge", not panic the whole controller.
+    esp_err_t ap_err = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (ap_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_mode(AP) failed: %s — running without WiFi",
+                 esp_err_to_name(ap_err));
+        return false;
+    }
 
     // Спочатку генеруємо дефолтний SSID з MAC
     uint8_t mac[6];
@@ -521,8 +580,18 @@ bool WiFiService::start_ap() {
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    ap_err = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+    if (ap_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_config(AP) failed: %s — running without WiFi",
+                 esp_err_to_name(ap_err));
+        return false;
+    }
+    ap_err = esp_wifi_start();
+    if (ap_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start(AP) failed: %s — running without WiFi",
+                 esp_err_to_name(ap_err));
+        return false;
+    }
 
     // Country code UA — після esp_wifi_start()
     {

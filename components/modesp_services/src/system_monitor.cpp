@@ -80,11 +80,24 @@ void SystemMonitor::on_update(uint32_t dt_ms) {
     state_set("system.heap_min", static_cast<int32_t>(min_free_heap_), false);
     state_set("system.heap_largest", static_cast<int32_t>(largest_block), false);
 
-    if (free_heap < heap_critical_threshold && !heap_critical_sent_) {
-        heap_critical_sent_ = true;
-        error_service_.report("sys_monitor", -100,
-                             ErrorSeverity::CRITICAL, "Heap critically low!");
-        ESP_LOGE(TAG, "CRITICAL: Free heap %lu < %lu", free_heap, heap_critical_threshold);
+    if (free_heap < heap_critical_threshold) {
+        if (!heap_critical_sent_) {
+            heap_critical_sent_ = true;
+            error_service_.report("sys_monitor", -100,
+                                 ErrorSeverity::CRITICAL, "Heap critically low!");
+            ESP_LOGE(TAG, "CRITICAL: Free heap %lu < %lu", free_heap, heap_critical_threshold);
+        }
+        // Escalate a *sustained* shortage to FATAL — this is the only path that
+        // reaches ErrorService::enter_safe_mode(), so without it Safe Mode (and
+        // the equipment SAFE-mode latch) is dead code that never fires.
+        if (heap_critical_streak_ < 255) heap_critical_streak_++;
+        if (heap_critical_streak_ >= heap_critical_streak_max && !heap_fatal_sent_) {
+            heap_fatal_sent_ = true;
+            error_service_.report("sys_monitor", -102, ErrorSeverity::FATAL,
+                                 "Heap exhausted — entering safe mode");
+            ESP_LOGE(TAG, "FATAL: heap critical for %u intervals — Safe Mode",
+                     (unsigned)heap_critical_streak_);
+        }
     } else if (free_heap < heap_warning_threshold && !heap_warning_sent_) {
         heap_warning_sent_ = true;
         error_service_.report("sys_monitor", -101,
@@ -92,6 +105,9 @@ void SystemMonitor::on_update(uint32_t dt_ms) {
         ESP_LOGW(TAG, "WARNING: Free heap %lu < %lu", free_heap, heap_warning_threshold);
     }
 
+    if (free_heap >= heap_critical_threshold) {
+        heap_critical_streak_ = 0;
+    }
     if (free_heap > heap_warning_threshold) {
         heap_warning_sent_ = false;
         heap_critical_sent_ = false;

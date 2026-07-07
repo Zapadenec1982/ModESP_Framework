@@ -30,7 +30,28 @@
 
 namespace modesp::scenario {
 
+#ifndef HOST_BUILD
+namespace {
+// RAII guard over Engine::api_mutex_. portMAX_DELAY is safe: holds are short
+// (tick body / a single lifecycle op) and there is exactly one mutex, so no
+// lock-ordering cycle exists.
+struct ApiLock {
+    SemaphoreHandle_t m_;
+    explicit ApiLock(SemaphoreHandle_t m) : m_(m) { if (m_) xSemaphoreTake(m_, portMAX_DELAY); }
+    ~ApiLock() { if (m_) xSemaphoreGive(m_); }
+    ApiLock(const ApiLock&) = delete;
+    ApiLock& operator=(const ApiLock&) = delete;
+};
+}  // namespace
+#define ENGINE_API_LOCK() ApiLock _api_lk(api_mutex_)
+#else
+#define ENGINE_API_LOCK() ((void)0)
+#endif
+
 bool Engine::on_init() {
+#ifndef HOST_BUILD
+    if (!api_mutex_) api_mutex_ = xSemaphoreCreateMutex();
+#endif
     arbiter_ = ResourceArbiter{};
     for (auto& s : slots_) {
         s.runtime = SequenceRuntime{};
@@ -55,6 +76,7 @@ void Engine::on_stop() {
 }
 
 void Engine::on_update(uint32_t dt_ms) {
+    ENGINE_API_LOCK();
     RegistryRefs regs{actions_, continuous_};
 
     // Advance observer tick counters (throttle policies, etc.). Once per tick
@@ -162,6 +184,7 @@ const SequenceRuntime* Engine::runtime_for(SequenceHandle h) const {
 // ── Lifecycle ──
 
 SequenceHandle Engine::load_buffer(const uint8_t* data, size_t size) {
+    ENGINE_API_LOCK();
     if (data == nullptr || size == 0 || size > MODR_MAX_SIZE) {
         last_error_ = EngineError::INVALID_FILE;
         return 0;
@@ -192,6 +215,7 @@ SequenceHandle Engine::load_buffer(const uint8_t* data, size_t size) {
 }
 
 SequenceHandle Engine::load_path(const char* path) {
+    ENGINE_API_LOCK();
     if (path == nullptr) {
         last_error_ = EngineError::INVALID_FILE;
         return 0;
@@ -240,6 +264,7 @@ SequenceHandle Engine::load_path(const char* path) {
 }
 
 EngineError Engine::unload(SequenceHandle h) {
+    ENGINE_API_LOCK();
     Slot* s = slot_for(h);
     if (!s) return EngineError::INVALID_HANDLE;
 
@@ -256,6 +281,7 @@ EngineError Engine::unload(SequenceHandle h) {
 }
 
 EngineError Engine::start(SequenceHandle h) {
+    ENGINE_API_LOCK();
     Slot* s = slot_for(h);
     if (!s) return EngineError::INVALID_HANDLE;
     if (s->runtime.state != SequenceRuntime::State::LOADED) {
@@ -276,6 +302,7 @@ EngineError Engine::start(SequenceHandle h) {
 }
 
 EngineError Engine::pause(SequenceHandle h) {
+    ENGINE_API_LOCK();
     Slot* s = slot_for(h);
     if (!s) return EngineError::INVALID_HANDLE;
     if (s->runtime.state != SequenceRuntime::State::RUNNING) {
@@ -286,6 +313,7 @@ EngineError Engine::pause(SequenceHandle h) {
 }
 
 EngineError Engine::resume(SequenceHandle h) {
+    ENGINE_API_LOCK();
     Slot* s = slot_for(h);
     if (!s) return EngineError::INVALID_HANDLE;
     if (s->runtime.state != SequenceRuntime::State::PAUSED) {
@@ -296,6 +324,7 @@ EngineError Engine::resume(SequenceHandle h) {
 }
 
 EngineError Engine::try_recover(SequenceHandle h, NvsObserver& nvs) {
+    ENGINE_API_LOCK();
     Slot* s = slot_for(h);
     if (!s) return EngineError::INVALID_HANDLE;
     if (s->runtime.state != SequenceRuntime::State::LOADED) {
@@ -316,6 +345,7 @@ EngineError Engine::try_recover(SequenceHandle h, NvsObserver& nvs) {
 }
 
 EngineError Engine::abort(SequenceHandle h, uint8_t /*reason*/) {
+    ENGINE_API_LOCK();
     Slot* s = slot_for(h);
     if (!s) return EngineError::INVALID_HANDLE;
     if (s->runtime.state != SequenceRuntime::State::RUNNING
@@ -329,21 +359,25 @@ EngineError Engine::abort(SequenceHandle h, uint8_t /*reason*/) {
 // ── Diagnostic accessors ──
 
 SequenceRuntime::State Engine::state(SequenceHandle h) const {
+    ENGINE_API_LOCK();
     const Slot* s = slot_for(h);
     return s ? s->runtime.state : SequenceRuntime::State::IDLE;
 }
 
 uint32_t Engine::scenario_elapsed_ms(SequenceHandle h) const {
+    ENGINE_API_LOCK();
     const Slot* s = slot_for(h);
     return s ? s->runtime.scenario_elapsed_ms : 0u;
 }
 
 uint8_t Engine::track_count(SequenceHandle h) const {
+    ENGINE_API_LOCK();
     const Slot* s = slot_for(h);
     return s ? s->runtime.scenario.header()->track_count : 0u;
 }
 
 TrackRuntime::State Engine::track_state(SequenceHandle h, TrackIdx t) const {
+    ENGINE_API_LOCK();
     const Slot* s = slot_for(h);
     if (!s || t >= s->runtime.scenario.header()->track_count) {
         return TrackRuntime::State::IDLE;
@@ -352,18 +386,21 @@ TrackRuntime::State Engine::track_state(SequenceHandle h, TrackIdx t) const {
 }
 
 uint8_t Engine::track_phase_idx(SequenceHandle h, TrackIdx t) const {
+    ENGINE_API_LOCK();
     const Slot* s = slot_for(h);
     if (!s || t >= s->runtime.scenario.header()->track_count) return 0;
     return s->runtime.tracks[t].phase_idx;
 }
 
 uint32_t Engine::track_phase_elapsed_ms(SequenceHandle h, TrackIdx t) const {
+    ENGINE_API_LOCK();
     const Slot* s = slot_for(h);
     if (!s || t >= s->runtime.scenario.header()->track_count) return 0;
     return s->runtime.tracks[t].phase_elapsed_ms;
 }
 
 uint8_t Engine::active_count() const {
+    ENGINE_API_LOCK();
     uint8_t n = 0;
     for (const auto& s : slots_) {
         if (s.buffer_size == 0) continue;

@@ -186,6 +186,11 @@ bool AwsIotService::start_client() {
     cfg.buffer.size = 2048;
     cfg.buffer.out_size = 2048;
 
+    // publish_state() runs on the 100 Hz main-loop task; esp_mqtt_client_publish
+    // blocks up to network.timeout_ms on the socket write. Keep it below the 5 s
+    // task-WDT so a half-open AWS link cannot trigger a panic reboot.
+    cfg.network.timeout_ms = 2000;
+
     client_ = esp_mqtt_client_init(&cfg);
     if (!client_) {
         ESP_LOGE(TAG, "MQTT client init failed");
