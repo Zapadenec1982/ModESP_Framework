@@ -70,6 +70,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [components/modesp_net.md](03-framework-reference/components/modesp_net.md) | ✅ | Wi-Fi, HTTP сервер, WebSocket. |
 | [components/modesp_mqtt.md](03-framework-reference/components/modesp_mqtt.md) | ✅ | Обгортка MQTT-клієнта з TLS і HA discovery. |
 | [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | Альтернативний бекенд AWS IoT. |
+| [components/modesp_can.md](03-framework-reference/components/modesp_can.md) | ✅ | CAN (TWAI) транспорт — міст стану/подій між вузлами (ModESP-CAN v1). |
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Загальний огляд рушія сценаріїв. |
 | [scenario-engine/](03-framework-reference/scenario-engine/README.md) | ✅ | Поглиблений розгляд рушія — архітектура, бінарний формат, FSM, ADR, посібники. |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — міст між sensor/actuator HAL. |
@@ -83,6 +84,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | Реле через розширювач I2C (PCF8574). |
 | [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | Контактний вхід на GPIO. |
 | [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | Контактний вхід через розширювач I2C. |
+| [drivers/can_remote.md](03-framework-reference/drivers/can_remote.md) | ✅ | Віддалений ключ ModESP-вузла по CAN (драйвер-міст). |
 | [web-ui.md](03-framework-reference/web-ui.md) | ✅ | Архітектура Svelte SPA, сховища стану, потік WebSocket, каталог віджетів. |
 
 ### 04 — Обладнання

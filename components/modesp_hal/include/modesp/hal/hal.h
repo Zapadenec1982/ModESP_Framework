@@ -62,9 +62,26 @@ public:
     /// channel and owns its DMA buffers + feeder task (mirrors ADC ownership).
     I2SBusResource*            find_i2s_bus(etl::string_view id);
 
+    /// Find a CAN bus config by hardware ID (e.g. "can_0").
+    /// HAL holds only pins/bitrate; the transport component (modesp_can) creates
+    /// the TWAI node and owns its ISR callbacks + frame pools (mirrors I2S ownership).
+    CanBusResource*            find_can_bus(etl::string_view id);
+
+    /// CAN bus by index (the transport service takes the first configured bus —
+    /// ESP32/S3 have a single TWAI controller anyway).
+    CanBusResource*            can_bus_at(size_t i) {
+        return i < can_count_ ? &can_buses_[i] : nullptr;
+    }
+
     /// Find a remote device config by hardware ID (e.g. "ble_xiaomi_bthome"). HAL holds only
     /// the transport tag + identity blob; the transport component (BleCentral) owns decode/cache.
     RemoteDeviceConfig*        find_remote_device(etl::string_view id);
+
+    /// Iterate remote devices (transport components register liveness per device).
+    size_t                     remote_device_count() const { return remote_devices_.size(); }
+    const RemoteDeviceConfig*  remote_device_at(size_t i) const {
+        return i < remote_devices_.size() ? &remote_devices_[i] : nullptr;
+    }
     /// Legacy alias — callers pre-dating the transport-generic rename.
     BleDeviceConfig*           find_ble_device(etl::string_view id) { return find_remote_device(id); }
 
@@ -75,6 +92,7 @@ public:
     size_t i2c_expander_count() const { return i2c_expander_count_; }
     size_t uart_count()         const { return uart_count_; }
     size_t i2s_count()          const { return i2s_count_; }
+    size_t can_count()          const { return can_count_; }
 
 private:
     etl::array<GpioOutputResource, MAX_RELAYS>         gpio_outputs_;
@@ -88,6 +106,7 @@ private:
     etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>        i2c_displays_;
     etl::array<UartBusResource, MAX_UART_BUSES>           uart_buses_;
     etl::array<I2SBusResource, MAX_I2S_BUSES>            i2s_buses_;
+    etl::array<CanBusResource, MAX_CAN_BUSES>            can_buses_;
     etl::vector<RemoteDeviceConfig, MAX_REMOTE_DEVICES>  remote_devices_;
 
     size_t gpio_output_count_  = 0;
@@ -98,6 +117,7 @@ private:
     size_t i2c_expander_count_ = 0;
     size_t uart_count_         = 0;
     size_t i2s_count_          = 0;
+    size_t can_count_          = 0;
 
     bool init_gpio_outputs(const BoardConfig& config);
     bool init_onewire(const BoardConfig& config);
@@ -107,6 +127,7 @@ private:
     bool init_i2c_expanders(const BoardConfig& config);
     bool init_uart(const BoardConfig& config);
     bool init_i2s(const BoardConfig& config);
+    bool init_can(const BoardConfig& config);
 };
 
 } // namespace modesp

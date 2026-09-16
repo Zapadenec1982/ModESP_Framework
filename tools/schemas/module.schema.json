@@ -70,6 +70,16 @@
           },
           "optional": {
             "type": "boolean"
+          },
+          "can_export": {
+            "type": "boolean",
+            "description": "Export the runtime key equipment.<role> onto the CAN bus (ModESP-CAN v1 STATE frames). Value type comes from the role's capability (float/bool only in v1)."
+          },
+          "can_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Explicit 16-bit CAN key-id override; default = djb2-fold16 of the key name."
           }
         },
         "required": [
@@ -152,6 +162,16 @@
           },
           "mqtt_subscribe": {
             "type": "boolean"
+          },
+          "can_export": {
+            "type": "boolean",
+            "description": "Export this key onto the CAN bus (ModESP-CAN v1 STATE frames). float/int/bool only — strings do not fit a classic 8-byte frame."
+          },
+          "can_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Explicit 16-bit CAN key-id override; default = djb2-fold16 of the key name."
           },
           "enum": {
             "type": "array",
@@ -465,6 +485,22 @@
     "loggable": {
       "type": "object"
     },
+    "can_events": {
+      "$comment": "Transient events bridged over CAN (ModESP-CAN v1 EVENT frames). out = events this node sends; in = events it listens for. On RX the modesp_can service publishes MsgRemoteEvent to the local bus.",
+      "type": "object",
+      "properties": {
+        "out": {
+          "$ref": "#/$defs/can_event_map"
+        },
+        "in": {
+          "$ref": "#/$defs/can_event_map"
+        }
+      },
+      "patternProperties": {
+        "^_": {}
+      },
+      "additionalProperties": false
+    },
     "display": {
       "type": "object"
     },
@@ -486,5 +522,37 @@
   "patternProperties": {
     "^_": {}
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "can_event_map": {
+      "$comment": "Dots are allowed for qualified 'in' names ('<module>.<event>' of the origin node); the generator additionally enforces: out = unqualified (no dots), in = qualified (must contain a dot).",
+      "type": "object",
+      "patternProperties": {
+        "^_": {},
+        "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$": {
+          "type": "object",
+          "properties": {
+            "payload": {
+              "enum": ["none", "u8", "i32", "f32"],
+              "description": "Payload of the EVENT frame (0/1/4/4 bytes). Default: none."
+            },
+            "can_id": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Explicit 16-bit event-id override; default = djb2-fold16 of '<module>.<event>'."
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "patternProperties": {
+            "^_": {}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

@@ -67,6 +67,15 @@ bool HAL::init(const BoardConfig& config) {
         }
     }
 
+    // CAN buses (тільки якщо є в config) — HAL лише зберігає конфіг, TWAI-ноду
+    // створює modesp_can (handle + ISR-callbacks + пул кадрів належать сервісу).
+    if (!config.can_buses.empty()) {
+        if (!init_can(config)) {
+            ESP_LOGE(TAG, "CAN init failed");
+            return false;
+        }
+    }
+
     // Remote devices: config-only (transport tag + identity). The transport component
     // (BleCentral etc.) owns decode/cache; the driver reads it via find_remote_device(). No HW init.
     remote_devices_.clear();
@@ -575,6 +584,50 @@ bool HAL::init_i2s(const BoardConfig& config) {
     }
 
     return true;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAN (TWAI): config-only, як I2S — HAL не тримає twai_node_handle_t
+// (нода + ISR-callbacks + пул кадрів належать компоненту modesp_can).
+// ═══════════════════════════════════════════════════════════════
+
+bool HAL::init_can(const BoardConfig& config) {
+    can_count_ = 0;
+
+    for (const auto& cfg : config.can_buses) {
+        if (can_count_ >= MAX_CAN_BUSES) {
+            ESP_LOGW(TAG, "CAN bus limit reached (%d)", (int)MAX_CAN_BUSES);
+            break;
+        }
+        if (cfg.tx == GPIO_NUM_NC || cfg.rx == GPIO_NUM_NC) {
+            ESP_LOGW(TAG, "  CAN '%s' skipped: tx/rx not set", cfg.id.c_str());
+            continue;
+        }
+
+        auto& res = can_buses_[can_count_];
+        res.id          = cfg.id;
+        res.tx          = cfg.tx;
+        res.rx          = cfg.rx;
+        res.bitrate     = cfg.bitrate ? cfg.bitrate : 125000;
+        res.initialized = true;
+        can_count_++;
+
+        ESP_LOGI(TAG, "  CAN '%s' TX=%d RX=%d @ %lu bps",
+                 cfg.id.c_str(), (int)cfg.tx, (int)cfg.rx,
+                 (unsigned long)res.bitrate);
+    }
+
+    return true;
+}
+
+CanBusResource* HAL::find_can_bus(etl::string_view id) {
+    for (size_t i = 0; i < can_count_; i++) {
+        if (can_buses_[i].id.size() == id.size() &&
+            etl::string_view(can_buses_[i].id.c_str(), can_buses_[i].id.size()) == id) {
+            return &can_buses_[i];
+        }
+    }
+    return nullptr;
 }
 
 RemoteDeviceConfig* HAL::find_remote_device(etl::string_view id) {

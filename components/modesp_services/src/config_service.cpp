@@ -541,6 +541,50 @@ bool ConfigService::parse_board_json() {
                 }
             }
             i = j;
+        } else if (jsoneq(buf, &tokens[i], "can_buses")) {
+            if (tokens[i + 1].type != JSMN_ARRAY) {
+                ESP_LOGE(TAG, "board.json: 'can_buses' is not array");
+                return false;
+            }
+            int arr_size = tokens[i + 1].size;
+            int j = i + 2;
+
+            for (int elem = 0; elem < arr_size; elem++) {
+                if (tokens[j].type != JSMN_OBJECT) {
+                    ESP_LOGE(TAG, "board.json: can_bus entry is not object");
+                    return false;
+                }
+                int obj_keys = tokens[j].size;
+                j++;
+
+                CanBusConfig cfg = {};   // defaults: tx/rx=-1, bitrate=125000
+                for (int k = 0; k < obj_keys; k++) {
+                    if (jsoneq(buf, &tokens[j], "id")) {
+                        tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
+                        cfg.id = tmp;
+                        j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "tx")) {
+                        cfg.tx = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                        j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "rx")) {
+                        cfg.rx = (gpio_num_t)tok_to_int(buf, &tokens[j + 1]);
+                        j += 2;
+                    } else if (jsoneq(buf, &tokens[j], "bitrate")) {
+                        cfg.bitrate = (uint32_t)tok_to_int(buf, &tokens[j + 1]);
+                        j += 2;
+                    } else {
+                        // Невідомий ключ (label, "_"-анотації): значення може бути
+                        // об'єктом/масивом — skip_token, а не j+=2, інакше walk
+                        // десинхронізується і решта board.json парситься сміттям.
+                        j++;                                    // ключ
+                        j = skip_token(tokens, j, ntokens);     // значення
+                    }
+                }
+                if (!board_config_.can_buses.full()) {
+                    board_config_.can_buses.push_back(cfg);
+                }
+            }
+            i = j;
         } else if (jsoneq(buf, &tokens[i], "i2c_expanders")) {
             if (tokens[i + 1].type != JSMN_ARRAY) {
                 ESP_LOGE(TAG, "board.json: 'i2c_expanders' is not array");

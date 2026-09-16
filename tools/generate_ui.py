@@ -882,14 +882,34 @@ BOARD_SECTION_TO_HW_TYPE = {
     "pwm_outputs": "pwm_output",
     "uart_buses": "uart_bus",
     "i2s_buses": "i2s_bus",
+    "can_buses": "can_bus",     # CAN (TWAI): pins+bitrate; the modesp_can component owns the node
     "ble_devices": "ble",       # legacy key alias for remote_devices (BLE-only seed)
-    "remote_devices": "ble",    # transport-generic key; per-entry transport→hw_type is a P6 refinement (only "ble" wired today)
+    "remote_devices": "ble",    # transport-generic key; per-entry transport→hw_type refined below (P6)
 }
+
+# P6 refinement: remote_devices/ble_devices entries are transport-generic, so the
+# hardware_type of ONE entry depends on its 'transport' field, not on the section.
+# Unlisted transports (lora/mqtt/espnow) fall back to the section default ("ble")
+# and sit inert until their transport component + bridge driver land.
+REMOTE_DEVICE_SECTIONS = {"ble_devices", "remote_devices"}
+REMOTE_TRANSPORT_TO_HW_TYPE = {"ble": "ble", "can": "can"}
+
+# CAN identity grammar: ЛИШЕ перетин того, що Python int(x,0) і C-strtol(base 0)
+# парсять однаково (десяткове без знаку/підкреслень або 0x-hex). '1_2', '0b101',
+# '0o17' тощо Python приймає, а strtol на пристрої — ні; звідси silent-розбіжності.
+_CAN_IDENTITY_RE = re.compile(r"^(0[xX][0-9a-fA-F]+|[1-9][0-9]{0,2})$")
+
+
+def board_entry_hw_type(section, entry, default_htype):
+    """Per-entry hardware_type: remote_devices уточнюється транспортом (P6)."""
+    if section in REMOTE_DEVICE_SECTIONS and isinstance(entry, dict):
+        return REMOTE_TRANSPORT_TO_HW_TYPE.get(entry.get("transport", "ble"), default_htype)
+    return default_htype
 
 # Hardware types a driver manifest may declare = every type a board section maps to
 # (derived, so the two never drift). A driver whose hardware_type is not here fails
 # validation. EXTRA_HW_TYPES is for any future type with no dedicated board section.
-EXTRA_HW_TYPES: set = set()
+EXTRA_HW_TYPES: set = {"can"}   # remote-CAN devices: hw_type per remote_devices entry, no dedicated section
 VALID_HARDWARE_TYPES = set(BOARD_SECTION_TO_HW_TYPE.values()) | EXTRA_HW_TYPES
 
 # board.json top-level keys that are metadata, not hardware sections.
@@ -1071,6 +1091,267 @@ def validate_loggable(manifests, errors):
             event_ids_seen |= used
 
 
+# ═══════════════════════════════════════════════════════════════
+#  ModESP-CAN v1 registry (ADR-004): стабільні 16-бітні ID з імен
+# ═══════════════════════════════════════════════════════════════
+
+def can_djb2_32(s):
+    """Класичний djb2 (hash*33 + c) по UTF-8 байтах. ДЗЕРКАЛО C++
+    modesp::can::djb2_32 у components/modesp_can/include/modesp/can/can_codec.h —
+    спільні тест-вектори в tools/tests/test_can_registry.py і
+    tests/host/test_can_codec.cpp тримають реалізації в синхроні."""
+    h = 5381
+    for b in s.encode("utf-8"):
+        h = ((h * 33) + b) & 0xFFFFFFFF
+    return h
+
+
+def can_fold16(s):
+    """16-бітний стабільний ID: xor-fold djb2_32; 0 зарезервовано → 1."""
+    h = can_djb2_32(s)
+    h16 = (h ^ (h >> 16)) & 0xFFFF
+    return h16 if h16 != 0 else 1
+
+
+def can_crc16_ccitt(data: bytes) -> int:
+    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) — дзеркало C++ crc16_ccitt."""
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) if (crc & 0x8000) else (crc << 1)
+            crc &= 0xFFFF
+    return crc
+
+
+_CAN_EXPORT_TYPES = {"float", "int", "bool"}   # string не влазить у 8-байтний кадр (v1)
+
+
+def collect_can_registry(manifests, capabilities, errors, warnings=None):
+    """Збирає ModESP-CAN v1 реєстр з маніфестів + валідація у pre-write gate.
+
+    Джерела експорту:
+      - state-ключі з can_export:true (тип із маніфеста, лише float/int/bool);
+      - requires[]-ролі з can_export:true → runtime-ключ equipment.<role>,
+        тип із value_type capability (лише float/bool у v1).
+    Події: can_events.out (ім'я БЕЗ крапок, префікс модуля додається автоматично)
+    та can_events.in (повністю кваліфіковане '<module>.<event>' вузла-джерела).
+
+    Стабільні ID: явний can_id або can_fold16 від імені. Колізії ID у межах
+    свого простору (STATE і EVENT — окремі kind-біти кадру) → ERROR у gate.
+    Повертає (exports, events): exports=[{key,id,type}], events=[{name,id,outbound}].
+    """
+    exports = []          # {key, id, type}
+    export_by_id = {}     # id -> key (детект хеш/override-колізій)
+    export_by_key = {}    # key -> {id, type} (детект конфліктних повторних оголошень)
+    events = []           # {name, id, outbound}
+    event_by_id = {}      # id -> name
+    event_by_name = {}    # name -> id
+
+    def add_export(mod, key, vtype, explicit_id):
+        eid = explicit_id if explicit_id is not None else can_fold16(key)
+        if not isinstance(eid, int) or isinstance(eid, bool) or not (1 <= eid <= 0xFFFF):
+            errors.append(f"[{mod}] can_export '{key}': can_id must be an integer 1..65535, got {explicit_id!r}")
+            return
+        prev = export_by_key.get(key)
+        if prev is not None:
+            # Повторне оголошення того самого ключа (state-ключ + requires-роль
+            # з тим самим ім'ям, або дублікати у різних модулях): узгодженість
+            # id І типу обов'язкова — інакше wire-тип залежав би від порядку
+            # маніфестів, а ключ їхав би двома arb-ID.
+            if prev["id"] != eid:
+                errors.append(
+                    f"[{mod}] can_export '{key}': declared twice with different ids "
+                    f"0x{prev['id']:04X} vs 0x{eid:04X} — align the 'can_id' overrides")
+            elif prev["type"] != vtype:
+                errors.append(
+                    f"[{mod}] can_export '{key}': declared twice with different types "
+                    f"'{prev['type']}' vs '{vtype}'")
+            return
+        other = export_by_id.get(eid)
+        if other is not None:
+            errors.append(
+                f"[{mod}] can_export '{key}': id 0x{eid:04X} collides with '{other}' "
+                f"— set an explicit 'can_id' on one of them")
+            return
+        if warnings is not None and len(key) > 29:
+            warnings.append(
+                f"[{mod}] can_export '{key}': key longer than 29 chars — the "
+                f"'<key>_ok' health companion does not fit StateKey<32>, so the "
+                f"VALID bit will always be 1 on the wire")
+        export_by_id[eid] = key
+        export_by_key[key] = {"id": eid, "type": vtype}
+        exports.append({"key": key, "id": eid, "type": vtype})
+
+    def add_event(mod, name, explicit_id, outbound):
+        eid = explicit_id if explicit_id is not None else can_fold16(name)
+        if not isinstance(eid, int) or isinstance(eid, bool) or not (1 <= eid <= 0xFFFF):
+            errors.append(f"[{mod}] can_event '{name}': can_id must be an integer 1..65535, got {explicit_id!r}")
+            return
+        prev_id = event_by_name.get(name)
+        if prev_id is not None:
+            # Та сама подія (out у відправника + in у слухача на одному вузлі,
+            # або кілька слухачів): id мусить збігатися, інакше конфліктний
+            # can_id тихо губився б і слухач чекав би не той кадр.
+            if prev_id != eid:
+                errors.append(
+                    f"[{mod}] can_event '{name}': declared twice with different ids "
+                    f"0x{prev_id:04X} vs 0x{eid:04X} — align the 'can_id' overrides")
+                return
+            for ev in events:
+                if ev["name"] == name:
+                    ev["outbound"] = ev["outbound"] or outbound
+                    return
+            return
+        other = event_by_id.get(eid)
+        if other is not None:
+            errors.append(
+                f"[{mod}] can_event '{name}': id 0x{eid:04X} collides with '{other}' "
+                f"— set an explicit 'can_id' on one of them")
+            return
+        event_by_id[eid] = name
+        event_by_name[name] = eid
+        events.append({"name": name, "id": eid, "outbound": outbound})
+
+    for m in manifests:
+        mod = m.get("module", "?")
+
+        # (а) state-ключі з can_export
+        for key, cfg in m.get("state", {}).items():
+            if key.startswith("_") or not isinstance(cfg, dict):
+                continue
+            if not cfg.get("can_export"):
+                continue
+            vtype = cfg.get("type")
+            if vtype not in _CAN_EXPORT_TYPES:
+                errors.append(
+                    f"[{mod}] can_export '{key}': type '{vtype}' not supported over CAN v1 "
+                    f"(float/int/bool only — strings do not fit an 8-byte frame)")
+                continue
+            add_export(mod, key, vtype, cfg.get("can_id"))
+
+        # (б) requires[]-ролі з can_export → equipment.<role>
+        for req in m.get("requires", []) or []:
+            if not isinstance(req, dict) or not req.get("can_export"):
+                continue
+            role = req.get("role", "")
+            cap_name = req.get("capability")
+            if not cap_name:
+                errors.append(
+                    f"[{mod}] role '{role}': can_export requires an explicit 'capability' "
+                    f"(its value_type defines the CAN frame type)")
+                continue
+            cap = capabilities.get(cap_name)
+            if cap is None:
+                errors.append(
+                    f"[{mod}] role '{role}': can_export capability '{cap_name}' "
+                    f"not found in tools/capabilities.json")
+                continue
+            vt = cap.get("value_type")
+            if vt not in ("float", "bool"):
+                errors.append(
+                    f"[{mod}] role '{role}': capability '{cap_name}' value_type '{vt}' "
+                    f"not supported over CAN v1 (float/bool only)")
+                continue
+            add_export(mod, f"equipment.{role}", vt, req.get("can_id"))
+
+        # (в) події
+        ce = m.get("can_events", {}) or {}
+        for key, cfg in (ce.get("out") or {}).items():
+            if key.startswith("_"):
+                continue
+            if "." in key:
+                errors.append(
+                    f"[{mod}] can_events.out '{key}': out-подія оголошується БЕЗ крапок — "
+                    f"префікс '<module>.' додається автоматично")
+                continue
+            add_event(mod, f"{mod}.{key}", (cfg or {}).get("can_id"), outbound=True)
+        for key, cfg in (ce.get("in") or {}).items():
+            if key.startswith("_"):
+                continue
+            if "." not in key:
+                errors.append(
+                    f"[{mod}] can_events.in '{key}': in-подія має бути повністю "
+                    f"кваліфікованою ('<module>.<event>' вузла-джерела)")
+                continue
+            add_event(mod, key, (cfg or {}).get("can_id"), outbound=False)
+
+    exports.sort(key=lambda e: e["key"])
+    events.sort(key=lambda e: e["name"])
+    return exports, events
+
+
+def can_registry_crc16(exports, events):
+    """CRC контракту вузла для heartbeat-кадру: детект розбіжності прошивок
+    у гомогенному сегменті флоту. Рахується по відсортованих за id експортах
+    ('S', id LE, тип) та ВИХІДНИХ подіях ('E', id LE)."""
+    _TYPE_CODE = {"float": 0, "int": 1, "bool": 2}
+    blob = bytearray()
+    for e in sorted(exports, key=lambda x: x["id"]):
+        blob += bytes([0x53, e["id"] & 0xFF, (e["id"] >> 8) & 0xFF, _TYPE_CODE[e["type"]]])
+    for ev in sorted((ev for ev in events if ev["outbound"]), key=lambda x: x["id"]):
+        blob += bytes([0x45, ev["id"] & 0xFF, (ev["id"] >> 8) & 0xFF])
+    return can_crc16_ccitt(bytes(blob))
+
+
+def generate_can_registry_header(exports, events):
+    """generated/can_registry.h — завжди перезаписується (навіть порожнім),
+    щоб застарілий header не пережив видалення останнього can_* запису."""
+    _TYPE_ENUM = {"float": "CanValType::F32", "int": "CanValType::I32", "bool": "CanValType::BOOL"}
+    lines = [
+        "#pragma once",
+        "// Auto-generated by generate_ui.py — DO NOT EDIT",
+        "// ModESP-CAN v1 registry (ADR-004): стабільні 16-бітні ID ключів/подій.",
+        "",
+        "#include <stdint.h>",
+        "#include <stddef.h>",
+        "",
+        "namespace modesp::gen::can {",
+        "",
+        "static constexpr uint8_t CAN_PROTO_VER = 1;",
+        "",
+        "enum class CanValType : uint8_t { F32 = 0, I32 = 1, BOOL = 2 };",
+        "",
+        "struct CanExportKey {",
+        "    const char* key;      // повне ім'я ключа SharedState",
+        "    uint16_t    id;       // стабільний key-id (djb2-fold16 або can_id)",
+        "    CanValType  type;",
+        "};",
+        "",
+        "static constexpr CanExportKey CAN_EXPORT[] = {",
+    ]
+    for e in exports:
+        lines.append(f'    {{"{e["key"]}", 0x{e["id"]:04X}, {_TYPE_ENUM[e["type"]]}}},')
+    if not exports:
+        lines.append('    {"", 0, CanValType::F32},  // sentinel (COUNT==0)')
+    lines += [
+        "};",
+        f"static constexpr size_t CAN_EXPORT_COUNT = {len(exports)};",
+        "",
+        "struct CanEventDef {",
+        '    const char* name;     // "<module>.<event>" вузла-джерела',
+        "    uint16_t    id;       // стабільний event-id",
+        "    bool        outbound; // true = шлемо на шину, false = слухаємо",
+        "};",
+        "",
+        "static constexpr CanEventDef CAN_EVENTS[] = {",
+    ]
+    for ev in events:
+        lines.append(f'    {{"{ev["name"]}", 0x{ev["id"]:04X}, {"true" if ev["outbound"] else "false"}}},')
+    if not events:
+        lines.append('    {"", 0, false},  // sentinel (COUNT==0)')
+    lines += [
+        "};",
+        f"static constexpr size_t CAN_EVENT_COUNT = {len(events)};",
+        "",
+        "// CRC-16/CCITT-FALSE контракту вузла — їде в heartbeat (детект розбіжності прошивок).",
+        f"static constexpr uint16_t CAN_REGISTRY_CRC16 = 0x{can_registry_crc16(exports, events):04X};",
+        "",
+        "} // namespace modesp::gen::can",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def load_all_driver_manifests(drivers_dir, warnings):
     """Load EVERY drivers/*/manifest.json → {driver_name: manifest}.
 
@@ -1132,19 +1413,33 @@ def validate_bindings(board, bindings, all_driver_manifests, errors, warnings,
                     f"[board] duplicate hardware id '{hw_id}' "
                     f"(in '{hw_section[hw_id]}' and '{section}')")
                 continue
-            hw_type[hw_id] = htype
-            hw_section[hw_id] = section
-            # Remote devices: an observer identity ("identity"/legacy "mac") OR a connect 'name'.
-            # For the BLE transport the identity is a MAC (format-checked); other transports opaque.
-            if htype == "ble":
+            # Remote devices are transport-generic: hw_type + identity format are
+            # per-ENTRY (P6 refinement). BLE identity = MAC (format-checked);
+            # CAN identity = node-id 1..253; other transports opaque.
+            entry_htype = board_entry_hw_type(section, entry, htype)
+            if section in REMOTE_DEVICE_SECTIONS:
+                transport = entry.get("transport", "ble")
                 identity = entry.get("identity") or entry.get("mac", "")   # "mac" = legacy field alias
                 name = entry.get("name", "")
-                if identity and not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", identity):
-                    errors.append(
-                        f"[board] {section} '{hw_id}' has invalid MAC identity: '{identity}'")
-                if not identity and not name:
-                    errors.append(
-                        f"[board] {section} '{hw_id}' needs 'identity'/'mac' (observer) or 'name' (connect device)")
+                if transport == "can":
+                    # Граматика identity = перетин Python/strtol (див. _CAN_IDENTITY_RE)
+                    node_id = -1
+                    if _CAN_IDENTITY_RE.match(str(identity).strip()):
+                        node_id = int(str(identity).strip(), 0)
+                    if not (1 <= node_id <= 253):
+                        errors.append(
+                            f"[board] {section} '{hw_id}' (transport can) needs 'identity' = "
+                            f"node-id 1..253 (decimal or 0x-hex), got '{identity}'")
+                else:
+                    if identity and transport == "ble" and not re.match(
+                            r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", identity):
+                        errors.append(
+                            f"[board] {section} '{hw_id}' has invalid MAC identity: '{identity}'")
+                    if not identity and not name:
+                        errors.append(
+                            f"[board] {section} '{hw_id}' needs 'identity'/'mac' (observer) or 'name' (connect device)")
+            hw_type[hw_id] = entry_htype
+            hw_section[hw_id] = section
 
     valid_ids = ", ".join(sorted(hw_type)) or "(none)"
     hw_usage = {}             # hw_id -> [(role, driver, address)]
@@ -1681,12 +1976,12 @@ class UIJsonGenerator:
         free_hw = sorted(all_hw_ids - used_hw_ids)
         free_widgets = []
         for hw_id in free_hw:
-            # Визначаємо тип hardware
+            # Визначаємо тип hardware (per-entry: remote_devices уточнюється transport'ом)
             hw_type = "?"
             for section, htype in BOARD_SECTION_TO_HW_TYPE.items():
                 for item in board.get(section, []):
                     if item.get("id") == hw_id:
-                        hw_type = htype
+                        hw_type = board_entry_hw_type(section, item, htype)
                         break
             free_widgets.append({
                 "key": f"_hw.{hw_id}",
@@ -1831,10 +2126,12 @@ class UIJsonGenerator:
             for d in driver_manifests.values()
             if d.get("multiple_per_bus", False)
         }
-        # Hardware inventory з board.json (для select options у BindingsEditor)
+        # Hardware inventory з board.json (для select options у BindingsEditor).
+        # hw_type per-entry: remote_devices з transport:"can" → "can", не "ble".
         hardware = []
-        for section, hw_type in BOARD_SECTION_TO_HW_TYPE.items():
+        for section, section_hw_type in BOARD_SECTION_TO_HW_TYPE.items():
             for item in board.get(section, []):
+                hw_type = board_entry_hw_type(section, item, section_hw_type)
                 hw_entry = {
                     "id": item.get("id", ""),
                     "hw_type": hw_type,
@@ -2695,6 +2992,12 @@ def main():
     loggable_errors = []
     validate_loggable(manifests, loggable_errors)
 
+    # ModESP-CAN v1 registry: збирання + валідація ID у pre-write gate (ADR-004)
+    can_errors = []
+    can_warnings = []
+    can_exports, can_events = collect_can_registry(manifests, capabilities,
+                                                   can_errors, can_warnings)
+
     # Print validation results
     print("\nValidating...")
     ok = validator.report()
@@ -2713,6 +3016,11 @@ def main():
         print(f"  ERROR: {e}")
         ok = False
     for e in loggable_errors:
+        print(f"  ERROR: {e}")
+        ok = False
+    for w in can_warnings:
+        print(f"  WARNING: {w}")
+    for e in can_errors:
         print(f"  ERROR: {e}")
         ok = False
 
@@ -2982,7 +3290,10 @@ def main():
     # so it must not compile when that role is off. 'depends on' auto-disables the
     # driver toggle, and the bound-driver gate in modesp_hal/CMakeLists.txt then
     # reports boards that actually need it. (CENTRAL implies ENABLE in Kconfig.)
-    HW_TYPE_KCONFIG_DEPS = {"ble": "MODESP_BLE_CENTRAL"}
+    HW_TYPE_KCONFIG_DEPS = {
+        "ble": "MODESP_BLE_CENTRAL",
+        "can": "MODESP_CAN_ENABLE",   # CAN bridge drivers read the modesp_can cache
+    }
     kcfg = [
         "# Auto-generated from drivers/*/manifest.json by tools/generate_ui.py",
         "# DO NOT EDIT — regenerated on every build.",
@@ -3250,6 +3561,15 @@ def main():
     with open(ev_path, "w", encoding="utf-8") as f:
         f.write('\n'.join(ev_lines) + '\n')
     print(f"  + {ev_path} ({len(log_events)} events)")
+    files_written += 1
+
+    # ── can_registry.h (ModESP-CAN v1, ADR-004) ──────────────
+    # Завжди перезаписується (навіть порожнім) — застарілий header не переживе
+    # видалення останнього can_export/can_events запису з маніфестів.
+    can_path = gen_dir / "can_registry.h"
+    with open(can_path, "w", encoding="utf-8") as f:
+        f.write(generate_can_registry_header(can_exports, can_events))
+    print(f"  + {can_path} ({len(can_exports)} export keys, {len(can_events)} events)")
     files_written += 1
 
     # ── i18n: build language packs ───────────────────────────

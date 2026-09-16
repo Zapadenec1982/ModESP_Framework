@@ -1,0 +1,29 @@
+{
+  "manifest_version": 1,
+  "driver": "can_remote",
+  "description": "Віддалений ключ ModESP-вузла по CAN (ModESP-CAN v1, ADR-004)",
+  "category": "sensor",
+  "hardware_type": "can",
+  "transport": "can",
+  "requires_address": true,
+  "multiple_per_bus": true,
+  "_address_note": "binding.address = ім'я ключа SharedState на вузлі-джерелі (напр. 'equipment.air_temp'; key-id = djb2-fold16) АБО явний hex-id '0x1234' для ключів із can_id-override. Один вузол (device id) живить кілька ролей — по binding-у на ключ.",
+  "provides": {"type": "float", "description": "значення віддаленого ключа (float/int/bool → float; bool → 0/1)"},
+  "settings": [
+    {"key": "stale_ms", "type": "int", "default": 5000, "min": 500, "max": 600000, "step": 500, "unit": "мс", "description": "Без свіжого STATE-кадру довше — значення несправне", "persist": true}
+  ],
+  "ui": {
+    "page": "Налаштування датчиків",
+    "page_id": "driver_settings",
+    "access_level": "service",
+    "cards": [
+      {
+        "title": "CAN remote: {{hardware_id}}",
+        "instance_per_binding": true,
+        "widgets": [
+          {"setting": "stale_ms", "widget": "number_input"}
+        ]
+      }
+    ]
+  }
+}

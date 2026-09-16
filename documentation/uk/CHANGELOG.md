@@ -4,6 +4,15 @@
 
 > Повний changelog проекту.
 
+## 2026-07-15
+
+- **feat(can): CAN-транспорт (ModESP-CAN v1) — другий remote-транспорт, фази C0-C2 (ADR-004):**
+  - Нова секція `board.json` `can_buses` (`{id, tx, rx, bitrate, label}`) — виводи MCU в бік зовнішнього трансивера + бітрейт (10-1000 кбіт/с, типово 125k). Парситься у config-only `CanBusConfig` у HAL (TWAI-нодою володіє транспортний компонент, як з `uart_buses`); секція інертна без `CONFIG_MODESP_CAN_ENABLE`.
+  - Новий Kconfig-gated компонент `components/modesp_can/` — єдиний власник TWAI-ноди (новий node-API `esp_driver_twai`): heartbeat + liveness (вузол offline після 3.5 с тиші → його імпортовані значення стають unhealthy, `remote.<id>.online=false`), експорт SharedState (on-change + retained-refresh кожні 5 с), міст подій через єдиний конверт `MsgRemoteEvent` (transient-події в обидва боки), loopback self-test (`CONFIG_MODESP_CAN_SELF_TEST`) — повний цикл TX→RX на одному стенді без трансивера. Невдала ініціалізація CAN не фатальна (`can.status="error"`, модуль живий).
+  - Драйвер-міст `drivers/can_remote/` (скелет) — звичайний `ISensorDriver`, який читає `CanRemoteCache`; прив'язується до запису `remote_devices` з `transport:"can"`, де `identity` — node-id сусіднього вузла (ціле 1..253, валідується генератором); `binding.address` = ім'я віддаленого ключа.
+  - Генератор: `generated/can_registry.h` — експортовані ключі та події зі стабільними 16-бітними ID (`fold16(djb2(ім'я))`, перевірка колізій у межах kind, явний override через `can_id`) + `CAN_REGISTRY_CRC16` для виявлення розбіжності маніфестів у флоті (передається у heartbeat). Спільні тест-вектори Python/C++.
+  - Документація: секція `can_buses` у `04-hardware/board-config.md` (EN + UK); ADR-004 у `docs/can/`. Фази C3+ (два вузли на фізичній шині, події end-to-end, webui для CAN-пристроїв) чекають на трансивери.
+
 ## 2026-06-14
 
 - **feat(osd): рендерер екранного меню на AT7456E (MAX7456-сумісний OSD) + переносний драйвер:**

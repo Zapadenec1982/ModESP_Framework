@@ -44,6 +44,7 @@ include_directories(
     "${ROOT}/drivers/at7456e/include"                       # modesp/osd/osd_charmap.h (header-only on host)
     "${ROOT}/drivers/amt630a/include"                       # modesp/osd/amt630a_charmap.h
     "${ROOT}/components/modesp_net/include"                 # modesp/net/log_source.h (ILogSource contract)
+    "${ROOT}/components/modesp_can/include"                 # modesp/can/can_codec.h, can_remote_cache.h (pure on host)
     "${CMAKE_SOURCE_DIR}"                                   # for #include "doctest.h"
 )
 
@@ -64,6 +65,7 @@ set(MODULE_SOURCES
     "${ROOT}/modules/display/src/notification_queue.cpp"
     "${ROOT}/components/modesp_hal/src/driver_registry.cpp"
     "${ROOT}/modules/display/src/display_module.cpp"
+    "${ROOT}/components/modesp_can/src/can_remote_cache.cpp"
 )
 
 # ── Test sources ──
@@ -77,6 +79,7 @@ set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_notification_queue.cpp"
     "${CMAKE_SOURCE_DIR}/test_osd_charmap.cpp"
     "${CMAKE_SOURCE_DIR}/test_display_backend_registry.cpp"
+    "${CMAKE_SOURCE_DIR}/test_can_codec.cpp"
 )
 
 add_executable(test_runner

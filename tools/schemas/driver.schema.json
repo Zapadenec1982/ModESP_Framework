@@ -25,7 +25,7 @@
       "type": "string"
     },
     "transport": {
-      "enum": ["wired", "ble", "lora", "mqtt", "espnow"],
+      "enum": ["wired", "ble", "can", "lora", "mqtt", "espnow"],
       "description": "Transport family (default derived from hardware_type). Orthogonal to the bus/hw_type so LoRa/MQTT/ESP-NOW do not overload hardware_type."
     },
     "provides": {

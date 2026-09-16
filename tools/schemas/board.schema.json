@@ -544,6 +544,43 @@
         "additionalProperties": false
       }
     },
+    "can_buses": {
+      "$comment": "CAN (TWAI) bus: pins + bitrate only. The modesp_can component owns the TWAI node; an external transceiver (SN65HVD230 etc.) is required on every node. ESP32/S3 have a single controller.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "label": {
+            "type": "string"
+          },
+          "tx": {
+            "type": "integer"
+          },
+          "rx": {
+            "type": "integer"
+          },
+          "bitrate": {
+            "type": "integer",
+            "minimum": 10000,
+            "maximum": 1000000
+          }
+        },
+        "required": [
+          "id",
+          "tx",
+          "rx"
+        ],
+        "patternProperties": {
+          "^_": {}
+        },
+        "additionalProperties": false
+      }
+    },
     "ble_devices": {
       "$comment": "Legacy key alias for remote_devices (BLE-only seed).",
       "$ref": "#/$defs/remote_device_array"

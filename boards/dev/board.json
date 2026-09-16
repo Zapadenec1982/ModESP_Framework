@@ -19,5 +19,9 @@
   "adc_channels": [
     {"id": "adc_1", "gpio": 36, "atten": 11, "label": "ADC 1"},
     {"id": "adc_2", "gpio": 39, "atten": 11, "label": "ADC 2"}
+  ],
+  "_can_note": "CAN (TWAI): піни MCU→трансивер (SN65HVD230 тощо, обов'язковий). Інертно без CONFIG_MODESP_CAN_ENABLE.",
+  "can_buses": [
+    {"id": "can_0", "tx": 21, "rx": 22, "bitrate": 125000, "label": "CAN bus"}
   ]
 }

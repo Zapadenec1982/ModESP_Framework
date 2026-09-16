@@ -1,0 +1,30 @@
+menu "ModESP CAN"
+
+    config MODESP_CAN_ENABLE
+        bool "Enable CAN (TWAI) transport"
+        default n
+        help
+            Master switch for the modesp_can component (single TWAI node owner).
+            ModESP-CAN v1 (docs/can/ADR-004): SharedState export + event bridge
+            between ModESP nodes over classic CAN 2.0B.
+
+            Needs a board.json can_buses entry (tx/rx pins + bitrate) and an
+            external CAN transceiver (SN65HVD230, TJA1051T/3 ...) on every node.
+            The node's own address: NVS key can/node_id, MAC-derived by default.
+
+            CAN bridge drivers (hardware_type "can", e.g. can_remote) depend on
+            this option — their toggles auto-disable when it is off.
+
+    config MODESP_CAN_SELF_TEST
+        bool "CAN self-test mode (no-ACK loopback, single-node bench)"
+        depends on MODESP_CAN_ENABLE
+        default n
+        help
+            Enables the TWAI self-test + loopback flags: the node receives its
+            own frames back without ACK, so the full TX->RX path is verifiable
+            on ONE bench device without a transceiver or a second node.
+            can.loopback_ok goes true after the first own frame round-trips.
+
+            Never enable on a production bus (no-ACK violates CAN semantics).
+
+endmenu

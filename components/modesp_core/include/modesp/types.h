@@ -104,6 +104,9 @@ namespace msg_id {
     constexpr etl::message_id_t MQTT_DISCONNECTED = 57;
     constexpr etl::message_id_t MQTT_ERROR        = 58;
 
+    // ── CAN (modesp_can, ADR-004) ──
+    constexpr etl::message_id_t CAN_REMOTE_EVENT  = 60;
+
     // ── HAL ──
     constexpr etl::message_id_t GPIO_CHANGED       = 100;
 

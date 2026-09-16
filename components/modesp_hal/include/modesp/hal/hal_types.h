@@ -37,6 +37,7 @@ static constexpr size_t MAX_I2C_EXPANDERS  = 4;
 static constexpr size_t MAX_I2C_DISPLAYS   = 2;
 static constexpr size_t MAX_UART_BUSES     = 2;   // UART0 — консоль; лишаються 1/2
 static constexpr size_t MAX_I2S_BUSES      = 1;   // I2S TX (аудіо: MAX98357A тощо)
+static constexpr size_t MAX_CAN_BUSES      = 1;   // ESP32/S3 мають 1 TWAI-контролер (P4 — до 3)
 static constexpr size_t MAX_EXPANDER_IOS   = 16;   // Outputs + Inputs через expanders
 static constexpr size_t MAX_REMOTE_DEVICES = 16;   // remote devices (any transport): board.json factory seed + runtime /data/devices.json subscriptions (merged)
 static constexpr size_t MAX_BLE_DEVICES    = MAX_REMOTE_DEVICES;   // legacy alias (transitional)
@@ -158,6 +159,17 @@ struct I2SBusConfig {
     uint32_t   sample_rate_hz = 16000;        // частота дискретизації (аларм-тони: 16k достатньо)
 };
 
+/// CAN-шина (TWAI). HAL зберігає лише конфіг (піни + бітрейт) — TWAI-нодою
+/// володіє транспортний компонент modesp_can (як I2S: handle + ISR-callbacks +
+/// TX-пул належать сервісу). HAL не тягне esp_driver_twai. Зовнішній трансивер
+/// (SN65HVD230 тощо) обов'язковий на кожному вузлі.
+struct CanBusConfig {
+    HalId      id;                       // "can_0" (hardware_id для bindings)
+    gpio_num_t tx        = GPIO_NUM_NC;  // MCU TX → TXD трансивера
+    gpio_num_t rx        = GPIO_NUM_NC;  // MCU RX ← RXD трансивера
+    uint32_t   bitrate   = 125000;       // 125k ≈ 500 м, 250k ≈ 250 м (класичний CAN 2.0B)
+};
+
 /// Remote device (off-board sensor/actuator reached over a transport). HAL зберігає лише
 /// transport-тег + identity-blob — config-only, як I2CDisplayConfig. Декод/кеш живе у
 /// транспортному компоненті (напр. modesp_ble BleCentral), а драйвер читає його через свій
@@ -185,6 +197,7 @@ struct BoardConfig {
     etl::vector<I2CDisplayConfig, MAX_I2C_DISPLAYS>               i2c_displays;
     etl::vector<UartBusConfig, MAX_UART_BUSES>                   uart_buses;
     etl::vector<I2SBusConfig, MAX_I2S_BUSES>                     i2s_buses;
+    etl::vector<CanBusConfig, MAX_CAN_BUSES>                     can_buses;
     etl::vector<RemoteDeviceConfig, MAX_REMOTE_DEVICES>         remote_devices;
 };
 
@@ -299,6 +312,16 @@ struct I2SBusResource {
     gpio_num_t sd             = GPIO_NUM_NC;
     uint32_t   sample_rate_hz = 16000;
     bool       initialized    = false;
+};
+
+/// CAN-ресурс: лише конфіг (піни + бітрейт). TWAI-ноду створює modesp_can —
+/// HAL не тримає twai_node_handle_t, тож не тягне esp_driver_twai у hal_types.h.
+struct CanBusResource {
+    HalId      id;
+    gpio_num_t tx          = GPIO_NUM_NC;
+    gpio_num_t rx          = GPIO_NUM_NC;
+    uint32_t   bitrate     = 125000;
+    bool       initialized = false;
 };
 
 } // namespace modesp

@@ -193,6 +193,55 @@ open-drain, so writing `0` pulls the line low і turns the relay ON
 low, але logically that's "input active" — invert у board.json і your
 driver sees clean `true`/`false`.
 
+### `can_buses`
+
+CAN (TWAI) bus — the two MCU pins toward an external transceiver, plus the
+bitrate. The section is pure wiring: the HAL stores config only, and the
+Kconfig-gated `modesp_can` component owns the TWAI node and runs the
+ModESP-CAN v1 protocol on top (ADR-004). Example from `boards/dev/board.json`:
+
+```json
+"can_buses": [
+  {"id": "can_0", "tx": 21, "rx": 22, "bitrate": 125000, "label": "CAN bus"}
+]
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | Unique ID (≤16 chars) — `bindings.json` and the HAL reference this. |
+| `tx` | int | yes | MCU GPIO → transceiver TXD. |
+| `rx` | int | yes | MCU GPIO ← transceiver RXD. |
+| `bitrate` | int | no | Bus bitrate, 10000..1000000 bit/s. Default `125000`. |
+| `label` | string | no | Human label for UI / diagnostics. |
+
+Hardware notes:
+
+- **An external transceiver is mandatory** (SN65HVD230, TJA1051, …). The
+  ESP32's TWAI controller speaks logic-level TX/RX only — the differential
+  CAN_H/CAN_L pair comes from the transceiver. Pick a 3.3 V type
+  (SN65HVD230) for direct wiring to the ESP32.
+- **Terminate the bus with 120 Ω at both physical ends** — and only there.
+  Star topology or missing termination produces error frames long before it
+  produces obvious failures.
+- **Bitrate trades against cable length:** 125 kbit/s ≈ 500 m,
+  250 kbit/s ≈ 250 m, 500 kbit/s ≈ 100 m (classic CAN 2.0B rules of thumb).
+  The 125 kbit/s default suits distributed controller networks.
+- **One bus per board on ESP32 / ESP32-S3** — these chips have a single TWAI
+  controller (`MAX_CAN_BUSES = 1`). ESP32-P4 has three; multi-bus support is
+  future work.
+
+The node's own CAN address (node-id) is deliberately **not** declared here:
+board.json describes the board *model*, and two devices of the same model
+need different addresses. It lives in NVS (`can.node_id`) with a MAC-derived
+default.
+
+The section is **inert without `CONFIG_MODESP_CAN_ENABLE`** — declaring
+`can_buses` in a build without the `modesp_can` component changes nothing.
+Protocol details, heartbeat/liveness, and the `can_remote` bridge driver are
+covered in
+[components/modesp_can.md](../03-framework-reference/components/modesp_can.md)
+*(planned)* and [ADR-004](../../../docs/can/ADR-004-can-transport-p6.md).
+
 ### `remote_devices` (legacy alias `ble_devices`)
 
 **Off-board** devices seeded at the factory — a sensor/actuator reached not
@@ -210,8 +259,8 @@ section is transport-generic: a row describes a device, not a wire. The key is
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | yes | Unique ID (≤16). `bindings.json` references **this**, not the identity (R0.3). |
-| `transport` | string | no | Transport (`"ble"`, …). Auto-derived from `hardware_type` when omitted (R4.1). |
-| `identity` | string | no | Opaque transport identifier: BLE MAC, future LoRa devaddr / MQTT topic (R4.1). |
+| `transport` | string | no | Transport (`"ble"`, `"can"`, …). Auto-derived from `hardware_type` when omitted (R4.1). |
+| `identity` | string | no | Opaque transport identifier: BLE MAC; CAN node-id; future LoRa devaddr / MQTT topic (R4.1). |
 | `name` | string | no | adv-name / human name for scan and UI. |
 
 `identity` is an opaque blob; identity lives **on the device**, never on a
@@ -223,6 +272,12 @@ role's `Binding` — a MAC on a role binding would tie the role to a transport
 > it for compatibility, but new boards should use the transport-neutral
 > `identity` (R4.1).
 
+**`transport: "can"`.** For a CAN entry, `identity` is the peer's node-id —
+an integer 1..253 (the generator rejects anything else at build time). The
+`can_remote` bridge driver resolves the entry id → node-id and reads the
+peer's exported keys from the `modesp_can` cache; `binding.address` carries
+the name of the remote key (e.g. `equipment.air_temp`).
+
 **This is a factory seed only.** board.json is GET-only on the device; its
 remote section merely seeds the starting devices. Real runtime subscriptions
 are written by the device itself to `/data/devices.json` — that file is
@@ -230,14 +285,16 @@ are written by the device itself to `/data/devices.json` — that file is
 the live subscriptions (R4.3, R6.2). Don't hardcode BLE in board.json beyond
 the seed.
 
-## What about CAN?
+## What about RS-485, CAN, SPI?
 
-The hardware roadmap adds:
-- `can_buses` for automotive / industrial CAN.
+All covered:
 
-RS-485 / serial buses are already covered by `uart_buses`, and SPI peripherals
-by `spi_buses` / `spi_displays` (both present in the schema). CAN is currently
-absent from the framework. If you run such periphery — file a request, or
+- CAN — [`can_buses`](#can_buses) (above) + the Kconfig-gated `modesp_can`
+  transport component (ModESP-CAN v1, ADR-004).
+- RS-485 / serial buses — `uart_buses`.
+- SPI peripherals — `spi_buses` / `spi_displays`.
+
+If you run periphery that still has no section — file a request, or
 contribute a driver.
 
 ## Reference examples

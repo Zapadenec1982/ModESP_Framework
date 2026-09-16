@@ -66,6 +66,10 @@
   #include "modesp/ble/ble_service.h"
 #endif
 
+#if defined(CONFIG_MODESP_CAN_ENABLE)
+  #include "modesp/can/can_service.h"
+#endif
+
 // Module includes + instances + registration (auto-generated from project.json)
 #include "module_includes.h"
 
@@ -115,6 +119,11 @@ static modesp::scenario::ContinuousRegistry scenario_continuous;
 // BLE transport (optional — single NimBLE host owner)
 #if defined(CONFIG_MODESP_BLE_ENABLE)
 static modesp::BleService      ble_service;
+#endif
+
+// CAN transport (optional — single TWAI node owner, ADR-004)
+#if defined(CONFIG_MODESP_CAN_ENABLE)
+static modesp::CanService      can_service;
 #endif
 
 // Module instances (auto-generated from project.json)
@@ -226,6 +235,14 @@ extern "C" void app_main(void)
     ble_service.set_wifi(&wifi_service);   // provisioning: save creds + trigger reconnect
 #endif
     app.modules().register_module(ble_service);
+#endif
+
+    // CAN transport (optional). Реєстрація тут, init — у Phase-2 init_all
+    // (після hal.init на Step 5, тож can_buses конфіг уже готовий).
+#if defined(CONFIG_MODESP_CAN_ENABLE)
+    can_service.set_hal(&hal);
+    can_service.set_state(&app.state());
+    app.modules().register_module(can_service);
 #endif
 
     // ── Step 5: Initialize HAL (GPIO setup) ──

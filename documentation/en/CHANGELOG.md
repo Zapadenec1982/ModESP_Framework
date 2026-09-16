@@ -4,6 +4,15 @@
 
 > Full project changelog.
 
+## 2026-07-15
+
+- **feat(can): CAN transport (ModESP-CAN v1) — second remote transport, phases C0-C2 (ADR-004):**
+  - New `board.json` section `can_buses` (`{id, tx, rx, bitrate, label}`) — MCU pins toward an external transceiver + bitrate (10-1000 kbit/s, default 125k). Parsed into a config-only HAL `CanBusConfig` (the TWAI node is owned by the transport component, like `uart_buses`); the section is inert without `CONFIG_MODESP_CAN_ENABLE`.
+  - New Kconfig-gated component `components/modesp_can/` — sole owner of the TWAI node (new `esp_driver_twai` node API): heartbeat + liveness (a node is offline after 3.5 s of silence → its imported values turn unhealthy, `remote.<id>.online=false`), SharedState export (on-change + 5 s retained refresh), event bridge via the single `MsgRemoteEvent` envelope (transient events in both directions), loopback self-test (`CONFIG_MODESP_CAN_SELF_TEST`) — full TX→RX cycle on one bench without a transceiver. CAN init failure is non-fatal (`can.status="error"`, module stays alive).
+  - Bridge driver `drivers/can_remote/` (skeleton) — a regular `ISensorDriver` reading the `CanRemoteCache`; bound to a `remote_devices` entry with `transport:"can"`, whose `identity` is the peer's node-id (integer 1..253, generator-validated); `binding.address` = the remote key name.
+  - Generator: `generated/can_registry.h` — export keys and events with stable 16-bit IDs (`fold16(djb2(name))`, per-kind collision check, explicit `can_id` override) + `CAN_REGISTRY_CRC16` for detecting manifest drift across the fleet (carried in the heartbeat). Shared Python/C++ test vectors.
+  - Docs: `can_buses` section in `04-hardware/board-config.md` (EN + UK); ADR-004 in `docs/can/`. Phases C3+ (two nodes on a physical bus, events end-to-end, webui for CAN devices) await transceiver hardware.
+
 ## 2026-06-14
 
 - **feat(osd): AT7456E (MAX7456-compatible OSD) screen-menu renderer + portable driver:**

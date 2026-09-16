@@ -68,6 +68,7 @@ In order:
 | [components/modesp_net.md](03-framework-reference/components/modesp_net.md) | ✅ | Wi-Fi, HTTP server, WebSocket. |
 | [components/modesp_mqtt.md](03-framework-reference/components/modesp_mqtt.md) | ✅ | MQTT client wrapper із TLS і HA discovery. |
 | [components/modesp_aws.md](03-framework-reference/components/modesp_aws.md) | ✅ | AWS IoT alternative backend. |
+| [components/modesp_can.md](03-framework-reference/components/modesp_can.md) | ✅ | CAN (TWAI) transport — ModESP-CAN v1 state/event bridge between nodes. |
 | [components/modesp_scenario.md](03-framework-reference/components/modesp_scenario.md) | ✅ | Scenario engine high-level overview. |
 | [scenario-engine/](03-framework-reference/scenario-engine/README.md) | ✅ | Engine deep dive — architecture, binary format, FSMs, ADRs, usage. |
 | [modules/equipment.md](03-framework-reference/modules/equipment.md) | ✅ | Equipment Manager — sensor/actuator HAL bridge. |
@@ -81,6 +82,7 @@ In order:
 | [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | I2C-expanded relay (PCF8574). |
 | [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | GPIO contact input. |
 | [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | I2C-expanded contact input. |
+| [drivers/can_remote.md](03-framework-reference/drivers/can_remote.md) | ✅ | Remote ModESP-node key over CAN (bridge driver). |
 | [web-ui.md](03-framework-reference/web-ui.md) | ✅ | Svelte SPA architecture, state stores, WebSocket flow, widget catalog. |
 
 ### 04 — Hardware
