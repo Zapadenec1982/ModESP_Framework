@@ -534,4 +534,57 @@ uint8_t Amt630a::probe_inputs() {
     return mask;
 }
 
+// ── Відео-скейлер / aspect ratio (БАНК FCxx — do-not-touch, EXPERIMENTAL) ──
+
+void Amt630a::dump_scaler() {
+    // READ-ONLY: банк FCxx НЕ модифікується (amt_r без guard) — знімаємо OEM-конфіг скейлера 480×272.
+    // ⚠ §6.7 scaler ділить адресу 0xB8 з Tcon; читання має працювати, але якщо повертає сміття/0 —
+    //   значить read цього банку по I²C ненадійний (тоді пресети — лише наосліп через set_video_aspect).
+    auto rd = [&](uint8_t reg) -> uint8_t { uint8_t v = 0; amt_r(amt_bank::LCD, reg, v); return v; };
+    uint8_t fe28 = 0;
+    amt_r(amt_bank::AV, 0x28, fe28);                 // FE28 bit2: 0=NTSC/60, 1=PAL/50
+    ESP_LOGI(TAG, "dump_scaler: FC90=0x%02X std=%s (FE28=0x%02X)",
+             rd(0x90), (fe28 & 0x04) ? "PAL/50Hz" : "NTSC/60Hz", fe28);
+    ESP_LOGI(TAG, "  60Hz: FC96/97 scale=0x%02X%02X  FCAC xloc=0x%02X  FCAF/B0 ycrop=0x%02X/0x%02X",
+             rd(0x97), rd(0x96), rd(0xAC), rd(0xAF), rd(0xB0));
+    ESP_LOGI(TAG, "  50Hz: FCC2/C3 scale=0x%02X%02X  FCD8 xloc=0x%02X  FCDB/DC ycrop=0x%02X/0x%02X",
+             rd(0xC3), rd(0xC2), rd(0xD8), rd(0xDB), rd(0xDC));
+}
+
+bool Amt630a::set_video_scale_ratio(uint16_t ratio_60hz, uint16_t ratio_50hz) {
+    if (!scaler_unlock_) {
+        ESP_LOGW(TAG, "set_video_scale_ratio: заблоковано — спершу set_scaler_unlock(true) (⚠ FCxx do-not-touch)");
+        return false;
+    }
+    // raw_w — в обхід is_danger() LCD-guard (свідомо, як init-таблиця). FC96/FCC2=lsb, FC97/FCC3=msb.
+    bool ok = true;
+    if (ratio_60hz) {
+        ok = raw_w(amt_bank::LCD, 0x96, static_cast<uint8_t>(ratio_60hz & 0xFF)) && ok;
+        ok = raw_w(amt_bank::LCD, 0x97, static_cast<uint8_t>(ratio_60hz >> 8))   && ok;
+    }
+    if (ratio_50hz) {
+        ok = raw_w(amt_bank::LCD, 0xC2, static_cast<uint8_t>(ratio_50hz & 0xFF)) && ok;
+        ok = raw_w(amt_bank::LCD, 0xC3, static_cast<uint8_t>(ratio_50hz >> 8))   && ok;
+    }
+    ESP_LOGW(TAG, "set_video_scale_ratio: FC96/97=0x%04X FCC2/C3=0x%04X (⚠ FCxx bench-only) ok=%d",
+             ratio_60hz, ratio_50hz, ok ? 1 : 0);
+    return ok;
+}
+
+bool Amt630a::set_video_aspect(VideoAspect mode) {
+    // Пресети scale-ratio для 480×272 (control reference §8 / apply_mode_ratio CLEAN:3499).
+    // ⚠ BENCH stand_s3: dump_scaler показав реальні FC96/97=0x0337, FCC2/C3=0x033B — НЕ збігається
+    //   з жодним пресетом дизасемблера (0x05AF/0x0762 чи 0x0861/0x087E) і NTSC≈PAL → схоже на
+    //   timing-константу, НЕ aspect-важіль. Ці пресети залишені лише як референс; для цієї панелі
+    //   підбирай емпірично через set_video_scale_ratio() від бази 0x033B.
+    uint16_t r60, r50;
+    switch (mode) {
+    case VideoAspect::NORMAL_4_3: r60 = 0x0762; r50 = 0x0770; break;  // 4:3 — повна картинка, без обрізання
+    default:                      r60 = 0x05AF; r50 = 0x05A7; break;  // WIDE_16_9 — зум на всю ширину (ріже верх/низ)
+    }
+    ESP_LOGW(TAG, "set_video_aspect(%s): пресет 60Hz=0x%04X 50Hz=0x%04X",
+             mode == VideoAspect::NORMAL_4_3 ? "NORMAL_4_3" : "WIDE_16_9", r60, r50);
+    return set_video_scale_ratio(r60, r50);
+}
+
 } // namespace modesp::osd

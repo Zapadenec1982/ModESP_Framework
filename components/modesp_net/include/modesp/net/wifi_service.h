@@ -62,6 +62,7 @@ private:
     // Scan state
     bool scan_done_ = false;
     bool restore_ap_after_scan_ = false;  // AP mode restore deferred until results read
+    bool scanning_ = false;               // suppress STA_START auto-connect during scan
 
     // Deferred reconnect (give HTTP response time to reach client)
     bool deferred_reconnect_ = false;

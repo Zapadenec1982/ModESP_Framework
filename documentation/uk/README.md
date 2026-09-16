@@ -81,6 +81,7 @@ WebUI, темами MQTT, OTA та розміткою LittleFS.
 | [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | Реле через розширювач I2C (PCF8574). |
 | [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | Контактний вхід на GPIO. |
 | [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | Контактний вхід через розширювач I2C. |
+| [drivers/encoder.md](03-framework-reference/drivers/encoder.md) | ✅ | Інкрементальний поворотний енкодер (квадратурний A/B). |
 | [web-ui.md](03-framework-reference/web-ui.md) | ✅ | Архітектура Svelte SPA, сховища стану, потік WebSocket, каталог віджетів. |
 
 ### 04 — Обладнання

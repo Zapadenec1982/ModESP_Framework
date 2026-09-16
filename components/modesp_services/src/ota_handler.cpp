@@ -15,7 +15,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
-#include "mbedtls/sha256.h"
+#include "psa/crypto.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -157,9 +157,19 @@ static void ota_task(void* arg) {
     }
 
     // 4. Потоковий download → write → SHA256
-    mbedtls_sha256_context sha_ctx;
-    mbedtls_sha256_init(&sha_ctx);
-    mbedtls_sha256_starts(&sha_ctx, 0);  // 0 = SHA-256
+    // ESP-IDF 6.0 (mbedtls 4.x / TF-PSA-Crypto) makes the legacy mbedtls_sha256_*
+    // API private; the PSA Crypto API is the supported replacement.
+    psa_hash_operation_t sha_ctx = PSA_HASH_OPERATION_INIT;
+    if (psa_crypto_init() != PSA_SUCCESS ||
+        psa_hash_setup(&sha_ctx, PSA_ALG_SHA_256) != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "SHA-256 init failed");
+        set_status("error");
+        set_error("Crypto init failed");
+        esp_ota_abort(ota_handle);
+        s_ota_in_progress.store(false);
+        vTaskDelete(nullptr);
+        return;
+    }
 
     char buf[4096];
     int received_total = 0;
@@ -255,8 +265,8 @@ static void ota_task(void* arg) {
         }
 
         // Оновити SHA256
-        mbedtls_sha256_update(&sha_ctx,
-                              reinterpret_cast<const unsigned char*>(buf), read_len);
+        psa_hash_update(&sha_ctx,
+                        reinterpret_cast<const unsigned char*>(buf), read_len);
 
         received_total += read_len;
 
@@ -274,7 +284,7 @@ static void ota_task(void* arg) {
 
     if (!download_ok) {
         esp_ota_abort(ota_handle);
-        mbedtls_sha256_free(&sha_ctx);
+        psa_hash_abort(&sha_ctx);
         s_ota_in_progress.store(false);
         vTaskDelete(nullptr);
         return;
@@ -285,7 +295,7 @@ static void ota_task(void* arg) {
         set_status("error");
         set_error("Firmware too small");
         esp_ota_abort(ota_handle);
-        mbedtls_sha256_free(&sha_ctx);
+        psa_hash_abort(&sha_ctx);
         s_ota_in_progress.store(false);
         vTaskDelete(nullptr);
         return;
@@ -298,7 +308,7 @@ static void ota_task(void* arg) {
     // CRC32, який атакувальник з контролем байтів тривіально задовольняє).
     {
         if (params->checksum[0] == '\0') {
-            mbedtls_sha256_free(&sha_ctx);
+            psa_hash_abort(&sha_ctx);
             ESP_LOGE(TAG, "No checksum provided — refusing to flash unverified image");
             set_status("error");
             set_error("Checksum required");
@@ -309,8 +319,8 @@ static void ota_task(void* arg) {
         }
 
         unsigned char sha_result[32];
-        mbedtls_sha256_finish(&sha_ctx, sha_result);
-        mbedtls_sha256_free(&sha_ctx);
+        size_t sha_olen = 0;
+        psa_hash_finish(&sha_ctx, sha_result, sizeof(sha_result), &sha_olen);
 
         // Конвертуємо в hex рядок
         char sha_hex[65];

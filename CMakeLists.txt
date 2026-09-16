@@ -26,6 +26,16 @@ file(COPY "${_BOARD_PATH}/bindings.json" DESTINATION "${CMAKE_SOURCE_DIR}/data")
 message(STATUS "ModESP board: ${_BOARD_DIR}")
 
 # ── Pre-build: generate UI schema and C++ headers from module manifests ──
+# Re-run cmake configure (→ generate_ui.py) whenever a manifest/project/board changes,
+# інакше `cmake --build` лишає data/ui.json + generated/*.h застарілими (мовчазний баг).
+file(GLOB _MODESP_MANIFESTS CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/project.json"
+    "${CMAKE_SOURCE_DIR}/modules/*/manifest.json"
+    "${CMAKE_SOURCE_DIR}/drivers/*/manifest.json"
+    "${CMAKE_SOURCE_DIR}/boards/*/board.json"
+    "${CMAKE_SOURCE_DIR}/boards/*/bindings.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_MODESP_MANIFESTS})
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_FOUND)
     execute_process(

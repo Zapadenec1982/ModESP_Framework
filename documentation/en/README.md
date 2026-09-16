@@ -79,6 +79,7 @@ In order:
 | [drivers/pcf8574_relay.md](03-framework-reference/drivers/pcf8574_relay.md) | ✅ | I2C-expanded relay (PCF8574). |
 | [drivers/digital_input.md](03-framework-reference/drivers/digital_input.md) | ✅ | GPIO contact input. |
 | [drivers/pcf8574_input.md](03-framework-reference/drivers/pcf8574_input.md) | ✅ | I2C-expanded contact input. |
+| [drivers/encoder.md](03-framework-reference/drivers/encoder.md) | ✅ | Incremental rotary encoder (quadrature A/B). |
 | [web-ui.md](03-framework-reference/web-ui.md) | ✅ | Svelte SPA architecture, state stores, WebSocket flow, widget catalog. |
 
 ### 04 — Hardware

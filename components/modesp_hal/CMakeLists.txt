@@ -14,8 +14,13 @@ include("${_modesp_root}/generated/drivers.cmake")   # MODESP_ALL_DRIVERS
 idf_component_register(
     SRCS "src/hal.cpp" "src/driver_manager.cpp" "src/driver_registry.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES modesp_core driver
-    PRIV_REQUIRES ${MODESP_ALL_DRIVERS} esp_adc esp_driver_i2c
+    # ESP-IDF 6.0 split the monolithic `driver` component; the `driver` umbrella now
+    # only PRIV_REQUIRES the sub-drivers, so `REQUIRES driver` no longer re-exports
+    # their headers. hal_types.h is a PUBLIC header that includes driver/gpio.h and
+    # driver/i2c_master.h, so esp_driver_gpio + esp_driver_i2c must be PUBLIC REQUIRES
+    # — this propagates them to every driver (they auto-`REQUIRES modesp_hal`).
+    REQUIRES modesp_core driver esp_driver_gpio esp_driver_i2c
+    PRIV_REQUIRES ${MODESP_ALL_DRIVERS} esp_adc
 )
 
 # Generated driver_register_all.h (modesp_register_all_drivers())

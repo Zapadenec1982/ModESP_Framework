@@ -99,6 +99,23 @@ Direct GPIO pins що read а contact / switch / sensor digital output:
 }
 ```
 
+### `encoders`
+
+Incremental rotary encoders — two quadrature pins (CLK=A, DT=B) per
+device. Unlike the one-pin resources above, an encoder bundles two pins
+under one `id`, so it gets its own section. The push-button is separate:
+declare it as a `gpio_inputs` entry and bind it to `digital_input`.
+
+```json
+"encoders": [
+  {"id": "enc_0", "clk": 25, "dt": 26, "pull": "up", "label": "Menu encoder"}
+]
+```
+
+`pull` (`"up"`/`"down"`, default `"up"`) applies to both pins; most
+mechanical encoders are wired to GND and need pull-ups. Consumed by the
+[`encoder`](../03-framework-reference/drivers/encoder.md) driver.
+
 ### `onewire_buses`
 
 1-Wire buses (Dallas DS18B20 і compatible). One bus typically supports

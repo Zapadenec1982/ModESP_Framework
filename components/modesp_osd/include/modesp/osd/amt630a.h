@@ -137,6 +137,30 @@ public:
 
     bool have_signal();                     // dev 0x59 FE26 bit1
 
+    // ── Відео-скейлер / aspect ratio (БАНК FCxx = 0x5C, do-not-touch, EXPERIMENTAL) ──
+    // ⚠ FCxx — спільний банк Tcon-таймінгу панелі + скейлера (datasheet §6.2/§6.7). Запис сюди
+    //   РИЗИКОВАНИЙ: може зажадати power-cycle. RE-bench бачив «no visible effect» на FC96/97 —
+    //   ефект НЕ гарантований. Усі сетери — no-op, доки set_scaler_unlock(true) (явний opt-in).
+    // Геометрія 480×272: вхід 4:3 у режимі «wide» зумиться на всю ширину → ріже верх/низ.
+    //   «normal» (4:3) показує повну картинку (поля по боках). FC96/97=scale-ratio 60Гц(NTSC),
+    //   FCC2/C3=ratio 50Гц(PAL); FCAF/B0 (60Гц) / FCDB/DC (50Гц) = вертикальний crop.
+    enum class VideoAspect : uint8_t {
+        WIDE_16_9  = 0,   ///< OEM «wide» scale: 4:3 зум/розтяг на 16:9 → ріже верх/низ (типово зараз)
+        NORMAL_4_3 = 1,   ///< OEM «normal» scale: повна 4:3-картинка, поля по боках, без обрізання
+    };
+    /// Розблокувати запис у FCxx-скейлер (opt-in, дефолт OFF). Поки false — сетери нижче no-op.
+    void    set_scaler_unlock(bool on) { scaler_unlock_ = on; }
+    bool    scaler_unlock() const { return scaler_unlock_; }
+    /// READ-ONLY діагностика: лог поточних регістрів скейлера/кропу (FC90/96/97/AC/AF/B0, C2/C3/D8/DB/DC)
+    /// + FE28 (PAL/NTSC). Банк НЕ модифікується — безпечно. Виклич ПЕРШИМ, щоб зняти OEM-значення панелі.
+    void    dump_scaler();
+    /// Вибрати aspect ratio (пресети 480×272). Пише FC96/97(60Гц)+FCC2/C3(50Гц). Потребує
+    /// set_scaler_unlock(true). false якщо заблоковано/помилка I²C. ⚠ bench-only, ефект не гарантовано.
+    bool    set_video_aspect(VideoAspect mode);
+    /// BENCH-примітив: задати сирий scale-ratio напряму (FC96/97 + FCC2/C3) для підбору після
+    /// dump_scaler() — точні байти залежать від firmware-варіанту панелі. r=0 → цей Гц не чіпати.
+    bool    set_video_scale_ratio(uint16_t ratio_60hz, uint16_t ratio_50hz);
+
 private:
     bool raw_w(uint8_t dev7, uint8_t reg, uint8_t val);   // без guard (init-таблиця)
     static bool is_danger(uint8_t dev7, uint8_t reg);
@@ -150,6 +174,7 @@ private:
     uint8_t  sh_fb33_ = 0x00, sh_fb34_ = 0x00; // тіні per-window scale (FB33=W1/W2, FB34=W3/W4) — OEM-баг 12.6
     AvFwRev  av_rev_ = AvFwRev::OLD;          // ревізія прошивки для мукс-біт AV1↔AV3 (дефолт OLD/ENGELS)
     bool     av_bracket_ = false;             // FED7 off→on брекет при перемиканні (дефолт OFF — безпечно)
+    bool     scaler_unlock_ = false;          // opt-in запис у FCxx-скейлер (дефолт OFF — do-not-touch банк)
     bool     ok_ = false;
 };
 

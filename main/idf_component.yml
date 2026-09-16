@@ -15,3 +15,6 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   marcel-cd/etlcpp: ^1.0.1
+  # esp-mqtt moved out of IDF core into the component manager in ESP-IDF 6.0.
+  # Provides the component named `mqtt` required by modesp_mqtt / modesp_aws.
+  espressif/mqtt: ^1.0.0

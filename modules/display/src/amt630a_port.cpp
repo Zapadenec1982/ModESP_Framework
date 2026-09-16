@@ -167,6 +167,14 @@ void Amt630aPort::configure_chip_() {
                      static_cast<uint8_t>(osd::AMT630A_FONT_COUNT),
                      osd::AMT630A_FONT_XSIZ, osd::AMT630A_FONT_YSIZ, /*restore_mask=*/0x00);
     dev_.set_backlight(backlight_pct_);      // відновити поточну яскравість (не hardcode)
+
+    // BENCH-ВИСНОВОК (stand_s3, 480×272, PAL): aspect ratio через FCxx-скейлер НЕДОСЯЖНИЙ.
+    //   dump_scaler показав FCC2/C3=0x033B (PAL) / FC96/97=0x0337 (NTSC) — майже рівні (timing-
+    //   константа, не aspect). Запис FCC2/C3=0x0500 (+50%) на живому відео дав НУЛЬ ефекту →
+    //   вертикальний зум/кроп зашитий у Tcon-тайминг панелі (банк FCxx do-not-touch / OEM bring-up),
+    //   а доступний scale-регістр його не змінює. Сетери лишаються в драйвері (opt-in, bench-only).
+    // Для повторної діагностики розкоментуй:
+    // dev_.dump_scaler();
 }
 
 DisplayCaps Amt630aPort::caps() const {

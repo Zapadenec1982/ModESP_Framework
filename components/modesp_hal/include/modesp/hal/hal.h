@@ -34,6 +34,9 @@ public:
     /// Find an ADC channel resource by hardware ID (e.g. "adc_1")
     AdcChannelResource*  find_adc_channel(etl::string_view id);
 
+    /// Find a rotary encoder resource by hardware ID (e.g. "enc_0")
+    EncoderResource*     find_encoder(etl::string_view id);
+
     /// Find a board-declared I2C bus resource by ID (e.g. "i2c_0").
     /// Generic seam for any multi-address device (display, multi-bank chip)
     /// that owns its own device handles on top of a shared bus.
@@ -57,6 +60,7 @@ public:
     size_t onewire_count()      const { return onewire_count_; }
     size_t gpio_input_count()   const { return gpio_input_count_; }
     size_t adc_count()          const { return adc_count_; }
+    size_t encoder_count()      const { return encoder_count_; }
     size_t i2c_expander_count() const { return i2c_expander_count_; }
 
 private:
@@ -64,6 +68,7 @@ private:
     etl::array<OneWireBusResource, MAX_ONEWIRE_BUSES>  onewire_buses_;
     etl::array<GpioInputResource, MAX_ADC_CHANNELS>    gpio_inputs_;
     etl::array<AdcChannelResource, MAX_ADC_CHANNELS>   adc_channels_;
+    etl::array<EncoderResource, MAX_ENCODERS>          encoders_;
     etl::array<I2CBusResource, MAX_I2C_BUSES>          i2c_buses_;
     etl::array<I2CExpanderResource, MAX_I2C_EXPANDERS> i2c_expanders_;
     etl::vector<I2CExpanderOutputConfig, MAX_EXPANDER_IOS> expander_outputs_;
@@ -74,6 +79,7 @@ private:
     size_t onewire_count_      = 0;
     size_t gpio_input_count_   = 0;
     size_t adc_count_          = 0;
+    size_t encoder_count_      = 0;
     size_t i2c_bus_count_      = 0;
     size_t i2c_expander_count_ = 0;
 
@@ -81,6 +87,7 @@ private:
     bool init_onewire(const BoardConfig& config);
     bool init_gpio_inputs(const BoardConfig& config);
     bool init_adc(const BoardConfig& config);
+    bool init_encoders(const BoardConfig& config);
     bool init_i2c(const BoardConfig& config);
     bool init_i2c_expanders(const BoardConfig& config);
 };

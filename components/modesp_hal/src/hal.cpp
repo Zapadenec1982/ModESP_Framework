@@ -37,6 +37,11 @@ bool HAL::init(const BoardConfig& config) {
         return false;
     }
 
+    if (!init_encoders(config)) {
+        ESP_LOGE(TAG, "Encoder init failed");
+        return false;
+    }
+
     // I2C buses та expanders (тільки якщо є в config)
     if (!config.i2c_buses.empty()) {
         if (!init_i2c(config)) {
@@ -49,9 +54,10 @@ bool HAL::init(const BoardConfig& config) {
         }
     }
 
-    ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d i2c_exp",
+    ESP_LOGI(TAG, "HAL ready: %d gpio_out, %d ow, %d gpio_in, %d adc, %d enc, %d i2c_exp",
              (int)gpio_output_count_, (int)onewire_count_,
-             (int)gpio_input_count_, (int)adc_count_, (int)i2c_expander_count_);
+             (int)gpio_input_count_, (int)adc_count_, (int)encoder_count_,
+             (int)i2c_expander_count_);
     return true;
 }
 
@@ -201,6 +207,58 @@ bool HAL::init_adc(const BoardConfig& config) {
     return true;
 }
 
+bool HAL::init_encoders(const BoardConfig& config) {
+    encoder_count_ = 0;
+
+    for (const auto& cfg : config.encoders) {
+        if (encoder_count_ >= MAX_ENCODERS) {
+            ESP_LOGW(TAG, "Encoder limit reached (%d)", (int)MAX_ENCODERS);
+            break;
+        }
+
+        // Обидва піни квадратури — звичайні цифрові входи
+        for (gpio_num_t pin : {cfg.clk, cfg.dt}) {
+            // GPIO 34-39 — input-only, без внутрішнього pull-up/pull-down
+            bool is_input_only = (pin >= GPIO_NUM_34 && pin <= GPIO_NUM_39);
+
+            gpio_config_t io_conf = {};
+            io_conf.pin_bit_mask = (1ULL << pin);
+            io_conf.mode = GPIO_MODE_INPUT;
+            io_conf.intr_type = GPIO_INTR_DISABLE;
+
+            if (is_input_only) {
+                io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+                io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+            } else {
+                io_conf.pull_up_en = cfg.pull_up ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+                io_conf.pull_down_en = cfg.pull_up ? GPIO_PULLDOWN_DISABLE : GPIO_PULLDOWN_ENABLE;
+            }
+
+            esp_err_t err = gpio_config(&io_conf);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Encoder GPIO %d config failed: %s", pin, esp_err_to_name(err));
+                return false;
+            }
+            if (is_input_only && cfg.pull_up) {
+                ESP_LOGW(TAG, "  Encoder GPIO %d is input-only — external pull-up required", pin);
+            }
+        }
+
+        auto& res = encoders_[encoder_count_];
+        res.id = cfg.id;
+        res.clk = cfg.clk;
+        res.dt = cfg.dt;
+        res.pull_up = cfg.pull_up;
+        res.initialized = true;
+        encoder_count_++;
+
+        ESP_LOGI(TAG, "  Encoder '%s' on CLK=%d DT=%d (pull_%s)",
+                 cfg.id.c_str(), cfg.clk, cfg.dt, cfg.pull_up ? "UP" : "DOWN");
+    }
+
+    return true;
+}
+
 GpioOutputResource* HAL::find_gpio_output(etl::string_view id) {
     for (size_t i = 0; i < gpio_output_count_; i++) {
         if (gpio_outputs_[i].id.size() == id.size() &&
@@ -226,6 +284,16 @@ GpioInputResource* HAL::find_gpio_input(etl::string_view id) {
         if (gpio_inputs_[i].id.size() == id.size() &&
             etl::string_view(gpio_inputs_[i].id.c_str(), gpio_inputs_[i].id.size()) == id) {
             return &gpio_inputs_[i];
+        }
+    }
+    return nullptr;
+}
+
+EncoderResource* HAL::find_encoder(etl::string_view id) {
+    for (size_t i = 0; i < encoder_count_; i++) {
+        if (encoders_[i].id.size() == id.size() &&
+            etl::string_view(encoders_[i].id.c_str(), encoders_[i].id.size()) == id) {
+            return &encoders_[i];
         }
     }
     return nullptr;
