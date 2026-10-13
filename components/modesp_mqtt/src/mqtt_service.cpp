@@ -5,6 +5,7 @@
 
 #include "modesp/net/mqtt_service.h"
 #include "modesp/net/http_service.h"
+#include "modesp/net/json_escape.h"   // json_unescape() for the stored credentials
 #include "modesp/net/ota_handler.h"
 #include "modesp/shared_state.h"
 #include "modesp/services/nvs_helper.h"
@@ -720,6 +721,12 @@ void MqttService::handle_incoming(const char* topic, int topic_len,
             json_buf[tokens[i + 1].end] = '\0';
             const char* k = json_buf + tokens[i].start;
             const char* v = json_buf + tokens[i + 1].start;
+            // As in POST /api/mqtt: a string's JSON escapes are turned back before it is stored,
+            // and a command with a malformed one is dropped, not stored half-unescaped.
+            if (tokens[i + 1].type == JSMN_STRING && !net::json_unescape(json_buf + tokens[i + 1].start)) {
+                ESP_LOGE(TAG, "_set_mqtt_creds: malformed JSON escape");
+                return;
+            }
 
             if (strcmp(k, "user") == 0 || strcmp(k, "username") == 0) {
                 strncpy(new_user, v, sizeof(new_user) - 1);
@@ -943,6 +950,17 @@ esp_err_t MqttService::handle_post_mqtt(httpd_req_t* req) {
         // Приймаємо як "broker" так і "mqtt.broker" (WebUI toggle/save)
         const char* k = key;
         if (strncmp(k, "mqtt.", 5) == 0) k += 5;  // Відрізаємо префікс
+
+        // jsmn leaves a string's escapes in it, so a password holding " or \ was stored with the
+        // JSON's backslashes and the broker refused it. The text fields must be JSON strings,
+        // unescaped in place.
+        if ((strcmp(k, "broker") == 0 || strcmp(k, "user") == 0 || strcmp(k, "password") == 0 ||
+             strcmp(k, "prefix") == 0 || strcmp(k, "tenant") == 0) &&
+            (tokens[i + 1].type != JSMN_STRING || !net::json_unescape(buf + tokens[i + 1].start))) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                "broker, user, password, prefix and tenant must be JSON strings");
+            return ESP_FAIL;
+        }
 
         if (strcmp(k, "broker") == 0) {
             strncpy(new_broker, val, sizeof(new_broker) - 1);
