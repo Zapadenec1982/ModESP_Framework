@@ -787,8 +787,22 @@ bool ConfigService::parse_devices_json() {
 
     char tmp[48];   // fits identity<40> (+NUL); MAC is 17
 
+    // jsmn is built non-strict: a member with no ':' or no value ({"devices"}, {"id":"a","mac"})
+    // still counts towards its object's size, so the sizes below can promise more tokens than
+    // were parsed, and past ntokens lie the board.json parse's tokens. As in parse_bindings_json,
+    // every step is checked against ntokens and a key must be a string owning one value. The
+    // file is user data (POST /api/devices); where it breaks, the walk stops and keeps the rows
+    // it has already read, so the board still boots.
+    auto bad_key = [&](int at) {
+        return at + 1 >= ntokens || tokens[at].type != JSMN_STRING || tokens[at].size != 1;
+    };
+
     for (int i = 1; i < ntokens; ) {
         if (jsoneq(buf, &tokens[i], "devices")) {
+            if (i + 1 >= ntokens) {
+                ESP_LOGE(TAG, "devices.json: 'devices' has no value");
+                return false;
+            }
             if (tokens[i + 1].type != JSMN_ARRAY) {
                 ESP_LOGE(TAG, "devices.json: 'devices' is not array");
                 return false;
@@ -797,6 +811,10 @@ bool ConfigService::parse_devices_json() {
             int j = i + 2;
 
             for (int elem = 0; elem < arr_size; elem++) {
+                if (j >= ntokens) {
+                    ESP_LOGW(TAG, "devices.json: 'devices' ends early — the rest ignored");
+                    break;
+                }
                 // devices.json is runtime-written — a malformed element must not abort the
                 // whole registry (that would drop already-parsed valid rows while the caller
                 // logs "ignoring"). Skip the bad element and continue.
@@ -810,7 +828,13 @@ bool ConfigService::parse_devices_json() {
 
                 RemoteDeviceConfig cfg = {};   // transport defaults "ble"
                 char transport[8] = "ble";     // "hw_type"/"transport" override; any value honoured
+                bool broken = false;
                 for (int k = 0; k < obj_keys; k++) {
+                    if (bad_key(j)) {          // no value: nothing after it can be trusted
+                        ESP_LOGW(TAG, "devices.json: device member without a value — the rest ignored");
+                        broken = true;
+                        break;
+                    }
                     if (jsoneq(buf, &tokens[j], "id")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         cfg.id = tmp;
@@ -833,6 +857,10 @@ bool ConfigService::parse_devices_json() {
                     // value (mirrors parse_bindings_json's nested-settings handling).
                     j++;
                     j = skip_token(tokens, j, ntokens);
+                }
+                if (broken) {
+                    j = ntokens;               // this row and every one after it are dropped
+                    break;
                 }
                 cfg.transport = transport;
 
