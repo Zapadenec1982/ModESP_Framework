@@ -19,6 +19,8 @@
 #include "esp_wifi.h"
 #include "esp_app_desc.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define JSMN_STATIC
 #include "jsmn.h"
@@ -142,17 +144,26 @@ bool MqttService::on_init() {
 void MqttService::on_update(uint32_t dt_ms) {
     // Deferred reconnect (запит від httpd task — виконуємо в main loop)
     if (reconnect_requested_) {
+        // The previous client is still stopping: keep the request for a later turn.
+        if (stopping_.load()) return;
         reconnect_requested_ = false;
         ESP_LOGI(TAG, "Executing deferred reconnect...");
-        stop_client();
+        // The old client is stopped off the main loop; the deferred start below brings up the
+        // new one once it is gone. Stopped inline only if the stop task could not be created.
+        const bool async = client_ && stop_client_async();
+        if (!async) stop_client();
         if (enabled_ && broker_[0] != '\0') {
             state_set("mqtt.status", "connecting");
-            start_client();
+            if (!async) start_client();
         } else if (!enabled_) {
             state_set("mqtt.status", "disabled");
         }
         return;
     }
+
+    // No client while the old one stops: a new one waits until it is gone (two clients with
+    // one client_id would have the broker drop one of them).
+    if (stopping_.load()) return;
 
     // Deferred start: чекаємо WiFi перед першим підключенням
     if (!client_ && enabled_ && broker_[0] != '\0' && state_) {
@@ -268,6 +279,13 @@ bool MqttService::start_client() {
     mqtt_cfg.session.last_will.retain = 1;
 
     mqtt_cfg.network.disable_auto_reconnect = true;
+    // The client's API lock is held through a whole connect (TCP/TLS, then CONNACK) and through
+    // every synchronous QoS0 write the main loop makes; the 10 s default per step outlives the
+    // main loop's task watchdog (MODESP_WDT_TIMEOUT_MS, 5 s). reconnect_timeout_ms only sizes
+    // the WAIT_RECONNECT poll a stop waits out; the backoff in on_update() still decides when to
+    // reconnect.
+    mqtt_cfg.network.timeout_ms = 3000;
+    mqtt_cfg.network.reconnect_timeout_ms = 2000;
 
     // Heap optimization: зменшити task stack (default 6144)
     // Буфери 1024B — достатньо для OTA JSON payload (~300B) з запасом
@@ -306,6 +324,45 @@ void MqttService::stop_client() {
     }
     connected_ = false;
     state_set("mqtt.connected", false);
+}
+
+// esp_mqtt_client_stop() takes the client's API lock, which the MQTT task holds across a whole
+// connect attempt (network.timeout_ms for the TCP/TLS connect and again for CONNACK), and then
+// waits for the task to leave its WAIT_RECONNECT poll. On the main loop that wait could outlast
+// the task watchdog when a broker that does not answer was corrected or switched off. So the old
+// client is detached here and stopped on a short-lived task. Returns false (client_ untouched)
+// if that task could not be created.
+bool MqttService::stop_client_async() {
+    esp_mqtt_client_handle_t old = client_;
+    client_ = nullptr;
+    stopping_client_ = old;
+    stopping_.store(true);
+    if (xTaskCreate(stop_task, "mqtt_stop", 4096, this, 2, nullptr) != pdPASS) {
+        ESP_LOGW(TAG, "mqtt_stop task not created, stopping inline");
+        stopping_client_ = nullptr;
+        stopping_.store(false);
+        client_ = old;
+        return false;
+    }
+    connected_ = false;
+    state_set("mqtt.connected", false);
+    return true;
+}
+
+void MqttService::stop_task(void* arg) {
+    auto* self = static_cast<MqttService*>(arg);
+    esp_mqtt_client_handle_t h = self->stopping_client_;
+    esp_mqtt_client_stop(h);
+    esp_mqtt_client_destroy(h);
+    self->stopping_client_ = nullptr;
+    // A connect that completed while the stop waited for the lock dispatched CONNECTED on its
+    // way out; no event can follow destroy, so what it set is undone here, before a new start.
+    self->connected_ = false;
+    self->state_set("mqtt.connected", false);
+    if (!self->enabled_) self->state_set("mqtt.status", "disabled");
+    ESP_LOGI(TAG, "Previous client stopped");
+    self->stopping_.store(false);
+    vTaskDelete(nullptr);
 }
 
 void MqttService::reconnect() {
