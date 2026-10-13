@@ -9,6 +9,7 @@
 #include "modesp/services/config_service.h"
 #include "modesp/services/persist_service.h"
 #include "modesp/net/wifi_service.h"
+#include "modesp/net/json_escape.h"   // json_unescape() for /api/auth credentials
 #include "modesp/hal/hal.h"
 #include "modesp/types.h"
 #include "sdkconfig.h"
@@ -1791,6 +1792,15 @@ esp_err_t HttpService::handle_post_auth(httpd_req_t* req) {
         const char* key = buf + tokens[i].start;
         const char* val = buf + tokens[i + 1].start;
 
+        // jsmn leaves a string's escapes in it: a password holding " or \ was stored with the
+        // JSON's backslashes while the browser signs in with the raw characters, and every
+        // request after the change got 401. Credentials must be JSON strings, unescaped in place.
+        if ((strcmp(key, "current_pass") == 0 || strcmp(key, "new_pass") == 0 ||
+             strcmp(key, "username") == 0) &&
+            (tokens[i + 1].type != JSMN_STRING || !net::json_unescape(buf + tokens[i + 1].start))) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "username and passwords must be JSON strings");
+            return ESP_FAIL;
+        }
         if (strcmp(key, "current_pass") == 0) current_pass = val;
         else if (strcmp(key, "new_pass") == 0) new_pass = val;
         else if (strcmp(key, "username") == 0) username = val;
@@ -1832,12 +1842,29 @@ esp_err_t HttpService::handle_post_auth(httpd_req_t* req) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Password too short (min 4)");
             return ESP_FAIL;
         }
+        // Refused, not cut to 63 bytes behind an "ok" the client then signs in against.
+        if (strlen(new_pass) >= sizeof(s_auth_pass)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Password too long (max 63)");
+            return ESP_FAIL;
+        }
+    }
+
+    // A name check_auth() could never match is refused: it splits "user:pass" at the first ':'.
+    // Everything is checked before anything changes, so a refused request leaves the stored
+    // credentials as they were.
+    if (username && (username[0] == '\0' || strlen(username) >= sizeof(s_auth_user) ||
+                     strchr(username, ':'))) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Username must be 1-31 characters, no ':'");
+        return ESP_FAIL;
+    }
+
+    if (new_pass) {
         strncpy(s_auth_pass, new_pass, sizeof(s_auth_pass) - 1);
         s_auth_pass[sizeof(s_auth_pass) - 1] = '\0';
     }
 
     // Зміна username
-    if (username && strlen(username) > 0 && strlen(username) < sizeof(s_auth_user)) {
+    if (username) {
         strncpy(s_auth_user, username, sizeof(s_auth_user) - 1);
         s_auth_user[sizeof(s_auth_user) - 1] = '\0';
     }
