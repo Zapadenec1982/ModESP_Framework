@@ -645,6 +645,13 @@ void MqttService::handle_incoming(const char* topic, int topic_len,
             json_buf[tokens[i + 1].end] = '\0';
             const char* k = json_buf + tokens[i].start;
             const char* v = json_buf + tokens[i + 1].start;
+            // "\/" is valid JSON for "/", and a sender that writes it so handed the OTA client a
+            // URL with backslashes in it. String values are unescaped, and a command with a
+            // malformed escape is dropped, as for _set_mqtt_creds below.
+            if (tokens[i + 1].type == JSMN_STRING && !net::json_unescape(json_buf + tokens[i + 1].start)) {
+                ESP_LOGE(TAG, "_ota: malformed escape in '%s'", k);
+                return;
+            }
 
             if (strcmp(k, "url") == 0) {
                 strncpy(ota_params.url, v, sizeof(ota_params.url) - 1);
@@ -724,7 +731,7 @@ void MqttService::handle_incoming(const char* topic, int topic_len,
             // As in POST /api/mqtt: a string's JSON escapes are turned back before it is stored,
             // and a command with a malformed one is dropped, not stored half-unescaped.
             if (tokens[i + 1].type == JSMN_STRING && !net::json_unescape(json_buf + tokens[i + 1].start)) {
-                ESP_LOGE(TAG, "_set_mqtt_creds: malformed JSON escape");
+                ESP_LOGE(TAG, "_set_mqtt_creds: malformed escape in '%s'", k);
                 return;
             }
 
