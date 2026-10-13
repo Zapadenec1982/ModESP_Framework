@@ -69,6 +69,7 @@ set(MODULE_SOURCES
 # ── Test sources ──
 set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_main.cpp"
+    "${CMAKE_SOURCE_DIR}/test_module_manager.cpp"       # request_stop_all(): on_stop() on the update_all() task
     "${CMAKE_SOURCE_DIR}/test_equipment.cpp"
     "${CMAKE_SOURCE_DIR}/test_datalogger.cpp"
     "${CMAKE_SOURCE_DIR}/test_display_menu.cpp"

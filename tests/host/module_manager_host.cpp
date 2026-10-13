@@ -109,6 +109,15 @@ bool ModuleManager::init_all(SharedState& state) {
 }
 
 void ModuleManager::update_all(uint32_t dt_ms) {
+    // A stop asked from another task runs here, on the task on_update() runs on.
+    if (stop_requested_.load(std::memory_order_acquire)) {
+        if (!stop_done_.load(std::memory_order_relaxed)) {
+            stop_all();
+            stop_done_.store(true, std::memory_order_release);
+        }
+        return;
+    }
+
     uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
     for (auto* module : modules_) {
@@ -133,6 +142,14 @@ void ModuleManager::stop_all() {
     }
 
     ESP_LOGI(TAG, "All modules stopped");
+}
+
+void ModuleManager::request_stop_all() {
+    stop_requested_.store(true, std::memory_order_release);
+}
+
+bool ModuleManager::stop_all_done() const {
+    return stop_done_.load(std::memory_order_acquire);
 }
 
 bool ModuleManager::restart_module(BaseModule& module) {

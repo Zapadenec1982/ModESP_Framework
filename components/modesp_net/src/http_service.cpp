@@ -6,6 +6,7 @@
 #include "modesp/net/http_service.h"
 #include "modesp/shared_state.h"
 #include "modesp/module_manager.h"
+#include "modesp/app.h"                // MODESP_WDT_TIMEOUT_MS only (main-loop task watchdog)
 #include "modesp/services/config_service.h"
 #include "modesp/services/persist_service.h"
 #include "modesp/net/wifi_service.h"
@@ -923,6 +924,33 @@ esp_err_t HttpService::handle_post_wifi_ap(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// The shutdown handlers below (restart, factory reset, restore, OTA) used to call stop_all() on
+// this, the httpd, task while the main loop went on calling update_all(), so a module's on_stop()
+// could run under its own on_update(). The stop is handed to the main loop and waited for; one
+// that has not finished in STOP_WAIT_MS is abandoned and the handler restarts anyway. After the
+// wait come the final flush, the delay before esp_restart() (at most 1 s) and esp_restart()'s
+// shutdown handlers, all while the main loop may still be blocked in an on_stop().
+// RESTART_TAIL_MS budgets that tail, so an on_stop() stuck on the main loop is cut short by the
+// restart rather than by a task watchdog panic.
+static constexpr uint32_t STOP_WAIT_MS    = 2000;
+static constexpr uint32_t RESTART_TAIL_MS = 2500;
+static_assert(STOP_WAIT_MS + RESTART_TAIL_MS < MODESP_WDT_TIMEOUT_MS,
+              "the restart must come before the main-loop task watchdog");
+
+static void stop_modules_on_main(ModuleManager* modules) {
+    if (!modules) return;
+    modules->request_stop_all();
+    const TickType_t start = xTaskGetTickCount();
+    while (!modules->stop_all_done()) {
+        if (xTaskGetTickCount() - start >= pdMS_TO_TICKS(STOP_WAIT_MS)) {
+            ESP_LOGW(TAG, "Modules not stopped in %lu ms, restarting anyway",
+                     (unsigned long)STOP_WAIT_MS);
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 esp_err_t HttpService::handle_post_restart(httpd_req_t* req) {
     if (!check_auth(req)) return ESP_OK;
     auto* self = static_cast<HttpService*>(req->user_ctx);
@@ -930,10 +958,14 @@ esp_err_t HttpService::handle_post_restart(httpd_req_t* req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"ok\":true,\"msg\":\"Restarting...\"}");
 
-    // Graceful shutdown: flush DataLogger RAM → flash, зупинити модулі
-    if (self->modules_) {
-        self->modules_->stop_all();
+    // Flushed before the stop as well, as handle_post_restore does: a stop that goes wrong must
+    // not take the debounced settings with it.
+    if (self->persist_) {
+        self->persist_->flush_now();
     }
+
+    // Graceful shutdown: flush DataLogger RAM → flash, зупинити модулі
+    stop_modules_on_main(self->modules_);
 
     // BUG-014: flush pending NVS writes before restart
     if (self->persist_) {
@@ -963,9 +995,7 @@ esp_err_t HttpService::handle_post_factory_reset(httpd_req_t* req) {
 
     // Graceful shutdown: flush DataLogger RAM → flash
     auto* self = static_cast<HttpService*>(req->user_ctx);
-    if (self->modules_) {
-        self->modules_->stop_all();
-    }
+    stop_modules_on_main(self->modules_);
 
     vTaskDelay(pdMS_TO_TICKS(500));
     esp_restart();
@@ -1129,9 +1159,7 @@ esp_err_t HttpService::handle_post_restore(httpd_req_t* req) {
     httpd_resp_sendstr(req, resp);
 
     // Graceful shutdown: flush DataLogger RAM → flash
-    if (self->modules_) {
-        self->modules_->stop_all();
-    }
+    stop_modules_on_main(self->modules_);
 
     // Перезавантаження для застосування налаштувань
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -1303,9 +1331,7 @@ esp_err_t HttpService::handle_post_ota(httpd_req_t* req) {
 
     // Graceful shutdown: flush DataLogger RAM → flash
     auto* self = static_cast<HttpService*>(req->user_ctx);
-    if (self->modules_) {
-        self->modules_->stop_all();
-    }
+    stop_modules_on_main(self->modules_);
 
     // Дати HTTP response дійти до клієнта перед restart
     vTaskDelay(pdMS_TO_TICKS(1000));
