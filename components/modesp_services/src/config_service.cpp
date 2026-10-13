@@ -901,8 +901,20 @@ bool ConfigService::parse_bindings_json() {
 
     char tmp[32];
 
+    // jsmn is built non-strict: a member with no ':' or no value ({"bindings"}, {"hardware"},
+    // {"beta" 3900}) still counts towards its object's size, so the sizes below can promise
+    // more tokens than were parsed. Every step is checked against ntokens (past it lie a previous
+    // parse's tokens or uninitialised heap), and a key must be a string owning exactly one value.
+    auto bad_key = [&](int at) {
+        return at + 1 >= ntokens || tokens[at].type != JSMN_STRING || tokens[at].size != 1;
+    };
+
     for (int i = 1; i < ntokens; ) {
         if (jsoneq(buf, &tokens[i], "bindings")) {
+            if (i + 1 >= ntokens) {
+                ESP_LOGE(TAG, "bindings.json: 'bindings' has no value");
+                return false;
+            }
             if (tokens[i + 1].type != JSMN_ARRAY) {
                 ESP_LOGE(TAG, "bindings.json: 'bindings' is not array");
                 return false;
@@ -911,6 +923,10 @@ bool ConfigService::parse_bindings_json() {
             int j = i + 2;
 
             for (int elem = 0; elem < arr_size; elem++) {
+                if (j >= ntokens) {
+                    ESP_LOGE(TAG, "bindings.json: 'bindings' ends early");
+                    return false;
+                }
                 if (tokens[j].type != JSMN_OBJECT) {
                     ESP_LOGE(TAG, "bindings.json: entry is not object");
                     return false;
@@ -920,6 +936,10 @@ bool ConfigService::parse_bindings_json() {
 
                 Binding binding = {};
                 for (int k = 0; k < obj_keys; k++) {
+                    if (bad_key(j)) {
+                        ESP_LOGE(TAG, "bindings.json: binding member without a value");
+                        return false;
+                    }
                     if (jsoneq(buf, &tokens[j], "hardware")) {
                         tok_to_str(buf, &tokens[j + 1], tmp, sizeof(tmp));
                         binding.hardware_id = tmp;
@@ -948,6 +968,10 @@ bool ConfigService::parse_bindings_json() {
                             int nset = tokens[j + 1].size;
                             int sj = j + 2;
                             for (int s = 0; s < nset; s++) {
+                                if (bad_key(sj)) {
+                                    ESP_LOGE(TAG, "bindings.json: setting without a value");
+                                    return false;
+                                }
                                 char skey[24];   // longest key "read_interval_ms" = 16 + NUL
                                 char sval[24];
                                 tok_to_str(buf, &tokens[sj],     skey, sizeof(skey));
