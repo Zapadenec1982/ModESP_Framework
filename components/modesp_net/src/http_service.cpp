@@ -10,7 +10,7 @@
 #include "modesp/services/config_service.h"
 #include "modesp/services/persist_service.h"
 #include "modesp/net/wifi_service.h"
-#include "modesp/net/json_escape.h"   // json_unescape() for /api/auth credentials
+#include "modesp/net/json_escape.h"   // json_unescape() for stored credentials (auth, Wi-Fi)
 #include "modesp/hal/hal.h"
 #include "modesp/types.h"
 #include "sdkconfig.h"
@@ -746,6 +746,13 @@ esp_err_t HttpService::handle_post_wifi(httpd_req_t* req) {
         const char* key = buf + tokens[i].start;
         const char* val = buf + tokens[i + 1].start;
 
+        // jsmn leaves a string's escapes in it, so an SSID or password holding " or \ arrived
+        // with the JSON's backslashes and was saved that way. Unescaped in place.
+        if ((strcmp(key, "ssid") == 0 || strcmp(key, "password") == 0) &&
+            (tokens[i + 1].type != JSMN_STRING || !net::json_unescape(buf + tokens[i + 1].start))) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ssid and password must be JSON strings");
+            return ESP_FAIL;
+        }
         if (strcmp(key, "ssid") == 0) ssid = val;
         else if (strcmp(key, "password") == 0) pass = val;
     }
@@ -891,6 +898,13 @@ esp_err_t HttpService::handle_post_wifi_ap(httpd_req_t* req) {
         const char* key = buf + tokens[i].start;
         const char* val = buf + tokens[i + 1].start;
 
+        // As in handle_post_wifi: the access point would otherwise get a name or password with
+        // the JSON's backslashes still in it.
+        if ((strcmp(key, "ssid") == 0 || strcmp(key, "password") == 0) &&
+            (tokens[i + 1].type != JSMN_STRING || !net::json_unescape(buf + tokens[i + 1].start))) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ssid and password must be JSON strings");
+            return ESP_FAIL;
+        }
         if (strcmp(key, "ssid") == 0) ssid = val;
         else if (strcmp(key, "password") == 0) password = val;
         else if (strcmp(key, "channel") == 0) channel = atoi(val);
