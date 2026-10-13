@@ -15,6 +15,8 @@
 #include "modesp/net/cloud_service.h"   // ICloudService (спільний контракт)
 #include "mqtt_client.h"
 
+#include <atomic>
+
 namespace modesp {
 
 class SharedState;
@@ -66,6 +68,11 @@ private:
     bool connected_ = false;
     bool secure_ = false;         // current link is TLS (mqtts://) vs plaintext
     bool reconnect_requested_ = false;  // Deferred reconnect (set by httpd, executed by on_update)
+    // A reconnect hands the old client to the mqtt_stop task (stop_client_async()):
+    // esp_mqtt_client_stop() can wait out a whole connect attempt for the client's lock, and the
+    // main loop feeds the task watchdog. No new client starts while stopping_ is set.
+    std::atomic<bool> stopping_{false};
+    esp_mqtt_client_handle_t stopping_client_ = nullptr;
     bool params_publish_requested_ = false;  // One-shot publish of writable params
     uint32_t last_version_ = 0;
     uint32_t publish_timer_ = 0;
@@ -92,6 +99,8 @@ private:
     void load_config();
     bool start_client();
     void stop_client();
+    bool stop_client_async();               // stop on the mqtt_stop task, off the main loop
+    static void stop_task(void* arg);
     void publish_state();
     void publish_params();  // One-shot: publish all writable param current values
     void publish_heartbeat();
