@@ -77,6 +77,7 @@ set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test_notification_queue.cpp"
     "${CMAKE_SOURCE_DIR}/test_osd_charmap.cpp"
     "${CMAKE_SOURCE_DIR}/test_display_backend_registry.cpp"
+    "${CMAKE_SOURCE_DIR}/test_json_escape.cpp"          # modesp/net/json_escape.h (json_unescape)
 )
 
 add_executable(test_runner
