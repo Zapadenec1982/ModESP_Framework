@@ -183,6 +183,12 @@ esp_err_t HttpService::handle_options(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// Consecutive HTTPD_SOCK_ERR_TIMEOUTs a body-receive loop sits out before it gives up. Each is a
+// whole recv_wait_timeout (30 s, start_server()); retried for ever, a client that vanished
+// mid-upload without FIN or RST held the only httpd task (every page, API call and WebSocket)
+// until a reboot. Three in a row (~90 s) end the request with 408; any data resets the count.
+static constexpr int MAX_RECV_TIMEOUTS = 3;
+
 // Helper: read a file from LittleFS into buffer, return bytes read or -1
 static int read_file_to_buf(const char* path, char* buf, size_t buf_size) {
     FILE* f = fopen(path, "r");
@@ -343,13 +349,17 @@ esp_err_t HttpService::handle_post_bindings(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
+    int timeouts = 0;   // consecutive recv timeouts, bounded by MAX_RECV_TIMEOUTS
     while (remaining > 0) {
         int recv_len = httpd_req_recv(req, buf + total, remaining);
         if (recv_len <= 0) {
-            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) continue;
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Receive error");
+            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) continue;
+            httpd_resp_send_err(req, recv_len == HTTPD_SOCK_ERR_TIMEOUT ? HTTPD_408_REQ_TIMEOUT
+                                                                        : HTTPD_400_BAD_REQUEST,
+                                "Receive error");
             return ESP_FAIL;
         }
+        timeouts = 0;
         total += recv_len;
         remaining -= recv_len;
     }
@@ -471,13 +481,17 @@ esp_err_t HttpService::handle_post_devices(httpd_req_t* req) {
         return ESP_FAIL;
     }
 
+    int timeouts = 0;   // consecutive recv timeouts, bounded by MAX_RECV_TIMEOUTS
     while (remaining > 0) {
         int recv_len = httpd_req_recv(req, buf + total, remaining);
         if (recv_len <= 0) {
-            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) continue;
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Receive error");
+            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) continue;
+            httpd_resp_send_err(req, recv_len == HTTPD_SOCK_ERR_TIMEOUT ? HTTPD_408_REQ_TIMEOUT
+                                                                        : HTTPD_400_BAD_REQUEST,
+                                "Receive error");
             return ESP_FAIL;
         }
+        timeouts = 0;
         total += recv_len;
         remaining -= recv_len;
     }
@@ -1197,19 +1211,23 @@ esp_err_t HttpService::handle_post_ota(httpd_req_t* req) {
     int received_total = 0;
     bool magic_checked = false;
     bool board_checked = false;
+    int timeouts = 0;   // consecutive recv timeouts, bounded by MAX_RECV_TIMEOUTS
 
     while (remaining > 0) {
         int to_recv = (remaining < (int)sizeof(buf)) ? remaining : (int)sizeof(buf);
         int recv_len = httpd_req_recv(req, buf, to_recv);
         if (recv_len <= 0) {
-            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (recv_len == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) {
                 continue; // Retry на timeout
             }
             ESP_LOGE(TAG, "OTA: Receive error at %d/%d bytes", received_total, req->content_len);
             esp_ota_abort(ota_handle);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
+            httpd_resp_send_err(req, recv_len == HTTPD_SOCK_ERR_TIMEOUT
+                                         ? HTTPD_408_REQ_TIMEOUT : HTTPD_500_INTERNAL_SERVER_ERROR,
+                                "Receive error");
             return ESP_FAIL;
         }
+        timeouts = 0;
 
         // Перевірка magic byte (ESP_IMAGE_HEADER_MAGIC = 0xE9) у першому chunk
         if (!magic_checked && recv_len > 0) {
