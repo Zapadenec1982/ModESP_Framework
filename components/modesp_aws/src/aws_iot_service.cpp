@@ -832,12 +832,21 @@ esp_err_t AwsIotService::handle_post_cloud(httpd_req_t* req) {
     // Read the full body in a loop. A single httpd_req_recv() may return only the
     // first TCP segment; a PEM cert+key pair easily spans multiple segments and a
     // short read would silently truncate the key written to NVS.
+    // Recv timeouts are bounded as in HttpService's body loops: each is a whole recv_wait_timeout,
+    // and retrying them for ever let a client gone without FIN or RST hold the only httpd task.
+    static constexpr int MAX_RECV_TIMEOUTS = 3;
     static char body[4096];
     int received = 0;
+    int timeouts = 0;
     while (received < (int)sizeof(body) - 1) {
         int r = httpd_req_recv(req, body + received, sizeof(body) - 1 - received);
-        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++timeouts < MAX_RECV_TIMEOUTS) continue;
+            httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Receive timeout");
+            return ESP_FAIL;
+        }
         if (r <= 0) break;
+        timeouts = 0;
         received += r;
     }
     if (received <= 0) {
