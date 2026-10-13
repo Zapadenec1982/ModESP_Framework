@@ -23,6 +23,8 @@
 #include "etl/vector.h"
 #include "etl/array.h"
 
+#include <atomic>
+
 namespace modesp {
 
 // Capacity = усі зареєстровані модулі: системні сервіси + scenario engine +
@@ -95,6 +97,15 @@ public:
     void update_all(uint32_t dt_ms);
     void stop_all();
 
+    // ── Deferred stop (callable from any task) ──
+    // on_stop() is written for the task that runs on_update(), and stop_all() called from another
+    // one (an HTTP restart handler) ran a module's teardown while the main loop was still inside
+    // that module's on_update(). request_stop_all() asks for it instead: the next update_all()
+    // runs stop_all() in place of a turn, then stop_all_done() is true and update_all() does
+    // nothing more.
+    void request_stop_all();
+    bool stop_all_done() const;
+
     // ── Binding (main кличе між реєстрацією модулів та init_all Phase 2) ──
     // Кличе on_bind() кожного ще-не-ініціалізованого модуля (state == CREATED),
     // передаючи готові DriverManager/BindingTable/HAL. Generic — жодних імен
@@ -129,6 +140,10 @@ private:
 
     // Зв'язок з SharedState (встановлюється в init_all)
     SharedState* shared_state_ = nullptr;
+
+    // Deferred stop: set from any task, acted on by update_all()
+    std::atomic<bool> stop_requested_{false};
+    std::atomic<bool> stop_done_{false};
 
     // Сортування по пріоритету
     void sort_by_priority();
